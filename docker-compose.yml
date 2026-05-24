@@ -1,0 +1,61 @@
+services:
+  pocketbase:
+    build:
+      context: .
+      dockerfile: apps/pocketbase/Dockerfile
+    platform: linux/amd64
+    volumes:
+      - pocketbase_data:/data
+    environment:
+      PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
+      PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
+      PB_ENCRYPTION_KEY: ${PB_ENCRYPTION_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      PORT: ${PORT:-3001}
+      NODE_ENV: ${NODE_ENV:-development}
+      POCKETBASE_URL: ${POCKETBASE_URL:-http://pocketbase:8090}
+      PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
+      PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      INTEGRATED_AI_API_URL: ${INTEGRATED_AI_API_URL:-}
+      INTEGRATED_AI_API_KEY: ${INTEGRATED_AI_API_KEY:-}
+      WEBSITE_ID: ${WEBSITE_ID:-}
+      WEBSITE_DOMAIN: ${WEBSITE_DOMAIN:-localhost}
+      PROXY_ENTRANCE_ID: ${PROXY_ENTRANCE_ID:-}
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - web
+      - pocketbase
+    restart: unless-stopped
+
+volumes:
+  pocketbase_data:
