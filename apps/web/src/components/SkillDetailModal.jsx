@@ -2,12 +2,16 @@
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { User, Heart, MessageCircle, Code, BookOpen, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
+import { useAuth } from '@/contexts/AuthContext.jsx';
 
-const SkillDetailModal = ({ skill, open, onOpenChange }) => {
+const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
+  const { currentUser } = useAuth();
   if (!skill) return null;
+  const isOwner = currentUser?.id === skill.created_by;
 
   const difficultyColors = {
     Beginner: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
@@ -47,11 +51,19 @@ const SkillDetailModal = ({ skill, open, onOpenChange }) => {
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
           <div className="flex items-start justify-between gap-4 mb-2">
             <DialogTitle className="text-2xl font-bold leading-tight">{skill.name}</DialogTitle>
-            {skill.difficulty_level && (
-              <Badge className={`${difficultyColors[skill.difficulty_level]} text-xs shrink-0 px-2.5 py-0.5`}>
-                {skill.difficulty_level}
-              </Badge>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {skill.difficulty_level && (
+                <Badge className={`${difficultyColors[skill.difficulty_level]} text-xs px-2.5 py-0.5`}>
+                  {skill.difficulty_level}
+                </Badge>
+              )}
+              {isOwner && (
+                <Button size="sm" variant="outline" className="gap-1.5 h-7 px-2.5 text-xs"
+                  onClick={() => { onOpenChange(false); onEdit && onEdit(skill); }}>
+                  <Pencil className="w-3 h-3" /> Edit
+                </Button>
+              )}
+            </div>
           </div>
           <DialogDescription className="flex items-center gap-4 text-sm">
             <span className="flex items-center gap-1.5 text-foreground font-medium">

@@ -1,204 +1,397 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp } from 'lucide-react';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle } from 'lucide-react';
 import SkillCard from '@/components/SkillCard.jsx';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
+import AddSkillForm from '@/components/AddSkillForm.jsx';
 import pb from '@/lib/pocketbaseClient';
-import { useAuth } from '@/contexts/AuthContext.jsx';
+import { avatarUrl } from '@/lib/avatar';
+
+const EXAMPLES = [
+  'A mobile app connecting farmers to urban customers',
+  'An AI-powered customer support chatbot',
+  'A SaaS dashboard for team productivity',
+  'A social marketplace for freelance creators',
+];
+
+function TypingDots() {
+  return (
+    <div className="flex items-center gap-1 px-3 py-2.5">
+      {[0, 1, 2].map(i => (
+        <motion.span
+          key={i}
+          className="w-2 h-2 rounded-full bg-primary/50"
+          animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
+          transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AgentCard({ skill, index, onViewDetails }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.25 + index * 0.08, duration: 0.35 }}
+    >
+      <Card
+        className="h-full flex flex-col hover:shadow-md transition-shadow cursor-pointer group overflow-hidden"
+        onClick={() => onViewDetails && onViewDetails(skill)}
+      >
+        {/* Avatar + identity */}
+        <div className="flex flex-col items-center pt-6 pb-4 px-4 text-center border-b border-border/50">
+          <div className="relative mb-3">
+            <img
+              src={avatarUrl(skill.agent_name)}
+              alt={skill.agent_name}
+              className="w-16 h-16 rounded-full bg-muted object-cover ring-2 ring-background shadow-sm"
+              loading="lazy"
+            />
+            <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-primary/10 border-2 border-background flex items-center justify-center">
+              <Sparkles className="w-2.5 h-2.5 text-primary" />
+            </span>
+          </div>
+          <p className="text-sm font-semibold text-foreground leading-tight">{skill.agent_name}</p>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap justify-center">
+            <Badge variant="outline" className="text-xs px-1.5 py-0">{skill.category}</Badge>
+            {skill.difficulty_level && (
+              <Badge variant="secondary" className="text-xs px-1.5 py-0">{skill.difficulty_level}</Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Skill info */}
+        <CardContent className="flex-1 flex flex-col pt-4 pb-3">
+          <h3 className="text-sm font-semibold text-foreground leading-snug line-clamp-2 mb-1.5 text-center">
+            {skill.name}
+          </h3>
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 text-center mb-3">
+            {skill.description}
+          </p>
+          {skill.associated_tech_skills && (
+            <div className="flex flex-wrap gap-1 justify-center mt-auto">
+              {skill.associated_tech_skills.split(',').slice(0, 3).map((tech, idx) => (
+                <Badge key={idx} variant="secondary" className="text-xs">{tech.trim()}</Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+
+        <CardFooter className="border-t pt-3 pb-3 justify-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{skill.likes_count || 0}</span>
+          <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" />{skill.comments_count || 0}</span>
+        </CardFooter>
+      </Card>
+    </motion.div>
+  );
+}
+
+// Stem common suffixes so "farmers" matches "farm", "connecting" matches "connect"
+function stem(word) {
+  return word
+    .replace(/iers$/, 'y')
+    .replace(/ies$/, 'y')
+    .replace(/(ers|ing|tion|ions|ed|es|s)$/, '');
+}
+
+function scoreSkill(skill, tokens) {
+  let score = 0;
+  const nameL = (skill.name || '').toLowerCase();
+  const descL = (skill.description || '').toLowerCase();
+  const tagsL = (skill.associated_tech_skills || '').toLowerCase();
+  const catL  = (skill.category || '').toLowerCase();
+
+  tokens.forEach(token => {
+    const stemmed = stem(token);
+    // check both original and stemmed form against each field
+    const inName = nameL.includes(token) || (stemmed.length > 3 && nameL.includes(stemmed));
+    const inDesc = descL.includes(token) || (stemmed.length > 3 && descL.includes(stemmed));
+    const inTags = tagsL.includes(token) || (stemmed.length > 3 && tagsL.includes(stemmed));
+    const inCat  = catL.includes(token)  || (stemmed.length > 3 && catL.includes(stemmed));
+    if (inName) score += 3;
+    if (inDesc) score += 2;
+    if (inTags) score += 2;
+    if (inCat)  score += 1;
+  });
+  return score;
+}
+
+function recommendTeam(skills, goal) {
+  const tokens = goal.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  const scored = skills
+    .map(s => ({ ...s, _score: scoreSkill(s, tokens) }))
+    .filter(s => s._score > 0)                          // only skills that actually matched
+    .sort((a, b) => b._score - a._score);
+
+  // pick best per category for diversity, then fill remainder by score
+  const byCategory = {};
+  scored.forEach(s => { if (!byCategory[s.category]) byCategory[s.category] = s; });
+  const diverse = Object.values(byCategory).sort((a, b) => b._score - a._score);
+  const used    = new Set(diverse.map(s => s.id));
+  const extras  = scored.filter(s => !used.has(s.id)).slice(0, Math.max(0, 5 - diverse.length));
+  return [...diverse, ...extras].slice(0, 5).map(({ _score, ...s }) => s);
+}
 
 const HomePage = () => {
-  const { isAuthenticated } = useAuth();
   const [trendingSkills, setTrendingSkills] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ users: 0, skills: 0, leaderboard: 0 });
-  
-  // Modal state
+  const [allSkills, setAllSkills]           = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [stats, setStats]                   = useState({ users: 0, skills: 0, leaderboard: 0 });
+
+  const [input, setInput]       = useState('');
+  const [messages, setMessages] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+
   const [selectedSkill, setSelectedSkill] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen]     = useState(false);
+  const [editSkill, setEditSkill]         = useState(null);
+
+  const inputRef  = useRef(null);
+  const bottomRef = useRef(null);
 
   useEffect(() => {
-    const fetchTrendingSkills = async () => {
+    const fetchData = async () => {
       try {
-        const records = await pb.collection('skills').getList(1, 6, {
-          sort: '-likes_count,-created',
-          $autoCancel: false
-        });
-        setTrendingSkills(records.items);
-      } catch (error) {
-        console.error('Failed to fetch skills:', error);
+        const [skillsRes, usersRes, lbRes] = await Promise.all([
+          pb.collection('skills').getFullList({ sort: '-likes_count,-created', $autoCancel: false }),
+          pb.collection('users').getFullList({ $autoCancel: false }).catch(() => []),
+          pb.collection('leaderboard').getFullList({ $autoCancel: false }).catch(() => []),
+        ]);
+        setAllSkills(skillsRes);
+        setTrendingSkills(skillsRes.slice(0, 6));
+        setStats({ users: usersRes.length, skills: skillsRes.length, leaderboard: lbRes.length });
+      } catch (err) {
+        console.error('Failed to fetch data:', err);
       } finally {
         setLoading(false);
       }
     };
-
-    const fetchStats = async () => {
-      try {
-        // Fetch all collections as requested to count total verified records dynamically
-        const [usersList, skillsList, leaderboardList] = await Promise.all([
-          pb.collection('users').getFullList({ $autoCancel: false }).catch(() => []),
-          pb.collection('skills').getFullList({ $autoCancel: false }).catch(() => []),
-          pb.collection('leaderboard').getFullList({ $autoCancel: false }).catch(() => [])
-        ]);
-        
-        setStats({
-          users: usersList.length,
-          skills: skillsList.length,
-          leaderboard: leaderboardList.length
-        });
-      } catch (error) {
-        console.error('Failed to fetch platform stats:', error);
-      }
-    };
-
-    fetchTrendingSkills();
-    fetchStats();
+    fetchData();
   }, []);
 
-  const handleViewDetails = (skill) => {
-    setSelectedSkill(skill);
-    setIsModalOpen(true);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, chatLoading]);
+
+  const handleSubmit = async (goal) => {
+    const text = (goal || input).trim();
+    if (!text || chatLoading) return;
+
+    setInput('');
+    setMessages(prev => [...prev, { type: 'user', text }]);
+    setChatLoading(true);
+
+    await new Promise(r => setTimeout(r, 600)); // brief pause for UX
+
+    const team = recommendTeam(allSkills, text);
+    setMessages(prev => [...prev, { type: 'result', skills: team, query: text }]);
+    setChatLoading(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
+
+  const reset = () => { setMessages([]); setInput(''); setTimeout(() => inputRef.current?.focus(), 100); };
+
+  const handleViewDetails = (skill) => { setSelectedSkill(skill); setIsModalOpen(true); };
+
+  const isEmpty = messages.length === 0;
 
   return (
     <>
       <Helmet>
-        <title>kaushalstack - Build and showcase skills in a free, open-source community</title>
-        <meta name="description" content="Join kaushalstack to share your skills, learn from others, and contribute to an open-source knowledge platform. Showcase your expertise and grow together." />
+        <title>kaushalstack - What do you want to build?</title>
+        <meta name="description" content="Describe your project and kaushalstack assembles the right team of AI agent skills for you." />
       </Helmet>
 
       <div className="min-h-screen">
-        <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)]" />
-          
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-            >
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-6">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">Free & Open Source</span>
+
+        {/* ── Chat Hero ── */}
+        <section className="relative min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
+
+          <div className="relative flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 sm:px-6 py-12">
+
+            {/* Heading — fades out once chat starts */}
+            <AnimatePresence>
+              {isEmpty && (
+                <motion.div
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0, y: -16, transition: { duration: 0.25 } }}
+                  className="text-center mb-10"
+                >
+                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium">AI Agent Team Builder</span>
+                  </div>
+                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight mb-4" style={{ letterSpacing: '-0.02em' }}>
+                    What do you want{' '}
+                    <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                      to build?
+                    </span>
+                  </h1>
+                  <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+                    Describe your project and we'll assemble the right team of AI agent skills for you.
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Example chips — only when empty */}
+            <AnimatePresence>
+              {isEmpty && (
+                <motion.div
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0, transition: { duration: 0.2 } }}
+                  className="grid sm:grid-cols-2 gap-2 mb-8"
+                >
+                  {EXAMPLES.map((ex, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSubmit(ex)}
+                      className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
+                    >
+                      "{ex}"
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Chat messages */}
+            {!isEmpty && (
+              <div className="flex-1 space-y-5 mb-4 overflow-y-auto">
+                <AnimatePresence initial={false}>
+                  {messages.map((msg, i) => {
+                    if (msg.type === 'user') return (
+                      <motion.div key={i} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} className="flex justify-end">
+                        <div className="bg-primary text-primary-foreground text-sm px-4 py-3 rounded-2xl rounded-tr-sm max-w-lg shadow-sm">
+                          {msg.text}
+                        </div>
+                      </motion.div>
+                    );
+
+                    if (msg.type === 'result') return (
+                      <motion.div key={i} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                            <Sparkles className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="bg-card border text-sm px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm max-w-lg">
+                            {msg.skills.length === 0 ? (
+                              <>No matching skills yet — <Link to="/skills" className="text-primary hover:underline">browse all skills</Link> or contribute one!</>
+                            ) : (
+                              <>Here's your recommended team for <span className="font-semibold">"{msg.query}"</span> — {msg.skills.length} agent{msg.skills.length !== 1 ? 's' : ''} selected.</>
+                            )}
+                          </div>
+                        </div>
+                        {msg.skills.length > 0 && (
+                          <div className="ml-11 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {msg.skills.map((skill, idx) => (
+                              <AgentCard key={skill.id} skill={skill} index={idx} onViewDetails={handleViewDetails} />
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+
+                    return null;
+                  })}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {chatLoading && (
+                    <motion.div initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="bg-card border rounded-2xl rounded-tl-sm shadow-sm"><TypingDots /></div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div ref={bottomRef} />
               </div>
+            )}
 
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight mb-6" style={{ letterSpacing: '-0.02em' }}>
-                Build and showcase skills in a{' '}
-                <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                  free, open-source community
-                </span>
-              </h1>
-
-              <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto mb-8 leading-relaxed">
-                Share your expertise, learn from others, and contribute to a collaborative knowledge platform. Join our community of contributors building the future of learning together.
+            {/* Chat input */}
+            <div className="sticky bottom-4 mt-auto">
+              <div className="flex items-end gap-2 bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={input}
+                  onChange={e => {
+                    setInput(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                  placeholder="What do you want to build today?"
+                  className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
+                  style={{ height: '24px' }}
+                  autoFocus
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isEmpty && (
+                    <button onClick={reset} title="Start over" className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleSubmit()}
+                    disabled={!input.trim() || chatLoading}
+                    className="w-8 h-8 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-center text-xs text-muted-foreground mt-2">
+                Enter to send · <Link to="/skills" className="text-primary hover:underline">Browse all skills</Link>
+                {!isEmpty && <> · <button onClick={reset} className="text-primary hover:underline">Start over</button></>}
               </p>
-
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                {isAuthenticated ? (
-                  <>
-                    <Link to="/skills">
-                      <Button size="lg" className="gap-2">
-                        Browse Skills
-                        <ArrowRight className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                    <Link to="/profile">
-                      <Button size="lg" variant="outline">
-                        View Profile
-                      </Button>
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <Link to="/signup">
-                      <Button size="lg" className="gap-2">
-                        Get Started Free
-                        <ArrowRight className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                    <Link to="/signin">
-                      <Button size="lg" variant="outline">
-                        Sign In
-                      </Button>
-                    </Link>
-                  </>
-                )}
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto"
-            >
-              <div className="text-center">
-                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                  <Users className="w-6 h-6 text-primary" />
-                </div>
-                <div className="text-3xl font-bold mb-2">{stats.users}</div>
-                <p className="text-sm text-muted-foreground">Active Contributors</p>
-              </div>
-              <div className="text-center">
-                <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                  <Code className="w-6 h-6 text-accent" />
-                </div>
-                <div className="text-3xl font-bold mb-2">{stats.skills}</div>
-                <p className="text-sm text-muted-foreground">Skills Shared</p>
-              </div>
-              <div className="text-center">
-                <div className="w-12 h-12 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                  <Trophy className="w-6 h-6 text-secondary" />
-                </div>
-                <div className="text-3xl font-bold mb-2">{stats.leaderboard}</div>
-                <p className="text-sm text-muted-foreground">Leaderboard Entries</p>
-              </div>
-            </motion.div>
+            </div>
           </div>
         </section>
 
-        <section className="py-12 bg-background">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="relative h-64 md:h-80 rounded-2xl overflow-hidden shadow-lg group">
-                <img 
-                  src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80" 
-                  alt="Diverse team collaborating on a project" 
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
-                  <p className="text-white font-medium">Human-AI Collaboration</p>
+        {/* ── Stats ── */}
+        <section className="py-12 bg-muted/20 border-y">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6">
+            <div className="grid grid-cols-3 gap-8 text-center">
+              <div>
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Users className="w-5 h-5 text-primary" />
                 </div>
+                <div className="text-3xl font-bold mb-1">{stats.users}</div>
+                <p className="text-sm text-muted-foreground">Active Contributors</p>
               </div>
-              <div className="relative h-64 md:h-80 rounded-2xl overflow-hidden shadow-lg group md:-translate-y-8">
-                <img 
-                  src="https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80" 
-                  alt="Developers working together with modern technology" 
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
-                  <p className="text-white font-medium">Community Driven Innovation</p>
+              <div>
+                <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Code className="w-5 h-5 text-accent" />
                 </div>
+                <div className="text-3xl font-bold mb-1">{stats.skills}</div>
+                <p className="text-sm text-muted-foreground">Skills Shared</p>
               </div>
-              <div className="relative h-64 md:h-80 rounded-2xl overflow-hidden shadow-lg group">
-                <img 
-                  src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=800&q=80" 
-                  alt="Team meeting discussing strategy and growth" 
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
-                  <p className="text-white font-medium">Building the Future Together</p>
+              <div>
+                <div className="w-10 h-10 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <Trophy className="w-5 h-5 text-secondary" />
                 </div>
+                <div className="text-3xl font-bold mb-1">{stats.leaderboard}</div>
+                <p className="text-sm text-muted-foreground">Leaderboard Entries</p>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="py-20 bg-muted/30">
+        {/* ── Trending skills ── */}
+        <section className="py-20 bg-background">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <div className="inline-flex items-center gap-2 mb-4">
@@ -213,23 +406,13 @@ const HomePage = () => {
 
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="h-80 bg-card rounded-2xl animate-pulse" />
-                ))}
+                {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-80 bg-card rounded-2xl animate-pulse" />)}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {trendingSkills.map((skill, index) => (
-                  <motion.div
-                    key={skill.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                  >
-                    <SkillCard 
-                      skill={skill} 
-                      onViewDetails={handleViewDetails}
-                    />
+                  <motion.div key={skill.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: index * 0.1 }}>
+                    <SkillCard skill={skill} onViewDetails={handleViewDetails} />
                   </motion.div>
                 ))}
               </div>
@@ -238,39 +421,31 @@ const HomePage = () => {
             <div className="text-center mt-12">
               <Link to="/skills">
                 <Button size="lg" variant="outline" className="gap-2">
-                  View All Skills
-                  <ArrowRight className="w-4 h-4" />
+                  View All Skills <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
             </div>
           </div>
         </section>
 
+        {/* ── Community CTA ── */}
         <section className="py-20 bg-gradient-to-br from-primary to-accent text-white">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl md:text-4xl font-bold mb-6">
-              Join our open-source community
-            </h2>
+            <h2 className="text-3xl md:text-4xl font-bold mb-6">Join our open-source community</h2>
             <p className="text-lg mb-8 text-white/90 leading-relaxed max-w-2xl mx-auto">
-              kaushalstack is completely free and open source. We believe in collaborative learning and knowledge sharing. Join us in building the future of education, with plans to expand into banking and beyond.
+              kaushalstack is completely free and open source. We believe in collaborative learning and knowledge sharing. Join us in building the future of education.
             </p>
-            {!isAuthenticated && (
-              <Link to="/signup">
-                <Button size="lg" variant="secondary" className="gap-2">
-                  Create Free Account
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            )}
+            <Link to="/signup">
+              <Button size="lg" variant="secondary" className="gap-2">
+                Create Free Account <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
           </div>
         </section>
       </div>
 
-      <SkillDetailModal 
-        skill={selectedSkill}
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-      />
+      <SkillDetailModal skill={selectedSkill} open={isModalOpen} onOpenChange={setIsModalOpen} onEdit={setEditSkill} />
+      <AddSkillForm open={!!editSkill} onOpenChange={(o) => { if (!o) setEditSkill(null); }} skill={editSkill} onSuccess={() => window.location.reload()} />
     </>
   );
 };

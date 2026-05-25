@@ -3,3 +3,6 @@ node_modules
 apps/*/node_modules
 dist
 apps/pocketbase/pb_data
+apps/pocketbase/pocketbase
+.DS_Store
+apps/.DS_Store

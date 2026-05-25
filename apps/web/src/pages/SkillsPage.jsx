@@ -20,10 +20,13 @@ const SkillsPage = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [difficultyFilter, setDifficultyFilter] = useState('All');
   const [addSkillOpen, setAddSkillOpen] = useState(false);
-  
+  const [editSkill, setEditSkill]       = useState(null);
+
   // Modal state
   const [selectedSkill, setSelectedSkill] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen]     = useState(false);
+
+  const handleEdit = (skill) => setEditSkill(skill);
 
   const categories = ['All', 'Tech', 'Cooking', 'Market Research', 'Social Feed Analysis', 'Music'];
 
@@ -127,10 +130,11 @@ const SkillsPage = () => {
                 ) : filteredSkills.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredSkills.map((skill) => (
-                      <SkillCard 
-                        key={skill.id} 
-                        skill={skill} 
+                      <SkillCard
+                        key={skill.id}
+                        skill={skill}
                         onViewDetails={handleViewDetails}
+                        onEdit={handleEdit}
                       />
                     ))}
                   </div>
@@ -145,16 +149,24 @@ const SkillsPage = () => {
         </div>
       </div>
 
-      <AddSkillForm 
-        open={addSkillOpen} 
+      <AddSkillForm
+        open={addSkillOpen}
         onOpenChange={setAddSkillOpen}
         onSuccess={fetchSkills}
       />
 
-      <SkillDetailModal 
+      <AddSkillForm
+        open={!!editSkill}
+        onOpenChange={(open) => { if (!open) setEditSkill(null); }}
+        skill={editSkill}
+        onSuccess={fetchSkills}
+      />
+
+      <SkillDetailModal
         skill={selectedSkill}
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
+        onEdit={handleEdit}
       />
     </>
   );
