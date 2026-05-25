@@ -1,5 +1,6 @@
 services:
   pocketbase:
+    image: nabarun1/kaushalstack-pocketbase:latest
     restart: always
     environment:
       PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
@@ -7,6 +8,7 @@ services:
       PB_ENCRYPTION_KEY: ${PB_ENCRYPTION_KEY}
 
   api:
+    image: nabarun1/kaushalstack-api:latest
     restart: always
     environment:
       NODE_ENV: production
@@ -22,9 +24,10 @@ services:
       PROXY_ENTRANCE_ID: ${PROXY_ENTRANCE_ID:-}
 
   web:
+    image: nabarun1/kaushalstack-web:latest
     restart: always
 
   proxy:
     restart: always
     ports:
-      - "127.0.0.1:8080:80"  # Only bind to localhost — host nginx handles public traffic
+      - "127.0.0.1:8080:80"
