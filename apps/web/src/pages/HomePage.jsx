@@ -218,7 +218,7 @@ const HomePage = () => {
       <div className="min-h-screen">
 
         {/* ── Chat Hero ── */}
-        <section className="relative h-screen flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
+        <section className="relative min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
@@ -272,7 +272,7 @@ const HomePage = () => {
 
             {/* Chat messages */}
             {!isEmpty && (
-              <div ref={messagesRef} className="flex-1 min-h-0 space-y-5 mb-4 overflow-y-auto">
+              <div ref={messagesRef} className="space-y-5 mb-4 overflow-y-auto max-h-[calc(90vh-12rem)]">
                 <AnimatePresence initial={false}>
                   {messages.map((msg, i) => {
                     if (msg.type === 'user') return (
