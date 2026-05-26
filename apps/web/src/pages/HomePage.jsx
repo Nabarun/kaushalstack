@@ -177,6 +177,10 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatLoading]);
 
@@ -193,10 +197,10 @@ const HomePage = () => {
     const team = recommendTeam(allSkills, text);
     setMessages(prev => [...prev, { type: 'result', skills: team, query: text }]);
     setChatLoading(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
+    setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   };
 
-  const reset = () => { setMessages([]); setInput(''); setTimeout(() => inputRef.current?.focus(), 100); };
+  const reset = () => { setMessages([]); setInput(''); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100); };
 
   const handleViewDetails = (skill) => { setSelectedSkill(skill); setIsModalOpen(true); };
 
@@ -329,14 +333,14 @@ const HomePage = () => {
                   value={input}
                   onChange={e => {
                     setInput(e.target.value);
-                    e.target.style.height = 'auto';
+                    e.target.style.height = '24px';
                     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
                   }}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
                   placeholder="What do you want to build today?"
                   className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
                   style={{ height: '24px' }}
-                  autoFocus
+
                 />
                 <div className="flex items-center gap-2 shrink-0">
                   {!isEmpty && (
