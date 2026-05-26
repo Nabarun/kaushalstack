@@ -153,8 +153,8 @@ const HomePage = () => {
   const [isModalOpen, setIsModalOpen]     = useState(false);
   const [editSkill, setEditSkill]         = useState(null);
 
-  const inputRef  = useRef(null);
-  const bottomRef = useRef(null);
+  const inputRef    = useRef(null);
+  const messagesRef = useRef(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -181,7 +181,9 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, chatLoading]);
 
   const handleSubmit = async (goal) => {
@@ -216,7 +218,7 @@ const HomePage = () => {
       <div className="min-h-screen">
 
         {/* ── Chat Hero ── */}
-        <section className="relative min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
+        <section className="relative h-screen flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
@@ -270,7 +272,7 @@ const HomePage = () => {
 
             {/* Chat messages */}
             {!isEmpty && (
-              <div className="flex-1 space-y-5 mb-4 overflow-y-auto">
+              <div ref={messagesRef} className="flex-1 min-h-0 space-y-5 mb-4 overflow-y-auto">
                 <AnimatePresence initial={false}>
                   {messages.map((msg, i) => {
                     if (msg.type === 'user') return (
@@ -320,7 +322,6 @@ const HomePage = () => {
                   )}
                 </AnimatePresence>
 
-                <div ref={bottomRef} />
               </div>
             )}
 
