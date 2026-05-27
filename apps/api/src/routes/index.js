@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import healthCheck from './health-check.js';
+import recommendRouter from './recommend.js';
+import embedRouter from './embed.js';
 
 const router = Router();
 
@@ -9,6 +11,8 @@ export default () => {
     });
 
     router.get('/health', healthCheck);
+    router.use('/', recommendRouter);
+    router.use('/', embedRouter);
 
     return router;
 };

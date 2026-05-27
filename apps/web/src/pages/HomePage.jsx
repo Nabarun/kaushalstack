@@ -93,62 +93,19 @@ function AgentCard({ skill, index, onViewDetails }) {
   );
 }
 
-const STOPWORDS = new Set([
-  'help','with','team','for','the','and','that','this','can','you','want',
-  'need','make','build','create','using','use','get','have','from','what',
-  'how','who','will','our','your','their','about','into','some','more',
-  'like','just','also','than','then','when','where','which',
-]);
-
-function pickTeam(skills) {
-  // one best per category for diversity, fill to 5 by order
-  const byCategory = {};
-  skills.forEach(s => { if (!byCategory[s.category]) byCategory[s.category] = s; });
-  const diverse = Object.values(byCategory);
-  const used    = new Set(diverse.map(s => s.id));
-  const extras  = skills.filter(s => !used.has(s.id));
-  return [...diverse, ...extras].slice(0, 5);
-}
-
-function scoreSkill(skill, words) {
-  const nameL = (skill.name || '').toLowerCase();
-  const tagsL = (skill.associated_tech_skills || '').toLowerCase();
-  const catL  = (skill.category || '').toLowerCase();
-  const descL = (skill.description || '').toLowerCase();
-  let score = 0;
-  words.forEach(w => {
-    if (nameL.includes(w)) score += 4;
-    if (tagsL.includes(w)) score += 3;
-    if (catL.includes(w))  score += 2;
-    if (descL.includes(w)) score += 1;
-  });
-  return score;
-}
 
 async function recommendTeam(query) {
-  const words = query.toLowerCase()
-    .split(/\s+/)
-    .map(w => w.replace(/[^a-z0-9]/g, ''))
-    .filter(w => w.length > 2 && !STOPWORDS.has(w));
-
-  if (words.length === 0) return [];
-
-  // OR across words — any match qualifies, then we rank by score
-  const filter = words
-    .map(w => `(name ~ "${w}" || associated_tech_skills ~ "${w}" || category ~ "${w}" || description ~ "${w}")`)
-    .join(' || ');
-
   try {
-    const result = await pb.collection('skills').getList(1, 50, {
-      filter,
-      sort: '-likes_count,-created',
-      $autoCancel: false,
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
     });
-    const scored = result.items
-      .map(s => ({ ...s, _score: scoreSkill(s, words) }))
-      .sort((a, b) => b._score - a._score);
-    return pickTeam(scored).map(({ _score, ...s }) => s);
-  } catch {
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    return data.skills || [];
+  } catch (err) {
+    console.error('recommend failed:', err);
     return [];
   }
 }
