@@ -28,7 +28,7 @@ const SkillsPage = () => {
 
   const handleEdit = (skill) => setEditSkill(skill);
 
-  const categories = ['All', 'Tech', 'Cooking', 'Market Research', 'Social Feed Analysis', 'Music'];
+  const categories = ['All', ...Array.from(new Set(skills.map(s => s.category).filter(Boolean))).sort()];
 
   const fetchSkills = async () => {
     setLoading(true);

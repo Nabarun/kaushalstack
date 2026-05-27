@@ -14,7 +14,13 @@ const EMPTY = {
   associated_tech_skills: '', video_url: '', proof_of_concept_video: '', difficulty_level: '',
 };
 
-const CATEGORIES     = ['Tech', 'Cooking', 'Market Research', 'Social Feed Analysis', 'Music'];
+const CATEGORIES = [
+  'Tech', 'Cooking', 'Market Research', 'Social Feed Analysis', 'Music',
+  'agriculture', 'banking', 'career', 'compliance', 'customer-support',
+  'education', 'fitness', 'health', 'insurance', 'legal', 'mental-health',
+  'nutrition', 'operations', 'personal-finance', 'real-estate', 'retail',
+  'sales', 'sports', 'tax-rules', 'travel',
+];
 const DIFFICULTY_LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
 
 // Pass `skill` prop to enter edit mode; omit it for create mode.
