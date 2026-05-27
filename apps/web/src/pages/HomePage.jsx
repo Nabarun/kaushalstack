@@ -110,6 +110,21 @@ function pickTeam(skills) {
   return [...diverse, ...extras].slice(0, 5);
 }
 
+function scoreSkill(skill, words) {
+  const nameL = (skill.name || '').toLowerCase();
+  const tagsL = (skill.associated_tech_skills || '').toLowerCase();
+  const catL  = (skill.category || '').toLowerCase();
+  const descL = (skill.description || '').toLowerCase();
+  let score = 0;
+  words.forEach(w => {
+    if (nameL.includes(w)) score += 4;
+    if (tagsL.includes(w)) score += 3;
+    if (catL.includes(w))  score += 2;
+    if (descL.includes(w)) score += 1;
+  });
+  return score;
+}
+
 async function recommendTeam(query) {
   const words = query.toLowerCase()
     .split(/\s+/)
@@ -118,18 +133,21 @@ async function recommendTeam(query) {
 
   if (words.length === 0) return [];
 
-  // each word must match at least one field (AND across words for precision)
+  // OR across words — any match qualifies, then we rank by score
   const filter = words
     .map(w => `(name ~ "${w}" || associated_tech_skills ~ "${w}" || category ~ "${w}" || description ~ "${w}")`)
-    .join(' && ');
+    .join(' || ');
 
   try {
-    const result = await pb.collection('skills').getList(1, 30, {
+    const result = await pb.collection('skills').getList(1, 50, {
       filter,
       sort: '-likes_count,-created',
       $autoCancel: false,
     });
-    return pickTeam(result.items);
+    const scored = result.items
+      .map(s => ({ ...s, _score: scoreSkill(s, words) }))
+      .sort((a, b) => b._score - a._score);
+    return pickTeam(scored).map(({ _score, ...s }) => s);
   } catch {
     return [];
   }
