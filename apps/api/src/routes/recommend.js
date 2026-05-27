@@ -29,14 +29,31 @@ async function embedQuery(text) {
 }
 
 function pickTeam(skills, size = 5) {
-    const byCategory = {};
+    // One per category, strictly — first occurrence per category is the best-scoring one
+    const seenCats = new Set();
+    const team = [];
     for (const s of skills) {
-        if (!byCategory[s.category]) byCategory[s.category] = s;
+        if (!seenCats.has(s.category)) {
+            seenCats.add(s.category);
+            team.push(s);
+        }
+        if (team.length === size) break;
     }
-    const diverse = Object.values(byCategory);
-    const usedIds  = new Set(diverse.map(s => s.id));
-    const extras   = skills.filter(s => !usedIds.has(s.id));
-    return [...diverse, ...extras].slice(0, size);
+
+    // Guarantee at least one Tech skill — swap out the last non-Tech if needed
+    const hasTech = team.some(s => s.category === 'Tech');
+    if (!hasTech) {
+        const techSkill = skills.find(s => s.category === 'Tech');
+        if (techSkill) {
+            if (team.length >= size) {
+                team[team.length - 1] = techSkill;
+            } else {
+                team.push(techSkill);
+            }
+        }
+    }
+
+    return team.slice(0, size);
 }
 
 router.post('/recommend', async (req, res) => {
