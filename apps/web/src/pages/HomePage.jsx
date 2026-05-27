@@ -93,55 +93,50 @@ function AgentCard({ skill, index, onViewDetails }) {
   );
 }
 
-// Stem common suffixes so "farmers" matches "farm", "connecting" matches "connect"
-function stem(word) {
-  return word
-    .replace(/iers$/, 'y')
-    .replace(/ies$/, 'y')
-    .replace(/(ers|ing|tion|ions|ed|es|s)$/, '');
-}
+const STOPWORDS = new Set([
+  'help','with','team','for','the','and','that','this','can','you','want',
+  'need','make','build','create','using','use','get','have','from','what',
+  'how','who','will','our','your','their','about','into','some','more',
+  'like','just','also','than','then','when','where','which',
+]);
 
-function scoreSkill(skill, tokens) {
-  let score = 0;
-  const nameL = (skill.name || '').toLowerCase();
-  const descL = (skill.description || '').toLowerCase();
-  const tagsL = (skill.associated_tech_skills || '').toLowerCase();
-  const catL  = (skill.category || '').toLowerCase();
-
-  tokens.forEach(token => {
-    const stemmed = stem(token);
-    // check both original and stemmed form against each field
-    const inName = nameL.includes(token) || (stemmed.length > 3 && nameL.includes(stemmed));
-    const inDesc = descL.includes(token) || (stemmed.length > 3 && descL.includes(stemmed));
-    const inTags = tagsL.includes(token) || (stemmed.length > 3 && tagsL.includes(stemmed));
-    const inCat  = catL.includes(token)  || (stemmed.length > 3 && catL.includes(stemmed));
-    if (inName) score += 3;
-    if (inDesc) score += 2;
-    if (inTags) score += 2;
-    if (inCat)  score += 1;
-  });
-  return score;
-}
-
-function recommendTeam(skills, goal) {
-  const tokens = goal.toLowerCase().split(/\s+/).filter(t => t.length > 2);
-  const scored = skills
-    .map(s => ({ ...s, _score: scoreSkill(s, tokens) }))
-    .filter(s => s._score > 0)                          // only skills that actually matched
-    .sort((a, b) => b._score - a._score);
-
-  // pick best per category for diversity, then fill remainder by score
+function pickTeam(skills) {
+  // one best per category for diversity, fill to 5 by order
   const byCategory = {};
-  scored.forEach(s => { if (!byCategory[s.category]) byCategory[s.category] = s; });
-  const diverse = Object.values(byCategory).sort((a, b) => b._score - a._score);
+  skills.forEach(s => { if (!byCategory[s.category]) byCategory[s.category] = s; });
+  const diverse = Object.values(byCategory);
   const used    = new Set(diverse.map(s => s.id));
-  const extras  = scored.filter(s => !used.has(s.id)).slice(0, Math.max(0, 5 - diverse.length));
-  return [...diverse, ...extras].slice(0, 5).map(({ _score, ...s }) => s);
+  const extras  = skills.filter(s => !used.has(s.id));
+  return [...diverse, ...extras].slice(0, 5);
+}
+
+async function recommendTeam(query) {
+  const words = query.toLowerCase()
+    .split(/\s+/)
+    .map(w => w.replace(/[^a-z0-9]/g, ''))
+    .filter(w => w.length > 2 && !STOPWORDS.has(w));
+
+  if (words.length === 0) return [];
+
+  // each word must match at least one field (AND across words for precision)
+  const filter = words
+    .map(w => `(name ~ "${w}" || associated_tech_skills ~ "${w}" || category ~ "${w}" || description ~ "${w}")`)
+    .join(' && ');
+
+  try {
+    const result = await pb.collection('skills').getList(1, 30, {
+      filter,
+      sort: '-likes_count,-created',
+      $autoCancel: false,
+    });
+    return pickTeam(result.items);
+  } catch {
+    return [];
+  }
 }
 
 const HomePage = () => {
   const [trendingSkills, setTrendingSkills] = useState([]);
-  const [allSkills, setAllSkills]           = useState([]);
   const [loading, setLoading]               = useState(true);
   const [stats, setStats]                   = useState({ users: 0, skills: 0, leaderboard: 0 });
 
@@ -159,14 +154,14 @@ const HomePage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [skillsRes, usersRes, lbRes] = await Promise.all([
-          pb.collection('skills').getFullList({ sort: '-likes_count,-created', $autoCancel: false }),
+        const [trendingRes, skillsCount, usersRes, lbRes] = await Promise.all([
+          pb.collection('skills').getList(1, 6, { sort: '-likes_count,-created', $autoCancel: false }),
+          pb.collection('skills').getList(1, 1, { $autoCancel: false }),
           pb.collection('users').getFullList({ $autoCancel: false }).catch(() => []),
           pb.collection('leaderboard').getFullList({ $autoCancel: false }).catch(() => []),
         ]);
-        setAllSkills(skillsRes);
-        setTrendingSkills(skillsRes.slice(0, 6));
-        setStats({ users: usersRes.length, skills: skillsRes.length, leaderboard: lbRes.length });
+        setTrendingSkills(trendingRes.items);
+        setStats({ users: usersRes.length, skills: skillsCount.totalItems, leaderboard: lbRes.length });
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {
@@ -194,9 +189,7 @@ const HomePage = () => {
     setMessages(prev => [...prev, { type: 'user', text }]);
     setChatLoading(true);
 
-    await new Promise(r => setTimeout(r, 600)); // brief pause for UX
-
-    const team = recommendTeam(allSkills, text);
+    const team = await recommendTeam(text);
     setMessages(prev => [...prev, { type: 'result', skills: team, query: text }]);
     setChatLoading(false);
     setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
