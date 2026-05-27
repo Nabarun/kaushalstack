@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -12,58 +12,88 @@ import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import pb from '@/lib/pocketbaseClient';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 
+const ALL_CATEGORIES = [
+  'All',
+  'Tech', 'Cooking', 'Market Research', 'Social Feed Analysis', 'Music',
+  'agriculture', 'banking', 'career', 'compliance', 'customer-support',
+  'education', 'fitness', 'health', 'insurance', 'legal', 'mental-health',
+  'nutrition', 'operations', 'personal-finance', 'real-estate', 'retail',
+  'sales', 'sports', 'tax-rules', 'travel',
+];
+
+const PAGE_SIZE = 48;
+
 const SkillsPage = () => {
   const { isAuthenticated } = useAuth();
-  const [skills, setSkills] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [skills, setSkills]               = useState([]);
+  const [totalItems, setTotalItems]       = useState(0);
+  const [page, setPage]                   = useState(1);
+  const [loading, setLoading]             = useState(true);
+  const [loadingMore, setLoadingMore]     = useState(false);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [difficultyFilter, setDifficultyFilter] = useState('All');
-  const [addSkillOpen, setAddSkillOpen] = useState(false);
-  const [editSkill, setEditSkill]       = useState(null);
-
-  // Modal state
+  const [addSkillOpen, setAddSkillOpen]   = useState(false);
+  const [editSkill, setEditSkill]         = useState(null);
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [isModalOpen, setIsModalOpen]     = useState(false);
 
+  const debounceTimer = useRef(null);
+
   const handleEdit = (skill) => setEditSkill(skill);
+  const handleViewDetails = (skill) => { setSelectedSkill(skill); setIsModalOpen(true); };
 
-  const categories = ['All', ...Array.from(new Set(skills.map(s => s.category).filter(Boolean))).sort()];
-
-  const fetchSkills = async () => {
-    setLoading(true);
-    try {
-      const records = await pb.collection('skills').getList(1, 100, {
-        sort: '-created',
-        $autoCancel: false
-      });
-      setSkills(records.items);
-    } catch (error) {
-      console.error('Failed to fetch skills:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Debounce search input
   useEffect(() => {
-    fetchSkills();
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => setDebouncedQuery(searchQuery), 350);
+    return () => clearTimeout(debounceTimer.current);
+  }, [searchQuery]);
+
+  const buildFilter = useCallback((q, cat, diff) => {
+    const parts = [];
+    if (q.trim()) {
+      const words = q.trim().split(/\s+/).filter(Boolean);
+      const wordParts = words.map(w =>
+        `(name ~ "${w}" || description ~ "${w}" || associated_tech_skills ~ "${w}")`
+      );
+      parts.push(wordParts.join(' && '));
+    }
+    if (cat !== 'All') parts.push(`category = "${cat}"`);
+    if (diff !== 'All') parts.push(`difficulty_level = "${diff}"`);
+    return parts.join(' && ');
   }, []);
 
-  const handleViewDetails = (skill) => {
-    setSelectedSkill(skill);
-    setIsModalOpen(true);
+  const fetchSkills = useCallback(async (q, cat, diff, pg, append = false) => {
+    if (!append) setLoading(true); else setLoadingMore(true);
+    try {
+      const result = await pb.collection('skills').getList(pg, PAGE_SIZE, {
+        sort: '-likes_count,-created',
+        filter: buildFilter(q, cat, diff),
+        $autoCancel: false,
+      });
+      setSkills(prev => append ? [...prev, ...result.items] : result.items);
+      setTotalItems(result.totalItems);
+      setPage(pg);
+    } catch (err) {
+      console.error('Failed to fetch skills:', err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [buildFilter]);
+
+  // Fetch on filter/search change (reset to page 1)
+  useEffect(() => {
+    fetchSkills(debouncedQuery, selectedCategory, difficultyFilter, 1);
+  }, [debouncedQuery, selectedCategory, difficultyFilter, fetchSkills]);
+
+  const loadMore = () => {
+    fetchSkills(debouncedQuery, selectedCategory, difficultyFilter, page + 1, true);
   };
 
-  const filteredSkills = skills.filter((skill) => {
-    const matchesCategory = selectedCategory === 'All' || skill.category === selectedCategory;
-    const matchesDifficulty = difficultyFilter === 'All' || skill.difficulty_level === difficultyFilter;
-    const matchesSearch = 
-      skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      skill.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (skill.associated_tech_skills && skill.associated_tech_skills.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    return matchesCategory && matchesDifficulty && matchesSearch;
-  });
+  const hasMore = skills.length < totalItems;
 
   return (
     <>
@@ -77,7 +107,9 @@ const SkillsPage = () => {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-3xl md:text-4xl font-bold mb-2">Browse skills</h1>
-              <p className="text-muted-foreground">Discover and learn from community contributions</p>
+              <p className="text-muted-foreground">
+                {totalItems > 0 ? `${totalItems.toLocaleString()} skills available` : 'Discover and learn from community contributions'}
+              </p>
             </div>
             {isAuthenticated && (
               <Button onClick={() => setAddSkillOpen(true)} className="gap-2">
@@ -112,24 +144,24 @@ const SkillsPage = () => {
 
           <Tabs value={selectedCategory} onValueChange={setSelectedCategory} className="w-full">
             <TabsList className="w-full justify-start overflow-x-auto flex-nowrap mb-8">
-              {categories.map((category) => (
-                <TabsTrigger key={category} value={category} className="whitespace-nowrap">
-                  {category}
+              {ALL_CATEGORIES.map((cat) => (
+                <TabsTrigger key={cat} value={cat} className="whitespace-nowrap">
+                  {cat}
                 </TabsTrigger>
               ))}
             </TabsList>
 
-            {categories.map((category) => (
-              <TabsContent key={category} value={category}>
-                {loading ? (
+            <TabsContent value={selectedCategory}>
+              {loading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-80 bg-card rounded-2xl animate-pulse" />
+                  ))}
+                </div>
+              ) : skills.length > 0 ? (
+                <>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
-                      <div key={i} className="h-80 bg-card rounded-2xl animate-pulse" />
-                    ))}
-                  </div>
-                ) : filteredSkills.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredSkills.map((skill) => (
+                    {skills.map((skill) => (
                       <SkillCard
                         key={skill.id}
                         skill={skill}
@@ -138,13 +170,20 @@ const SkillsPage = () => {
                       />
                     ))}
                   </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">No skills found matching your criteria</p>
-                  </div>
-                )}
-              </TabsContent>
-            ))}
+                  {hasMore && (
+                    <div className="flex justify-center mt-10">
+                      <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+                        {loadingMore ? 'Loading…' : `Load more (${totalItems - skills.length} remaining)`}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No skills found matching your criteria</p>
+                </div>
+              )}
+            </TabsContent>
           </Tabs>
         </div>
       </div>
@@ -152,14 +191,14 @@ const SkillsPage = () => {
       <AddSkillForm
         open={addSkillOpen}
         onOpenChange={setAddSkillOpen}
-        onSuccess={fetchSkills}
+        onSuccess={() => fetchSkills(debouncedQuery, selectedCategory, difficultyFilter, 1)}
       />
 
       <AddSkillForm
         open={!!editSkill}
         onOpenChange={(open) => { if (!open) setEditSkill(null); }}
         skill={editSkill}
-        onSuccess={fetchSkills}
+        onSuccess={() => fetchSkills(debouncedQuery, selectedCategory, difficultyFilter, 1)}
       />
 
       <SkillDetailModal
