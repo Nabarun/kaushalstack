@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
+import pb from '../utils/pocketbaseClient.js';
 
 const router = Router();
 
@@ -79,12 +80,37 @@ router.post('/recommend', async (req, res) => {
             return res.json({ skills: [] });
         }
 
-        const vector  = await embedQuery(cleaned);
-        const topSkills = search(vector, 50);
-        const team    = pickTeam(topSkills);
+        const vector    = await embedQuery(cleaned);
+        const topSkills = search(vector, 200);
+        let team        = pickTeam(topSkills);
+
+        // If team is under 5 or missing Tech, fetch best Tech skill as fallback
+        const hasTech = team.some(s => s.category === 'Tech');
+        if (!hasTech || team.length < 5) {
+            try {
+                const techResult = await pb.collection('skills').getList(1, 1, {
+                    filter: 'category = "Tech"',
+                    sort: '-likes_count,-created',
+                });
+                if (techResult.items.length > 0) {
+                    const techSkill = techResult.items[0];
+                    if (!hasTech) {
+                        if (team.length >= 5) {
+                            team[team.length - 1] = techSkill;
+                        } else {
+                            team.push(techSkill);
+                        }
+                    } else if (team.length < 5) {
+                        team.push(techSkill);
+                    }
+                }
+            } catch (err) {
+                logger.warn('Tech fallback fetch failed:', err.message);
+            }
+        }
 
         logger.info(`recommend: "${query}" → ${team.length} skills (cache: ${cacheSize()})`);
-        res.json({ skills: team });
+        res.json({ skills: team.slice(0, 5) });
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });
