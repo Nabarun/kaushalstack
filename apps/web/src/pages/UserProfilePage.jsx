@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 import SkillCard from '@/components/SkillCard.jsx';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
+import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,26 +17,25 @@ const UserProfilePage = () => {
   const [loading, setLoading] = useState(true);
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editSkill, setEditSkill] = useState(null);
 
-  useEffect(() => {
-    const fetchUserSkills = async () => {
-      if (!user) return;
-      try {
-        const records = await pb.collection('skills').getList(1, 50, {
-          filter: `created_by = "${user.id}"`,
-          sort: '-created',
-          $autoCancel: false
-        });
-        setUserSkills(records.items);
-      } catch (error) {
-        console.error('Failed to fetch user skills:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchUserSkills = async () => {
+    if (!user) return;
+    try {
+      const records = await pb.collection('skills').getList(1, 50, {
+        filter: `created_by = "${user.id}"`,
+        sort: '-created',
+        $autoCancel: false
+      });
+      setUserSkills(records.items);
+    } catch (error) {
+      console.error('Failed to fetch user skills:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetchUserSkills();
-  }, [user]);
+  useEffect(() => { fetchUserSkills(); }, [user]);
 
   const handleViewDetails = (skill) => {
     setSelectedSkill(skill);
@@ -132,10 +132,11 @@ const UserProfilePage = () => {
               ) : userSkills.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {userSkills.map((skill) => (
-                    <SkillCard 
-                      key={skill.id} 
-                      skill={skill} 
+                    <SkillCard
+                      key={skill.id}
+                      skill={skill}
                       onViewDetails={handleViewDetails}
+                      onEdit={setEditSkill}
                     />
                   ))}
                 </div>
@@ -160,10 +161,18 @@ const UserProfilePage = () => {
         </div>
       </div>
 
-      <SkillDetailModal 
+      <SkillDetailModal
         skill={selectedSkill}
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
+        onEdit={setEditSkill}
+      />
+
+      <AddSkillForm
+        open={!!editSkill}
+        onOpenChange={(o) => { if (!o) setEditSkill(null); }}
+        skill={editSkill}
+        onSuccess={() => { setEditSkill(null); fetchUserSkills(); }}
       />
     </>
   );
