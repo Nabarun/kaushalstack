@@ -4,7 +4,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil, History, RotateCcw, ShieldCheck } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
@@ -122,7 +121,7 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 px-6 py-6">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
           <div className="space-y-10 pb-8">
             {/* Description Section */}
             <section>
@@ -224,7 +223,7 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
               </div>
             </section>
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
