@@ -4,9 +4,17 @@ import logger from '../utils/logger.js';
 const router = Router();
 
 const RSS_URL        = 'https://trends.google.com/trending/rss?geo=IN';
-const CACHE_TTL_MS   = 30 * 60 * 1000; // 30 minutes
 const FETCH_TIMEOUT  = 8000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// Return the current date in IST as a YYYY-MM-DD string — used as the cache key
+// so refresh happens at IST midnight (when Google Trends India also rolls over)
+function istDateKey() {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+}
 
 const FALLBACK_TOPICS = [
     { label: 'IPL 2025 Analytics',   prompt: 'A real-time cricket analytics and prediction platform for IPL 2025' },
@@ -19,7 +27,7 @@ const FALLBACK_TOPICS = [
     { label: 'Startup India Tools',  prompt: 'A compliance and funding tracker for startups registered under Startup India' },
 ];
 
-let cache = { items: null, ts: 0 };
+let cache = { items: null, day: null, ts: 0 };
 
 function decodeEntities(s) {
     return (s || '')
@@ -115,8 +123,13 @@ Be lenient — keep anything with even modest tech relevance. Only drop pure ent
 }
 
 router.get('/trending-india', async (req, res) => {
-    if (cache.items && Date.now() - cache.ts < CACHE_TTL_MS) {
-        return res.json({ topics: cache.items, source: 'cache', cachedAt: new Date(cache.ts).toISOString() });
+    const today = istDateKey();
+    if (cache.items && cache.day === today) {
+        return res.json({
+            topics: cache.items, source: 'cache',
+            cachedAt: new Date(cache.ts).toISOString(),
+            day: cache.day,
+        });
     }
 
     try {
@@ -153,9 +166,9 @@ router.get('/trending-india', async (req, res) => {
             }
         }
 
-        cache = { items: topics, ts: Date.now() };
-        logger.info(`trending-india: ${englishItems.length}/${items.length} English trends → ${topics.length} chips`);
-        res.json({ topics, source: 'google-trends' });
+        cache = { items: topics, day: today, ts: Date.now() };
+        logger.info(`trending-india: ${englishItems.length}/${items.length} English trends → ${topics.length} chips (day=${today})`);
+        res.json({ topics, source: 'google-trends', day: today });
     } catch (err) {
         logger.warn('trending-india fetch failed:', err.message);
         res.json({ topics: FALLBACK_TOPICS, source: 'fallback' });
