@@ -15,6 +15,7 @@ import SkillsPage from '@/pages/SkillsPage.jsx';
 import LeaderboardPage from '@/pages/LeaderboardPage.jsx';
 import ContributorsPage from '@/pages/ContributorsPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
+import RoundTablePage from '@/pages/RoundTablePage.jsx';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/contributors" element={<ContributorsPage />} />
               <Route path="/about" element={<AboutPage />} />
+              <Route path="/roundtable" element={<RoundTablePage />} />
               <Route 
                 path="/profile" 
                 element={
