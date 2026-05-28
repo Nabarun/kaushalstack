@@ -33,8 +33,8 @@ const Footer = () => {
                 </Link>
               </li>
               <li>
-                <Link to="/contributors" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
-                  Top Contributors
+                <Link to="/members" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
+                  Members
                 </Link>
               </li>
               <li>

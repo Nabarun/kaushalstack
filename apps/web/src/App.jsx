@@ -13,7 +13,7 @@ import SigninPage from '@/pages/SigninPage.jsx';
 import UserProfilePage from '@/pages/UserProfilePage.jsx';
 import SkillsPage from '@/pages/SkillsPage.jsx';
 import LeaderboardPage from '@/pages/LeaderboardPage.jsx';
-import ContributorsPage from '@/pages/ContributorsPage.jsx';
+import MembersPage from '@/pages/MembersPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
 import RoundTablePage from '@/pages/RoundTablePage.jsx';
 import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
@@ -42,7 +42,8 @@ function App() {
               />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
-              <Route path="/contributors" element={<ContributorsPage />} />
+              <Route path="/members" element={<MembersPage />} />
+              <Route path="/contributors" element={<MembersPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route
                 path="/roundtable"

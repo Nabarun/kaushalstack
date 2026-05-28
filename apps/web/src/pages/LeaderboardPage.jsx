@@ -111,7 +111,7 @@ const LeaderboardPage = () => {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-4 italic">
-                The leaderboard resets each calendar month. Lifetime totals appear on the <a href="/contributors" className="text-primary hover:underline">Contributors</a> page.
+                The leaderboard resets each calendar month. Lifetime totals appear on the <a href="/members" className="text-primary hover:underline">Members</a> page.
               </p>
             </CardContent>
           </Card>

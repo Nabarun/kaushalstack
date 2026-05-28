@@ -419,7 +419,7 @@ const HomePage = () => {
                   <Users className="w-5 h-5 text-primary" />
                 </div>
                 <div className="text-3xl font-bold mb-1">{stats.users}</div>
-                <p className="text-sm text-muted-foreground">Active Contributors</p>
+                <p className="text-sm text-muted-foreground">Members</p>
               </div>
               <div>
                 <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-3">

@@ -85,7 +85,7 @@ const AboutPage = () => {
                 <Card>
                   <CardContent className="p-6 text-center">
                     <div className="text-4xl font-bold text-primary mb-2">{stats.users}</div>
-                    <p className="text-sm text-muted-foreground">Active Contributors</p>
+                    <p className="text-sm text-muted-foreground">Members</p>
                   </CardContent>
                 </Card>
                 <Card>

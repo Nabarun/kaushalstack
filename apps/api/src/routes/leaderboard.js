@@ -76,11 +76,13 @@ router.get('/leaderboard', async (req, res) => {
     }
 });
 
-// GET /contributors — users with contribution_count > 0 OR skills_added > 0, excluding admins
-router.get('/contributors', async (req, res) => {
+// GET /members — every non-admin user on the platform, sorted by activity
+// (Was previously /contributors with a contribution_count>0 filter; renamed and
+// opened up so brand-new members are visible too.)
+async function listMembers(_req, res) {
     try {
         const list = await pb.collection('users').getFullList({
-            filter: '(contribution_count > 0 || skills_added > 0) && is_admin != true',
+            filter: 'is_admin != true',
             sort: '-contribution_count,-skills_added,-created',
             $autoCancel: false,
         });
@@ -92,9 +94,13 @@ router.get('/contributors', async (req, res) => {
         }));
         res.json({ items });
     } catch (err) {
-        logger.error('contributors list error:', err.message);
+        logger.error('members list error:', err.message);
         res.status(500).json({ error: err.message, items: [] });
     }
-});
+}
+
+router.get('/members', listMembers);
+// Keep /contributors as a temporary alias so any cached client doesn't 404
+router.get('/contributors', listMembers);
 
 export default router;
