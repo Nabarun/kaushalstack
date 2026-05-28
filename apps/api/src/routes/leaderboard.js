@@ -30,17 +30,35 @@ async function hydrateUsers(userIds) {
     }
 }
 
+async function getAdminUserIds() {
+    try {
+        const admins = await pb.collection('users').getFullList({
+            filter: 'is_admin = true',
+            fields: 'id',
+            $autoCancel: false,
+        });
+        return new Set(admins.map(u => u.id));
+    } catch (err) {
+        logger.warn('getAdminUserIds failed:', err.message);
+        return new Set();
+    }
+}
+
 // GET /leaderboard?month=YYYY-MM (defaults to current month)
 router.get('/leaderboard', async (req, res) => {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
     try {
+        const adminIds = await getAdminUserIds();
+
         const list = await pb.collection('leaderboard').getList(1, 100, {
             filter: `month = "${month}"`,
             sort: '-points',
         });
 
-        const userMap = await hydrateUsers(list.items.map(r => r.user_id));
-        const items = list.items.map((r, i) => ({
+        const filtered = list.items.filter(r => !adminIds.has(r.user_id));
+        const userMap  = await hydrateUsers(filtered.map(r => r.user_id));
+
+        const items = filtered.map((r, i) => ({
             id: r.id,
             user_id: r.user_id,
             month: r.month,
@@ -58,11 +76,11 @@ router.get('/leaderboard', async (req, res) => {
     }
 });
 
-// GET /contributors — users with contribution_count > 0 OR skills_added > 0
+// GET /contributors — users with contribution_count > 0 OR skills_added > 0, excluding admins
 router.get('/contributors', async (req, res) => {
     try {
         const list = await pb.collection('users').getFullList({
-            filter: 'contribution_count > 0 || skills_added > 0',
+            filter: '(contribution_count > 0 || skills_added > 0) && is_admin != true',
             sort: '-contribution_count,-skills_added,-created',
             $autoCancel: false,
         });
