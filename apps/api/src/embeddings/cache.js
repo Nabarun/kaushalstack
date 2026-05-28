@@ -58,13 +58,15 @@ export async function ensureCache() {
     }
 }
 
+// Returns top-K skills sorted by descending cosine similarity.
+// Each skill carries its `_score` so callers can apply relevance thresholds.
 export function search(queryVector, topK = 50) {
     const qv = new Float32Array(queryVector);
     return cache
         .map(entry => ({ skill: entry.skill, score: cosine(qv, entry.vector) }))
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
-        .map(e => e.skill);
+        .map(e => ({ ...e.skill, _score: e.score }));
 }
 
 export function cacheSize() {

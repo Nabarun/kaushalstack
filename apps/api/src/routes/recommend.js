@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
-import pb from '../utils/pocketbaseClient.js';
 
 const router = Router();
 
@@ -29,11 +28,18 @@ async function embedQuery(text) {
     return data.data[0].embedding;
 }
 
-function pickTeam(skills, size = 5) {
-    // One per category, strictly — first occurrence per category is the best-scoring one
+// Tech is only force-included when the best Tech candidate is semantically
+// relevant. With text-embedding-3-small, scores around 0.25–0.27 are loose
+// surface matches (e.g. shared "Monitor" token); above ~0.30 the match is
+// actually adjacent to the query (Python Analyzer for cricket-analytics
+// queries lands at ~0.35, while Linux Monitor for telemedicine lands at ~0.26).
+const TECH_MIN_SCORE = 0.30;
+
+function pickTeam(scored, size = 5) {
+    // One per category, in order of score, until we hit `size`.
     const seenCats = new Set();
     const team = [];
-    for (const s of skills) {
+    for (const s of scored) {
         if (!seenCats.has(s.category)) {
             seenCats.add(s.category);
             team.push(s);
@@ -41,16 +47,15 @@ function pickTeam(skills, size = 5) {
         if (team.length === size) break;
     }
 
-    // Guarantee at least one Tech skill — swap out the last non-Tech if needed
+    // If Tech isn't already in the team, try to add the best-scoring Tech
+    // candidate from the wider results — but only if it clears the relevance
+    // floor. We'd rather return 4 strong picks than pad with an irrelevant one.
     const hasTech = team.some(s => s.category === 'Tech');
     if (!hasTech) {
-        const techSkill = skills.find(s => s.category === 'Tech');
-        if (techSkill) {
-            if (team.length >= size) {
-                team[team.length - 1] = techSkill;
-            } else {
-                team.push(techSkill);
-            }
+        const bestTech = scored.find(s => s.category === 'Tech');
+        if (bestTech && (bestTech._score ?? 0) >= TECH_MIN_SCORE) {
+            if (team.length >= size) team[team.length - 1] = bestTech;
+            else team.push(bestTech);
         }
     }
 
@@ -81,36 +86,14 @@ router.post('/recommend', async (req, res) => {
         }
 
         const vector    = await embedQuery(cleaned);
-        const topSkills = search(vector, 200);
+        const topSkills = search(vector, 500);
         let team        = pickTeam(topSkills);
 
-        // If team is under 5 or missing Tech, fetch best Tech skill as fallback
-        const hasTech = team.some(s => s.category === 'Tech');
-        if (!hasTech || team.length < 5) {
-            try {
-                const techResult = await pb.collection('skills').getList(1, 1, {
-                    filter: 'category = "Tech"',
-                    sort: '-likes_count,-created',
-                });
-                if (techResult.items.length > 0) {
-                    const techSkill = techResult.items[0];
-                    if (!hasTech) {
-                        if (team.length >= 5) {
-                            team[team.length - 1] = techSkill;
-                        } else {
-                            team.push(techSkill);
-                        }
-                    } else if (team.length < 5) {
-                        team.push(techSkill);
-                    }
-                }
-            } catch (err) {
-                logger.warn('Tech fallback fetch failed:', err.message);
-            }
-        }
+        const techPick = team.find(s => s.category === 'Tech');
+        logger.info(`recommend: "${query}" → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
 
-        logger.info(`recommend: "${query}" → ${team.length} skills (cache: ${cacheSize()})`);
-        res.json({ skills: team.slice(0, 5) });
+        // Strip the _score before sending to the client — internal detail
+        res.json({ skills: team.slice(0, 5).map(({ _score, ...s }) => s) });
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });
