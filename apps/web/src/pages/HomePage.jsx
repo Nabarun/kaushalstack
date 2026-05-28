@@ -327,23 +327,71 @@ const HomePage = () => {
                           </div>
                         </div>
                         {msg.skills.length > 0 && (
-                          <div className="ml-11 space-y-3">
+                          <div className="ml-11 space-y-5">
                             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                               {msg.skills.map((skill, idx) => (
                                 <AgentCard key={skill.id} skill={skill} index={idx} onViewDetails={handleViewDetails} />
                               ))}
                             </div>
+
+                            {/* Hero CTA — the obvious next step after team recommendation */}
                             <motion.div
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: 0.5, duration: 0.3 }}
+                              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              transition={{ delay: 0.7, duration: 0.4, type: 'spring', stiffness: 220 }}
                             >
                               <button
                                 onClick={() => navigate('/roundtable', { state: { team: msg.skills, query: msg.query } })}
-                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shadow-md"
+                                className="group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+                                style={{
+                                  background: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)',
+                                }}
                               >
-                                <Swords className="w-4 h-4" />
-                                Deploy Team to Round Table
+                                {/* Animated shimmer overlay */}
+                                <motion.div
+                                  aria-hidden
+                                  className="absolute inset-0 pointer-events-none"
+                                  style={{
+                                    background: 'linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)',
+                                  }}
+                                  animate={{ x: ['-100%', '120%'] }}
+                                  transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.6, ease: 'easeInOut' }}
+                                />
+
+                                <div className="relative px-5 sm:px-6 py-5 flex items-center gap-4 text-white">
+                                  <motion.div
+                                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shrink-0 ring-2 ring-white/30"
+                                    animate={{ scale: [1, 1.08, 1] }}
+                                    transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                                  >
+                                    <Swords className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                                  </motion.div>
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-white/80 font-mono">
+                                        Next step
+                                      </span>
+                                      <span className="text-[10px] font-mono text-white/60 hidden sm:inline">·</span>
+                                      <span className="text-[10px] font-mono text-white/60 hidden sm:inline">recommended</span>
+                                    </div>
+                                    <div className="text-base sm:text-lg font-bold leading-tight mb-0.5">
+                                      Deploy this team to the Round Table
+                                    </div>
+                                    <div className="text-xs sm:text-sm text-white/85 leading-snug">
+                                      All {msg.skills.length} agents discuss "<span className="font-semibold">{msg.query}</span>" in one focused session.
+                                    </div>
+                                  </div>
+
+                                  <motion.div
+                                    className="shrink-0 hidden sm:flex items-center gap-2 bg-white/15 backdrop-blur rounded-xl px-3.5 py-2 text-sm font-semibold ring-1 ring-white/25"
+                                    animate={{ x: [0, 4, 0] }}
+                                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                                  >
+                                    Start
+                                    <ArrowRight className="w-4 h-4" />
+                                  </motion.div>
+                                </div>
                               </button>
                             </motion.div>
                           </div>
