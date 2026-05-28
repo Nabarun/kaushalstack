@@ -16,6 +16,7 @@ import LeaderboardPage from '@/pages/LeaderboardPage.jsx';
 import ContributorsPage from '@/pages/ContributorsPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
 import RoundTablePage from '@/pages/RoundTablePage.jsx';
+import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/signin" element={<SigninPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/contributors" element={<ContributorsPage />} />
