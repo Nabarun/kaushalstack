@@ -37,6 +37,52 @@ function pickEditable(obj) {
     return out;
 }
 
+// ── Scoring ──────────────────────────────────────────────────────────────────
+// Points awarded on merge: author +5, each human approver +1. AI vote is ignored.
+// Updates users.contribution_count (lifetime) and upserts the leaderboard
+// (per-month rollup keyed by user_id + YYYY-MM).
+
+async function awardPoints(userId, points) {
+    if (!userId || userId === AI_REVIEWER_ID) return;
+    const month = new Date().toISOString().slice(0, 7);
+
+    try {
+        const user = await pb.collection('users').getOne(userId);
+        await pb.collection('users').update(userId, {
+            contribution_count: (user.contribution_count || 0) + points,
+        });
+    } catch (err) {
+        logger.warn(`awardPoints users update failed for ${userId}:`, err.message);
+        return;
+    }
+
+    try {
+        let row = null;
+        try {
+            const list = await pb.collection('leaderboard').getList(1, 1, {
+                filter: `user_id = "${userId}" && month = "${month}"`,
+            });
+            row = list.items[0];
+        } catch {}
+
+        if (row) {
+            await pb.collection('leaderboard').update(row.id, {
+                contribution_count: (row.contribution_count || 0) + 1,
+                points: (row.points || 0) + points,
+            });
+        } else {
+            await pb.collection('leaderboard').create({
+                user_id: userId,
+                month,
+                contribution_count: 1,
+                points,
+            });
+        }
+    } catch (err) {
+        logger.warn(`awardPoints leaderboard upsert failed for ${userId}:`, err.message);
+    }
+}
+
 async function mergeEdit(edit, skill) {
     const currentVersion = skill.version || 1;
     const currentData    = pickEditable(skill);
@@ -67,6 +113,12 @@ async function mergeEdit(edit, skill) {
     // 3. Mark edit as approved.
     await pb.collection('skill_edits').update(edit.id, { status: 'approved' });
     logger.info(`edit ${edit.id} merged into skill ${skill.id} (now v${currentVersion + 1})`);
+
+    // 4. Award points: author +5, each human approver +1, AI ignored.
+    awardPoints(edit.user_id, 5);
+    for (const v of (edit.approvals || [])) {
+        if (v?.type === 'human') awardPoints(v.voter_id, 1);
+    }
 }
 
 async function discardEdit(editId) {
