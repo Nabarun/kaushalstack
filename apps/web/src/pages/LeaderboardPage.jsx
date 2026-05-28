@@ -5,7 +5,7 @@ import pb from '@/lib/pocketbaseClient';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Trophy, Medal, Award, Star } from 'lucide-react';
+import { Trophy, Medal, Award, Star, Info, Pencil, Check, Bot } from 'lucide-react';
 
 const LeaderboardPage = () => {
   const [leaders, setLeaders] = useState([]);
@@ -58,6 +58,63 @@ const LeaderboardPage = () => {
               Recognizing our most active and helpful community members this month.
             </p>
           </div>
+
+          {/* How points are calculated */}
+          <Card className="mb-8 border-primary/20 bg-primary/5">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Info className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-primary">
+                  How points are calculated
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Skills on kaushalstack are community-owned: anyone signed in can propose an edit, and changes merge once they collect <span className="font-semibold text-foreground">3 approvals</span> (or get discarded after <span className="font-semibold text-foreground">6 rejections</span>). Points are awarded when an edit merges:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-background border">
+                  <div className="w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center shrink-0">
+                    <Pencil className="w-4 h-4 text-yellow-600" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold flex items-center gap-1">
+                      +5 <Star className="w-3 h-3 fill-current text-accent" />
+                    </div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      Edit author when their proposed change is merged
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-background border">
+                  <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
+                    <Check className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold flex items-center gap-1">
+                      +1 <Star className="w-3 h-3 fill-current text-accent" />
+                    </div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      Each human reviewer who approves an edit that merges
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-background border">
+                  <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center shrink-0">
+                    <Bot className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold">0</div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      AI reviewer votes don't earn points
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-4 italic">
+                The leaderboard resets each calendar month. Lifetime totals appear on the <a href="/contributors" className="text-primary hover:underline">Contributors</a> page.
+              </p>
+            </CardContent>
+          </Card>
 
           {loading ? (
             <div className="space-y-4">
