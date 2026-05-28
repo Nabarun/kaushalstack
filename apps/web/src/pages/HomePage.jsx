@@ -13,10 +13,23 @@ import pb from '@/lib/pocketbaseClient';
 import { avatarUrl } from '@/lib/avatar';
 
 const EXAMPLES = [
-  'A mobile app connecting farmers to urban customers',
-  'An AI-powered customer support chatbot',
-  'A SaaS dashboard for team productivity',
-  'A social marketplace for freelance creators',
+  'A UPI-based split-expense app for college students',
+  'An AI tutor for UPSC preparation in regional languages',
+  'A hyperlocal delivery platform for kirana stores',
+  'An EV charging network management dashboard',
+  'A telemedicine platform for rural healthcare in India',
+  'A fantasy cricket analytics tool for IPL season',
+];
+
+const TRENDING_INDIA = [
+  { label: 'IPL 2025 Analytics', prompt: 'A real-time cricket analytics and prediction platform for IPL 2025' },
+  { label: 'ONDC Integration', prompt: 'A seller onboarding tool to integrate small businesses with the ONDC network' },
+  { label: 'UPI for Business', prompt: 'A UPI-powered invoicing and payment reconciliation tool for small businesses' },
+  { label: 'AI in AgriTech', prompt: 'An AI-powered crop advisory app for Indian farmers using satellite and weather data' },
+  { label: 'EV Startup', prompt: 'An EV fleet management and charging station locator app for India' },
+  { label: 'Vernacular EdTech', prompt: 'An adaptive learning platform for competitive exams like JEE and NEET in Hindi and regional languages' },
+  { label: 'Digital Health', prompt: 'An ABHA-linked digital health records app connecting patients and doctors across India' },
+  { label: 'Startup India Tools', prompt: 'A compliance and funding tracker for startups registered under Startup India' },
 ];
 
 function TypingDots() {
@@ -219,23 +232,51 @@ const HomePage = () => {
               )}
             </AnimatePresence>
 
-            {/* Example chips — only when empty */}
+            {/* Trending topics + example chips — only when empty */}
             <AnimatePresence>
               {isEmpty && (
                 <motion.div
                   initial={{ opacity: 1 }}
                   exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                  className="grid sm:grid-cols-2 gap-2 mb-8"
+                  className="space-y-5 mb-8"
                 >
-                  {EXAMPLES.map((ex, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSubmit(ex)}
-                      className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
-                    >
-                      "{ex}"
-                    </button>
-                  ))}
+                  {/* Trending in India */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="text-base">🇮🇳</span>
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Trending in India</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {TRENDING_INDIA.map((t, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleSubmit(t.prompt)}
+                          className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Build ideas */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">What do you want to build?</span>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-2">
+                      {EXAMPLES.map((ex, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleSubmit(ex)}
+                          className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
+                        >
+                          "{ex}"
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
