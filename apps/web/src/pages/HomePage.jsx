@@ -21,7 +21,7 @@ const EXAMPLES = [
   'A fantasy cricket analytics tool for IPL season',
 ];
 
-const TRENDING_INDIA = [
+const TRENDING_INDIA_FALLBACK = [
   { label: 'IPL 2025 Analytics', prompt: 'A real-time cricket analytics and prediction platform for IPL 2025' },
   { label: 'ONDC Integration', prompt: 'A seller onboarding tool to integrate small businesses with the ONDC network' },
   { label: 'UPI for Business', prompt: 'A UPI-powered invoicing and payment reconciliation tool for small businesses' },
@@ -133,6 +133,8 @@ const HomePage = () => {
   const [input, setInput]       = useState('');
   const [messages, setMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [trendingTopics, setTrendingTopics] = useState(TRENDING_INDIA_FALLBACK);
+  const [trendingSource, setTrendingSource] = useState('fallback');
 
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [isModalOpen, setIsModalOpen]     = useState(false);
@@ -163,6 +165,18 @@ const HomePage = () => {
 
   useEffect(() => {
     inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/trending-india')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.topics?.length) {
+          setTrendingTopics(data.topics);
+          setTrendingSource(data.source || 'fallback');
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -245,12 +259,16 @@ const HomePage = () => {
                     <div className="flex items-center gap-2 mb-2.5">
                       <span className="text-base">🇮🇳</span>
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Trending in India</span>
+                      {trendingSource === 'google-trends' && (
+                        <span className="text-[10px] text-muted-foreground/60 font-mono">· live</span>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {TRENDING_INDIA.map((t, i) => (
+                      {trendingTopics.map((t, i) => (
                         <button
                           key={i}
                           onClick={() => handleSubmit(t.prompt)}
+                          title={t.traffic ? `${t.traffic} searches` : undefined}
                           className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
                         >
                           {t.label}
