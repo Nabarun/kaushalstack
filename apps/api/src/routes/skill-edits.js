@@ -214,7 +214,15 @@ Respond with ONLY valid JSON:
                 messages: [{ role: 'user', content: prompt }],
             }),
         });
-        if (!r.ok) throw new Error(`openai ${r.status}`);
+        if (!r.ok) {
+            const body = await r.text();
+            logger.error(`ai-review openai ${r.status} body: ${body.slice(0, 500)}`);
+            const detail = (() => { try { return JSON.parse(body)?.error?.message; } catch { return null; } })();
+            const friendly = r.status === 429
+                ? `OpenAI rate limit / quota exceeded${detail ? ': ' + detail : ' — check billing at platform.openai.com'}`
+                : `OpenAI ${r.status}${detail ? ': ' + detail : ''}`;
+            return res.status(502).json({ error: friendly });
+        }
         const data = await r.json();
         const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
         const decision = parsed.decision === 'approve' ? 'approve' : 'reject';
