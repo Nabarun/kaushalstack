@@ -5,6 +5,7 @@ import embedRouter from './embed.js';
 import roundtableRouter from './roundtable.js';
 import trendingRouter from './trending.js';
 import skillEditsRouter from './skill-edits.js';
+import leaderboardRouter from './leaderboard.js';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ export default () => {
     router.use('/', roundtableRouter);
     router.use('/', trendingRouter);
     router.use('/', skillEditsRouter);
+    router.use('/', leaderboardRouter);
 
     return router;
 };

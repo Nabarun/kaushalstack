@@ -12,22 +12,11 @@ const LeaderboardPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const records = await pb.collection('leaderboard').getList(1, 50, {
-          sort: 'rank,-points',
-          expand: 'user_id',
-          $autoCancel: false
-        });
-        setLeaders(records.items);
-      } catch (error) {
-        console.error('Failed to fetch leaderboard:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLeaderboard();
+    fetch('/api/leaderboard')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.items) setLeaders(d.items); })
+      .catch(err => console.error('Failed to fetch leaderboard:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   const getRankIcon = (rank) => {
@@ -89,7 +78,7 @@ const LeaderboardPage = () => {
           ) : leaders.length > 0 ? (
             <div className="space-y-4">
               {leaders.map((entry, index) => {
-                const user = entry.expand?.user_id;
+                const user = entry.user;
                 const rank = entry.rank || index + 1;
                 
                 return (

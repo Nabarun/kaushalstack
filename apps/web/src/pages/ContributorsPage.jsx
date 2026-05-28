@@ -12,22 +12,11 @@ const ContributorsPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchContributors = async () => {
-      try {
-        const records = await pb.collection('users').getList(1, 50, {
-          sort: '-contribution_count,-created',
-          filter: 'contribution_count > 0 || skills_added > 0',
-          $autoCancel: false
-        });
-        setContributors(records.items);
-      } catch (error) {
-        console.error('Failed to fetch contributors:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchContributors();
+    fetch('/api/contributors')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.items) setContributors(d.items); })
+      .catch(err => console.error('Failed to fetch contributors:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   const getInitials = (name) => {
