@@ -3,9 +3,10 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 
-const RSS_URL       = 'https://trends.google.com/trending/rss?geo=IN';
-const CACHE_TTL_MS  = 30 * 60 * 1000; // 30 minutes
-const FETCH_TIMEOUT = 8000;
+const RSS_URL        = 'https://trends.google.com/trending/rss?geo=IN';
+const CACHE_TTL_MS   = 30 * 60 * 1000; // 30 minutes
+const FETCH_TIMEOUT  = 8000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const FALLBACK_TOPICS = [
     { label: 'IPL 2025 Analytics',   prompt: 'A real-time cricket analytics and prediction platform for IPL 2025' },
@@ -61,6 +62,58 @@ function isEnglishTitle(s) {
     return !!s && !NON_LATIN_RE.test(s);
 }
 
+// LLM filter: drop NSFW + pure entertainment/celebrity trends, keep buildable topics
+async function llmFilterRelevant(items) {
+    if (!OPENAI_API_KEY || items.length === 0) return items;
+
+    const numbered = items.map((it, i) => `${i + 1}. ${it.title}${it.context ? ` (context: ${it.context.slice(0, 100)})` : ''}`).join('\n');
+
+    const prompt = `These are trending Google searches in India right now:
+
+${numbered}
+
+Return JSON {"keep": [1-based indices]} for items that meet ALL of:
+1. NOT sexually suggestive, explicit, or NSFW in any way
+2. NOT a pure song / movie title / album / celebrity-gossip item
+3. Could plausibly inspire a tech / product / data project (sports analytics, fintech, weather, public services, government policy, science, agriculture, healthcare, education, business, geopolitics, etc. are all fair game)
+
+Be lenient — keep anything with even modest tech relevance. Only drop pure entertainment and inappropriate content. Respond with ONLY valid JSON, no prose.`;
+
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            signal: ctrl.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                temperature: 0,
+                response_format: { type: 'json_object' },
+                messages: [{ role: 'user', content: prompt }],
+            }),
+        });
+        clearTimeout(t);
+
+        if (!r.ok) throw new Error(`openai ${r.status}`);
+        const data   = await r.json();
+        const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+        const keep   = new Set(Array.isArray(parsed.keep) ? parsed.keep : []);
+        if (keep.size === 0) return items; // model refused; don't drop everything
+
+        const kept = items.filter((_, i) => keep.has(i + 1));
+        logger.info(`trending-india llm filter: kept ${kept.length}/${items.length}`);
+        return kept;
+    } catch (err) {
+        logger.warn('trending-india llm filter failed, keeping unfiltered:', err.message);
+        return items;
+    }
+}
+
 router.get('/trending-india', async (req, res) => {
     if (cache.items && Date.now() - cache.ts < CACHE_TTL_MS) {
         return res.json({ topics: cache.items, source: 'cache', cachedAt: new Date(cache.ts).toISOString() });
@@ -83,8 +136,9 @@ router.get('/trending-india', async (req, res) => {
         if (items.length === 0) throw new Error('no items parsed');
 
         const englishItems = items.filter(it => isEnglishTitle(it.title));
+        const safeItems    = await llmFilterRelevant(englishItems.slice(0, 20));
 
-        let topics = englishItems.slice(0, 10).map(it => ({
+        let topics = safeItems.slice(0, 10).map(it => ({
             label: it.title,
             prompt: makePrompt(it.title, it.context),
             traffic: it.traffic,
