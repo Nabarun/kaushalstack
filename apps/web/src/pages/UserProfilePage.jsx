@@ -9,12 +9,16 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink } from 'lucide-react';
+import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 
 const UserProfilePage = () => {
-  const { user, logout } = useAuth();
+  // AuthContext exposes the auth record as `currentUser`; alias it locally so
+  // existing references to `user` keep working.
+  const { currentUser: user, logout } = useAuth();
   const [userSkills, setUserSkills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSkill, setSelectedSkill] = useState(null);
@@ -122,6 +126,9 @@ const UserProfilePage = () => {
             {/* Skills Content */}
             <div className="lg:col-span-2 space-y-8">
 
+              {/* Profile details — name + bio */}
+              <ProfileEditSection user={user} />
+
               {/* OpenAI API key management */}
               <OpenAIKeySection />
 
@@ -183,6 +190,110 @@ const UserProfilePage = () => {
     </>
   );
 };
+
+function ProfileEditSection({ user }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy]       = useState(false);
+  const [form, setForm]       = useState({ name: user?.name || '', bio: user?.bio || '' });
+
+  function start() {
+    setForm({ name: user?.name || '', bio: user?.bio || '' });
+    setEditing(true);
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const clean = {
+        name: (form.name || '').trim(),
+        bio: (form.bio || '').trim(),
+      };
+      await pb.collection('users').update(user.id, clean, { $autoCancel: false });
+      // refresh the cached auth record so the sidebar/header show new values
+      try { await pb.collection('users').authRefresh({ $autoCancel: false }); } catch {}
+      toast.success('Profile updated');
+      setEditing(false);
+    } catch (err) {
+      const detail = err?.data?.data
+        ? Object.entries(err.data.data).map(([f, d]) => `${f}: ${d?.message || d}`).join('; ')
+        : err?.message || 'Failed to update profile';
+      toast.error(detail);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <User className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-bold">Profile details</h2>
+          </div>
+          {!editing && (
+            <Button variant="outline" size="sm" onClick={start} className="gap-1.5">
+              <Pencil className="w-3.5 h-3.5" /> Edit
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Your display name and bio are visible to other members. Username and email aren't editable here.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-4">
+        {editing ? (
+          <>
+            <div>
+              <Label htmlFor="profile-name">Display name</Label>
+              <Input
+                id="profile-name"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Nabarun Sengupta"
+                className="text-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <div>
+              <Label htmlFor="profile-bio">Bio</Label>
+              <Textarea
+                id="profile-bio"
+                rows={3}
+                value={form.bio}
+                onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
+                placeholder="A line or two about yourself"
+                className="text-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={save} disabled={busy} className="gap-1.5">
+                <Save className="w-3.5 h-3.5" /> {busy ? 'Saving…' : 'Save changes'}
+              </Button>
+              <Button variant="outline" onClick={() => setEditing(false)} disabled={busy} className="gap-1.5">
+                <X className="w-3.5 h-3.5" /> Cancel
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Display name</div>
+              <div className="text-sm">{user?.name || <span className="italic text-muted-foreground">Not set</span>}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Username</div>
+              <div className="text-sm font-mono">@{user?.username}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Bio</div>
+              <div className="text-sm whitespace-pre-wrap">{user?.bio || <span className="italic text-muted-foreground">No bio yet — tell the community a bit about yourself.</span>}</div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function OpenAIKeySection() {
   const [status, setStatus] = useState({ has_key: false, last4: null });
