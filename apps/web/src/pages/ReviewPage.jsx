@@ -62,6 +62,11 @@ function EditCard({ edit, currentUserId, onAction }) {
     try {
       const r = await authedFetch(`/api/edits/${edit.id}/${action}`, { method: 'POST' });
       const data = await r.json();
+      if (r.status === 422 && data.error === 'merge_failed') {
+        toast.error(`Vote recorded but merge failed: ${data.detail || 'unknown error'}`);
+        onAction();
+        return;
+      }
       if (!r.ok) throw new Error(data.error || `API ${r.status}`);
       if (data.merged)    toast.success('Approved — change merged into the skill');
       else if (data.discarded) toast.success('Rejected — change discarded after 6 rejections');

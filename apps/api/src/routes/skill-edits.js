@@ -38,9 +38,24 @@ function pickEditable(obj) {
 }
 
 async function mergeEdit(edit, skill) {
-    // Snapshot current skill as a new version row
     const currentVersion = skill.version || 1;
     const currentData    = pickEditable(skill);
+
+    // 1. Try the live update FIRST so any validation error fails fast
+    //    without leaving an orphan snapshot behind.
+    try {
+        await pb.collection('skills').update(skill.id, {
+            ...edit.proposed_data,
+            version: currentVersion + 1,
+        });
+    } catch (err) {
+        const fieldErrors = err?.data?.data
+            ? Object.entries(err.data.data).map(([f, d]) => `${f}: ${d?.message || d}`).join('; ')
+            : err?.data?.message || err?.message;
+        throw new Error(`skill validation failed: ${fieldErrors}`);
+    }
+
+    // 2. Snapshot the PRIOR state to skill_versions only after the live row is committed.
     await pb.collection('skill_versions').create({
         skill_id: skill.id,
         version_number: currentVersion,
@@ -49,13 +64,7 @@ async function mergeEdit(edit, skill) {
         approved_by: edit.approvals || [],
     });
 
-    // Apply proposed data + bump version on the live row
-    await pb.collection('skills').update(skill.id, {
-        ...edit.proposed_data,
-        version: currentVersion + 1,
-    });
-
-    // Mark edit as approved
+    // 3. Mark edit as approved.
     await pb.collection('skill_edits').update(edit.id, { status: 'approved' });
     logger.info(`edit ${edit.id} merged into skill ${skill.id} (now v${currentVersion + 1})`);
 }
@@ -136,21 +145,26 @@ async function voteOnEdit(editId, voterId, type, voteKind /* 'approve' | 'reject
 
     if (voteKind === 'approve') {
         approvals.push(vote);
-        if (approvals.length >= APPROVAL_THRESHOLD) {
-            const skill = await pb.collection('skills').getOne(edit.skill_id);
-            await mergeEdit({ ...edit, approvals }, skill);
-            return { status: 200, body: { merged: true, approvals, rejections } };
-        }
+        // Persist the vote BEFORE attempting merge — so if merge fails the vote is still recorded
         await pb.collection('skill_edits').update(editId, { approvals });
+        if (approvals.length >= APPROVAL_THRESHOLD) {
+            try {
+                const skill = await pb.collection('skills').getOne(edit.skill_id);
+                await mergeEdit({ ...edit, approvals }, skill);
+                return { status: 200, body: { merged: true, approvals, rejections } };
+            } catch (err) {
+                logger.error(`merge failed for edit ${editId}:`, err.message);
+                return { status: 422, body: { error: 'merge_failed', detail: err.message, approvals, rejections } };
+            }
+        }
         return { status: 200, body: { approvals, rejections, threshold: APPROVAL_THRESHOLD } };
     } else {
         rejections.push(vote);
+        await pb.collection('skill_edits').update(editId, { rejections });
         if (rejections.length >= REJECTION_THRESHOLD) {
-            await pb.collection('skill_edits').update(editId, { rejections });
             await discardEdit(editId);
             return { status: 200, body: { discarded: true, approvals, rejections } };
         }
-        await pb.collection('skill_edits').update(editId, { rejections });
         return { status: 200, body: { approvals, rejections, threshold: REJECTION_THRESHOLD } };
     }
 }
