@@ -7,6 +7,7 @@ import trendingRouter from './trending.js';
 import skillEditsRouter from './skill-edits.js';
 import leaderboardRouter from './leaderboard.js';
 import userKeysRouter from './user-keys.js';
+import contactRouter from './contact.js';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ export default () => {
     router.use('/', skillEditsRouter);
     router.use('/', leaderboardRouter);
     router.use('/', userKeysRouter);
+    router.use('/', contactRouter);
 
     return router;
 };
