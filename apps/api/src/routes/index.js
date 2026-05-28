@@ -6,6 +6,7 @@ import roundtableRouter from './roundtable.js';
 import trendingRouter from './trending.js';
 import skillEditsRouter from './skill-edits.js';
 import leaderboardRouter from './leaderboard.js';
+import userKeysRouter from './user-keys.js';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ export default () => {
     router.use('/', trendingRouter);
     router.use('/', skillEditsRouter);
     router.use('/', leaderboardRouter);
+    router.use('/', userKeysRouter);
 
     return router;
 };

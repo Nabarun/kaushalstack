@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { getUserOpenAIKey } from './user-keys.js';
 
 const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -168,10 +169,16 @@ router.post('/roundtable', async (req, res) => {
     }
 
     const userId = getUserIdFromHeader(req.headers.authorization);
+    const userKey = await getUserOpenAIKey(userId);
+    const keyInUse = userKey || OPENAI_API_KEY;
+    const usingUserKey = !!userKey;
+
     let usesAfter = null;
     let remaining = null;
 
-    if (userId && usageCollectionReady) {
+    // Only enforce the free-tier limit when falling back to the server key.
+    // Users with their own key bear their own costs and have no app-imposed cap.
+    if (!usingUserKey && userId && usageCollectionReady) {
         const record = await getUsageRecord(userId);
         const currentUses = record?.uses || 0;
 
@@ -192,7 +199,7 @@ router.post('/roundtable', async (req, res) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Authorization': `Bearer ${keyInUse}`,
             },
             body: JSON.stringify({
                 model: 'gpt-4o-mini',
@@ -203,8 +210,19 @@ router.post('/roundtable', async (req, res) => {
         });
 
         if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`OpenAI error ${response.status}: ${err}`);
+            const errBody = await response.text();
+            // If the user's own key was rejected, give the frontend a clear marker
+            // so it can prompt them to update it on /profile.
+            if (usingUserKey && (response.status === 401 || response.status === 429)) {
+                return res.status(402).json({
+                    error: 'user_key_failed',
+                    detail: response.status === 401
+                        ? 'Your saved OpenAI key was rejected. Please update it on your profile.'
+                        : 'Your OpenAI account is out of quota or rate-limited. Check billing and try again.',
+                    status: response.status,
+                });
+            }
+            throw new Error(`OpenAI error ${response.status}: ${errBody}`);
         }
 
         const data   = await response.json();
@@ -217,18 +235,20 @@ router.post('/roundtable', async (req, res) => {
 
         let chatId = null;
         if (userId) {
-            if (usageCollectionReady) incrementUsage(userId);
+            // Free-tier usage only counts when the server key was used
+            if (!usingUserKey && usageCollectionReady) incrementUsage(userId);
             if (chatsCollectionReady) {
                 const saved = await saveChat(userId, query, team, parsed.responses);
                 chatId = saved?.id || null;
             }
         }
 
-        logger.info(`roundtable: "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, remaining: ${remaining ?? 'unlimited'})`);
+        logger.info(`roundtable: "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
             chatId,
+            using_user_key: usingUserKey,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
     } catch (err) {
@@ -241,11 +261,15 @@ router.get('/roundtable/usage', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
+    const userKey = await getUserOpenAIKey(userId);
+    if (userKey) {
+        return res.json({ has_user_key: true, unlimited: true });
+    }
+
     await ensureUsageCollection();
     const record = await getUsageRecord(userId);
     const uses   = record?.uses || 0;
-
-    res.json({ uses, limit: FREE_LIMIT, remaining: Math.max(0, FREE_LIMIT - uses) });
+    res.json({ has_user_key: false, uses, limit: FREE_LIMIT, remaining: Math.max(0, FREE_LIMIT - uses) });
 });
 
 router.get('/roundtable/chats', async (req, res) => {

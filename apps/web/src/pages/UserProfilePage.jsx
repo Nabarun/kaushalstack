@@ -9,7 +9,9 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, Mail, Calendar, Code, Trophy, LogOut } from 'lucide-react';
+import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 const UserProfilePage = () => {
   const { user, logout } = useAuth();
@@ -118,8 +120,12 @@ const UserProfilePage = () => {
             </div>
 
             {/* Skills Content */}
-            <div className="lg:col-span-2">
-              <div className="flex items-center justify-between mb-6">
+            <div className="lg:col-span-2 space-y-8">
+
+              {/* OpenAI API key management */}
+              <OpenAIKeySection />
+
+              <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold">My Shared Skills</h2>
               </div>
 
@@ -177,5 +183,149 @@ const UserProfilePage = () => {
     </>
   );
 };
+
+function OpenAIKeySection() {
+  const [status, setStatus] = useState({ has_key: false, last4: null });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [input, setInput] = useState('');
+
+  function authedFetch(url, opts = {}) {
+    const token = pb.authStore.token;
+    return fetch(url, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(opts.headers || {}),
+      },
+    });
+  }
+
+  async function refresh() {
+    try {
+      const r = await authedFetch('/api/me/openai-key');
+      if (!r.ok) throw new Error('failed');
+      const d = await r.json();
+      setStatus({ has_key: !!d.has_key, last4: d.last4 || null });
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  async function save() {
+    const key = input.trim();
+    if (!key) return;
+    setBusy(true);
+    try {
+      const r = await authedFetch('/api/me/openai-key', {
+        method: 'POST',
+        body: JSON.stringify({ key }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed to save');
+      toast.success('API key saved and validated. Round Table now uses your key.');
+      setInput('');
+      setStatus({ has_key: true, last4: data.last4 });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm('Remove your saved OpenAI key? Future round-table sessions will use the free tier (10 lifetime requests).')) return;
+    setBusy(true);
+    try {
+      const r = await authedFetch('/api/me/openai-key', { method: 'DELETE' });
+      if (!r.ok) throw new Error('Failed to remove');
+      toast.success('Key removed.');
+      setStatus({ has_key: false, last4: null });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-center gap-2">
+          <Key className="w-5 h-5 text-primary" />
+          <h2 className="text-xl font-bold">OpenAI API Key</h2>
+          {status.has_key && (
+            <span className="inline-flex items-center gap-1 text-xs font-mono bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 rounded-full px-2 py-0.5">
+              <ShieldCheck className="w-3 h-3" /> connected
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Bring your own OpenAI key to remove the free-tier limit. Billed to your OpenAI account, not ours.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-4">
+        {loading ? (
+          <div className="h-10 bg-muted/40 rounded animate-pulse" />
+        ) : status.has_key ? (
+          <>
+            <div className="flex items-center justify-between gap-3 bg-muted/30 border rounded-lg px-4 py-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Current key</div>
+                <div className="font-mono text-sm">sk-…{status.last4}</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={remove} disabled={busy} className="gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> Remove
+              </Button>
+            </div>
+            <div className="border-t pt-4">
+              <p className="text-xs text-muted-foreground mb-2">Replace with a new key:</p>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  placeholder="sk-proj-…"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <Button onClick={save} disabled={busy || !input.trim()}>
+                  {busy ? 'Validating…' : 'Update'}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside mb-3">
+              <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">platform.openai.com/api-keys <ExternalLink className="w-3 h-3" /></a> and create a new secret key.</li>
+              <li>Paste it below. We validate it with OpenAI, encrypt it (AES-256-GCM), and store it linked to your account only.</li>
+              <li>Your Round Table calls will be billed to your OpenAI account instead of hitting our free-tier limit.</li>
+            </ol>
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder="sk-proj-…"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <Button onClick={save} disabled={busy || !input.trim()}>
+                {busy ? 'Validating…' : 'Save Key'}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground italic flex items-center gap-1.5 pt-1">
+              <ShieldCheck className="w-3 h-3" /> Keys are encrypted at rest and never exposed back to the browser — only the last 4 characters are shown.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default UserProfilePage;

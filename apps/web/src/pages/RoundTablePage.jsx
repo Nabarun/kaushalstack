@@ -34,37 +34,46 @@ function TypingDots({ color }) {
   );
 }
 
-function BYOKScreen() {
+function BYOKScreen({ reason }) {
+  const navigate = useNavigate();
   return (
     <div className="flex flex-col items-center justify-center px-8 py-12 text-center" style={{ minHeight: 400 }}>
       <div style={{ fontSize: 40, marginBottom: 16 }}>🔑</div>
       <h2 style={{ fontSize: 18, fontWeight: 700, color: '#e8eaf0', marginBottom: 8 }}>
-        Free requests used up
+        {reason === 'user_key_failed' ? 'Your OpenAI key didn\'t work' : 'Free requests used up'}
       </h2>
-      <p style={{ fontSize: 13, color: '#4a4f60', fontFamily: 'monospace', lineHeight: 1.8, maxWidth: 380, marginBottom: 32 }}>
-        You've used all {FREE_LIMIT} complimentary round table sessions.
-        To keep going, connect your own OpenAI API key — it takes under a minute.
+      <p style={{ fontSize: 13, color: '#4a4f60', fontFamily: 'monospace', lineHeight: 1.8, maxWidth: 380, marginBottom: 28 }}>
+        {reason === 'user_key_failed'
+          ? 'OpenAI rejected the key on your profile. Update it and try again.'
+          : `You've used all ${FREE_LIMIT} complimentary sessions. Add your own OpenAI key to keep going — it takes under a minute.`}
       </p>
-      <div style={{ width: '100%', maxWidth: 420, textAlign: 'left' }} className="space-y-4">
+
+      <button
+        onClick={() => navigate('/profile')}
+        style={{
+          background: '#5b8dee', color: '#fff', border: 'none', borderRadius: 10,
+          padding: '12px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 32,
+        }}
+      >
+        <Key style={{ width: 15, height: 15 }} />
+        {reason === 'user_key_failed' ? 'Update key on profile' : 'Add your OpenAI key'}
+      </button>
+
+      <div style={{ width: '100%', maxWidth: 420, textAlign: 'left' }} className="space-y-3">
         {[
-          { step: '1', title: 'Get a free OpenAI API key', body: 'Go to platform.openai.com → API Keys → Create new secret key.' },
-          { step: '2', title: 'Copy the key', body: 'It starts with sk-proj-… — copy it and keep it safe.' },
-          { step: '3', title: 'Coming soon: paste it here', body: 'We\'re adding a profile setting to save your key.' },
+          { step: '1', title: 'Create a key',     body: 'Go to platform.openai.com → API Keys → Create new secret key.' },
+          { step: '2', title: 'Copy it',          body: 'Starts with sk-proj-… — keep it safe.' },
+          { step: '3', title: 'Paste on profile', body: 'Profile → OpenAI API Key. We validate it, encrypt it, and never expose it back.' },
         ].map(({ step, title, body }) => (
-          <div key={step} style={{ background: '#0e1018', border: '1px solid #1e2130', borderRadius: 10, padding: '14px 16px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-            <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#16192a', border: '1px solid #2a2d3e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#5b8dee', flexShrink: 0, fontFamily: 'monospace' }}>{step}</div>
+          <div key={step} style={{ background: '#0e1018', border: '1px solid #1e2130', borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#16192a', border: '1px solid #2a2d3e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#5b8dee', flexShrink: 0, fontFamily: 'monospace' }}>{step}</div>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#c8ccd8', marginBottom: 4 }}>{title}</div>
-              <div style={{ fontSize: 11, color: '#4a4f60', fontFamily: 'monospace', lineHeight: 1.6 }}>{body}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#c8ccd8', marginBottom: 2 }}>{title}</div>
+              <div style={{ fontSize: 11, color: '#4a4f60', fontFamily: 'monospace', lineHeight: 1.5 }}>{body}</div>
             </div>
           </div>
         ))}
-      </div>
-      <div style={{ marginTop: 28, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Key style={{ width: 13, height: 13, color: '#2e3244' }} />
-        <span style={{ fontSize: 10, color: '#2e3244', fontFamily: 'monospace' }}>
-          Keys are encrypted and stored per user account
-        </span>
       </div>
     </div>
   );
@@ -95,6 +104,8 @@ export default function RoundTablePage() {
   const [focusedIdx, setFocusedIdx] = useState(0);
   const [remaining, setRemaining]   = useState(null);
   const [limitReached, setLimitReached] = useState(false);
+  const [limitReason, setLimitReason]   = useState('limit_reached');
+  const [hasUserKey, setHasUserKey]     = useState(false);
 
   const [chats, setChats]           = useState([]);     // [{ id, query, team, responses, created }]
   const [activeChat, setActiveChat] = useState(null);   // current chat object
@@ -120,8 +131,15 @@ export default function RoundTablePage() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
-        setRemaining(data.remaining);
-        if (data.remaining <= 0) setLimitReached(true);
+        if (data.has_user_key) {
+          setHasUserKey(true);
+          setRemaining(null);
+          setLimitReached(false);
+        } else {
+          setHasUserKey(false);
+          setRemaining(data.remaining);
+          if (data.remaining <= 0) { setLimitReached(true); setLimitReason('limit_reached'); }
+        }
       })
       .catch(() => {});
   }, []);
@@ -162,8 +180,10 @@ export default function RoundTablePage() {
       clearInterval(animTimer);
 
       if (res.status === 402) {
+        const errBody = await res.json().catch(() => ({}));
         setLimitReached(true);
-        setRemaining(0);
+        setLimitReason(errBody.error === 'user_key_failed' ? 'user_key_failed' : 'limit_reached');
+        if (errBody.error !== 'user_key_failed') setRemaining(0);
         return;
       }
 
@@ -273,7 +293,13 @@ export default function RoundTablePage() {
           </button>
 
           <div className="flex items-center gap-3">
-            {remaining !== null && !limitReached && (
+            {hasUserKey && (
+              <span style={{ background: '#0a2618', border: '1px solid #4ecba844', color: '#4ecba8' }}
+                className="text-xs font-mono px-3 py-1 rounded-full flex items-center gap-1">
+                <Key style={{ width: 11, height: 11 }} /> your key
+              </span>
+            )}
+            {!hasUserKey && remaining !== null && !limitReached && (
               <span style={{ background: '#12141c', border: `1px solid ${remainingColor}44`, color: remainingColor }}
                 className="text-xs font-mono px-3 py-1 rounded-full">
                 {remaining} request{remaining !== 1 ? 's' : ''} remaining
@@ -486,7 +512,7 @@ export default function RoundTablePage() {
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <AnimatePresence mode="wait">
                 {limitReached && !activeChat ? (
-                  <BYOKScreen key="byok" />
+                  <BYOKScreen key="byok" reason={limitReason} />
                 ) : !activeChat && !loading ? (
                   <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                     className="h-full flex flex-col items-center justify-center text-center" style={{ minHeight: 200 }}>
