@@ -6,9 +6,10 @@ const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const FREE_LIMIT = 10;
 
-// ── Usage collection bootstrap ──────────────────────────────────────────────
+// ── Collection bootstrap ────────────────────────────────────────────────────
 
 let usageCollectionReady = false;
+let chatsCollectionReady = false;
 
 async function ensureUsageCollection() {
     if (usageCollectionReady) return;
@@ -36,7 +37,36 @@ async function ensureUsageCollection() {
     }
 }
 
+async function ensureChatsCollection() {
+    if (chatsCollectionReady) return;
+    try {
+        await pb.collections.getOne('roundtable_chats');
+        chatsCollectionReady = true;
+    } catch {
+        try {
+            await pb.send('/api/collections', {
+                method: 'POST',
+                body: {
+                    name: 'roundtable_chats',
+                    type: 'base',
+                    fields: [
+                        { type: 'text', name: 'user_id', required: true },
+                        { type: 'text', name: 'query',   required: true, max: 2000 },
+                        { type: 'json', name: 'team',    maxSize: 100000 },
+                        { type: 'json', name: 'responses', maxSize: 200000 },
+                    ],
+                },
+            });
+            chatsCollectionReady = true;
+            logger.info('roundtable_chats collection created');
+        } catch (err) {
+            logger.warn('Could not create roundtable_chats collection:', err.message);
+        }
+    }
+}
+
 ensureUsageCollection();
+ensureChatsCollection();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -81,6 +111,20 @@ async function incrementUsage(userId) {
     }
 }
 
+async function saveChat(userId, query, team, responses) {
+    try {
+        return await pb.collection('roundtable_chats').create({
+            user_id: userId,
+            query,
+            team,
+            responses,
+        });
+    } catch (err) {
+        logger.warn('Failed to save chat for', userId, err.message);
+        return null;
+    }
+}
+
 // ── Prompt builder ───────────────────────────────────────────────────────────
 
 function buildPrompt(query, agents) {
@@ -110,7 +154,7 @@ Respond with ONLY valid JSON, no markdown fences, no extra text:
 }`;
 }
 
-// ── Route ────────────────────────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────────────────────
 
 router.post('/roundtable', async (req, res) => {
     const { query, team } = req.body || {};
@@ -123,7 +167,6 @@ router.post('/roundtable', async (req, res) => {
         return res.status(500).json({ error: 'OpenAI not configured' });
     }
 
-    // Identify user and check usage limit
     const userId = getUserIdFromHeader(req.headers.authorization);
     let usesAfter = null;
     let remaining = null;
@@ -140,10 +183,8 @@ router.post('/roundtable', async (req, res) => {
                 remaining: 0,
             });
         }
-
-        // Optimistically compute post-request values
-        usesAfter  = currentUses + 1;
-        remaining  = FREE_LIMIT - usesAfter;
+        usesAfter = currentUses + 1;
+        remaining = FREE_LIMIT - usesAfter;
     }
 
     try {
@@ -174,15 +215,20 @@ router.post('/roundtable', async (req, res) => {
             throw new Error('Unexpected response shape from OpenAI');
         }
 
-        // Increment usage only after a successful call
-        if (userId && usageCollectionReady) {
-            incrementUsage(userId); // fire-and-forget
+        let chatId = null;
+        if (userId) {
+            if (usageCollectionReady) incrementUsage(userId);
+            if (chatsCollectionReady) {
+                const saved = await saveChat(userId, query, team, parsed.responses);
+                chatId = saved?.id || null;
+            }
         }
 
         logger.info(`roundtable: "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
+            chatId,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
     } catch (err) {
@@ -191,7 +237,6 @@ router.post('/roundtable', async (req, res) => {
     }
 });
 
-// Usage status endpoint (GET)
 router.get('/roundtable/usage', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
@@ -201,6 +246,45 @@ router.get('/roundtable/usage', async (req, res) => {
     const uses   = record?.uses || 0;
 
     res.json({ uses, limit: FREE_LIMIT, remaining: Math.max(0, FREE_LIMIT - uses) });
+});
+
+router.get('/roundtable/chats', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    await ensureChatsCollection();
+    try {
+        const list = await pb.collection('roundtable_chats').getList(1, 50, {
+            filter: `user_id = "${userId}"`,
+            sort: '-created',
+        });
+        res.json({
+            chats: list.items.map(c => ({
+                id: c.id,
+                query: c.query,
+                team: c.team,
+                responses: c.responses,
+                created: c.created,
+            })),
+        });
+    } catch (err) {
+        logger.error('list chats error:', err.message);
+        res.status(500).json({ error: err.message, chats: [] });
+    }
+});
+
+router.delete('/roundtable/chats/:id', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    try {
+        const chat = await pb.collection('roundtable_chats').getOne(req.params.id);
+        if (chat.user_id !== userId) return res.status(403).json({ error: 'forbidden' });
+        await pb.collection('roundtable_chats').delete(req.params.id);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 export default router;
