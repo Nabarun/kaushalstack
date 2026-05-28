@@ -20,5 +20,5 @@ RUN node tools/generate-llms.js || true && \
 FROM nginx:alpine
 
 COPY --from=builder /dist /usr/share/nginx/html
-# nginx config is injected from the proxy container; serve static only
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
