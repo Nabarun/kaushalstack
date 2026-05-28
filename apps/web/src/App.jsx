@@ -33,7 +33,14 @@ function App() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/contributors" element={<ContributorsPage />} />
               <Route path="/about" element={<AboutPage />} />
-              <Route path="/roundtable" element={<RoundTablePage />} />
+              <Route
+                path="/roundtable"
+                element={
+                  <ProtectedRoute>
+                    <RoundTablePage />
+                  </ProtectedRoute>
+                }
+              />
               <Route 
                 path="/profile" 
                 element={
