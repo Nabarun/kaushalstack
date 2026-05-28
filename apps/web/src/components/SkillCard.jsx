@@ -14,7 +14,7 @@ const difficultyColors = {
 
 const SkillCard = ({ skill, onViewDetails, onEdit }) => {
   const { currentUser } = useAuth();
-  const isOwner = currentUser?.id === skill.created_by;
+  const canEdit = !!currentUser; // anyone signed in can propose edits
   return (
   <Card className="h-full flex flex-col transition-all duration-200 hover:shadow-lg hover:-translate-y-1 overflow-hidden">
     {/* Agent identity strip */}
@@ -62,8 +62,8 @@ const SkillCard = ({ skill, onViewDetails, onEdit }) => {
         <span className="flex items-center gap-1"><MessageCircle className="w-4 h-4" />{skill.comments_count || 0}</span>
       </div>
       <div className="flex items-center gap-2">
-        {isOwner && (
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onEdit && onEdit(skill)} title="Edit skill">
+        {canEdit && (
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onEdit && onEdit(skill)} title="Propose edit">
             <Pencil className="w-3.5 h-3.5" />
           </Button>
         )}

@@ -1,14 +1,25 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Sparkles } from 'lucide-react';
+import { Menu, X, Sparkles, GitPullRequest } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext.jsx';
+import pb from '@/lib/pocketbaseClient';
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const location = useLocation();
   const { isAuthenticated, logout, currentUser } = useAuth();
+
+  useEffect(() => {
+    if (!isAuthenticated) { setPendingCount(0); return; }
+    const token = pb.authStore.token;
+    fetch('/api/edits?status=pending', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setPendingCount(d.total || 0); })
+      .catch(() => {});
+  }, [isAuthenticated, location.pathname]);
 
   const navLinks = [
     { name: 'Home', path: '/' },
@@ -50,6 +61,17 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-3">
             {isAuthenticated ? (
               <>
+                <Link to="/review">
+                  <Button variant="ghost" size="sm" className="gap-1.5 relative">
+                    <GitPullRequest className="w-4 h-4" />
+                    Review
+                    {pendingCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center px-1">
+                        {pendingCount}
+                      </span>
+                    )}
+                  </Button>
+                </Link>
                 <Link to="/profile">
                   <Button variant="outline" size="sm">
                     {currentUser?.username || 'Profile'}

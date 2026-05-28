@@ -1,17 +1,63 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil } from 'lucide-react';
+import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil, History, RotateCcw, ShieldCheck } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/contexts/AuthContext.jsx';
+import pb from '@/lib/pocketbaseClient';
+import { toast } from 'sonner';
 
 const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
   const { currentUser } = useAuth();
+  const [isAdmin, setIsAdmin]   = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [showVersions, setShowVersions] = useState(false);
+  const [rolling, setRolling]   = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) { setIsAdmin(false); return; }
+    const token = pb.authStore.token;
+    fetch('/api/me/admin-status', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setIsAdmin(!!d?.is_admin))
+      .catch(() => {});
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!open || !isAdmin || !skill?.id) { setVersions([]); setShowVersions(false); return; }
+    const token = pb.authStore.token;
+    fetch(`/api/skills/${skill.id}/versions`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.versions) setVersions(d.versions); })
+      .catch(() => {});
+  }, [open, isAdmin, skill?.id]);
+
   if (!skill) return null;
-  const isOwner = currentUser?.id === skill.created_by;
+  const canEdit = !!currentUser;
+
+  async function rollback(versionId, versionNumber) {
+    if (!confirm(`Roll back this skill to version ${versionNumber}? The current state will be saved as a new version first.`)) return;
+    setRolling(true);
+    try {
+      const token = pb.authStore.token;
+      const r = await fetch(`/api/skills/${skill.id}/rollback/${versionId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+      toast.success(`Rolled back. Skill is now at version ${data.new_version}.`);
+      onOpenChange(false);
+      window.location.reload();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setRolling(false);
+    }
+  }
 
   const difficultyColors = {
     Beginner: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
@@ -57,10 +103,10 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
                   {skill.difficulty_level}
                 </Badge>
               )}
-              {isOwner && (
+              {canEdit && (
                 <Button size="sm" variant="outline" className="gap-1.5 h-7 px-2.5 text-xs"
                   onClick={() => { onOpenChange(false); onEdit && onEdit(skill); }}>
-                  <Pencil className="w-3 h-3" /> Edit
+                  <Pencil className="w-3 h-3" /> Propose edit
                 </Button>
               )}
             </div>
@@ -105,6 +151,48 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
                     </Badge>
                   ))}
                 </div>
+              </section>
+            )}
+
+            {/* Admin: Version History */}
+            {isAdmin && (
+              <section className="bg-purple-50/40 dark:bg-purple-950/10 rounded-2xl p-5 border border-purple-200/40 dark:border-purple-900/40">
+                <button
+                  type="button"
+                  onClick={() => setShowVersions(s => !s)}
+                  className="w-full flex items-center justify-between gap-2 mb-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-purple-700 dark:text-purple-300">
+                      Admin · Version History
+                    </span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      live v{skill.version || 1} · {versions.length} snapshots
+                    </Badge>
+                  </span>
+                  <History className="w-4 h-4 text-muted-foreground" />
+                </button>
+                {showVersions && (
+                  <div className="mt-3 space-y-2">
+                    {versions.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No prior versions yet — this is the original.</p>
+                    ) : versions.map(v => (
+                      <div key={v.id} className="flex items-center justify-between gap-3 bg-background/60 border rounded-lg px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold">v{v.version_number}</div>
+                          <div className="text-[11px] text-muted-foreground font-mono">
+                            {new Date(v.created).toLocaleString()}
+                            {v.author ? ` · by ${String(v.author).slice(0, 12)}` : ''}
+                          </div>
+                        </div>
+                        <Button size="sm" variant="outline" disabled={rolling} onClick={() => rollback(v.id, v.version_number)} className="gap-1.5">
+                          <RotateCcw className="w-3 h-3" /> Roll back
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 

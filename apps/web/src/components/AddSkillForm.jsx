@@ -59,8 +59,30 @@ const AddSkillForm = ({ open, onOpenChange, onSuccess, skill }) => {
         Object.entries(formData).filter(([, v]) => v !== '')
       );
       if (isEdit) {
-        await pb.collection('skills').update(skill.id, clean, { $autoCancel: false });
-        toast.success('Skill updated successfully');
+        // Submit to the community-review pipeline instead of writing directly.
+        // Only fields that changed go into the proposed payload so reviewers see a clean diff.
+        const changed = Object.fromEntries(
+          Object.entries(clean).filter(([k, v]) => (skill?.[k] ?? '') !== v)
+        );
+        if (Object.keys(changed).length === 0) {
+          toast.message('Nothing to change');
+          onOpenChange(false);
+          return;
+        }
+        const token = pb.authStore.token;
+        const r = await fetch(`/api/skills/${skill.id}/edits`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(changed),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || `API ${r.status}`);
+        }
+        toast.success('Edit submitted for community review (needs 3 approvals)');
       } else {
         await pb.collection('skills').create(
           { ...clean, created_by: currentUser.id, likes_count: 0, comments_count: 0 },
