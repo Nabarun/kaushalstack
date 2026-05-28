@@ -55,6 +55,12 @@ function makePrompt(title, context) {
     return `A real-time news and analytics platform tracking trends around "${title}" in India`;
 }
 
+// Reject titles containing Indic, CJK, Thai, Arabic etc. scripts — keep Latin-script only
+const NON_LATIN_RE = /[֐-׿؀-ۿऀ-෿฀-࿿က-႟぀-ヿ一-鿿가-힯]/;
+function isEnglishTitle(s) {
+    return !!s && !NON_LATIN_RE.test(s);
+}
+
 router.get('/trending-india', async (req, res) => {
     if (cache.items && Date.now() - cache.ts < CACHE_TTL_MS) {
         return res.json({ topics: cache.items, source: 'cache', cachedAt: new Date(cache.ts).toISOString() });
@@ -76,14 +82,25 @@ router.get('/trending-india', async (req, res) => {
 
         if (items.length === 0) throw new Error('no items parsed');
 
-        const topics = items.slice(0, 10).map(it => ({
+        const englishItems = items.filter(it => isEnglishTitle(it.title));
+
+        let topics = englishItems.slice(0, 10).map(it => ({
             label: it.title,
             prompt: makePrompt(it.title, it.context),
             traffic: it.traffic,
         }));
 
+        // Pad with curated fallback if we got fewer than 6 English trends
+        if (topics.length < 6) {
+            const seen = new Set(topics.map(t => t.label.toLowerCase()));
+            for (const fb of FALLBACK_TOPICS) {
+                if (topics.length >= 8) break;
+                if (!seen.has(fb.label.toLowerCase())) topics.push(fb);
+            }
+        }
+
         cache = { items: topics, ts: Date.now() };
-        logger.info(`trending-india: refreshed ${topics.length} topics from Google Trends`);
+        logger.info(`trending-india: ${englishItems.length}/${items.length} English trends → ${topics.length} chips`);
         res.json({ topics, source: 'google-trends' });
     } catch (err) {
         logger.warn('trending-india fetch failed:', err.message);
