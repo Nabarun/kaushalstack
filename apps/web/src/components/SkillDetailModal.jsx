@@ -3,11 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil, History, RotateCcw, ShieldCheck } from 'lucide-react';
+import { User, Heart, MessageCircle, Code, BookOpen, Users, Pencil, History, RotateCcw, ShieldCheck, Send, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 import { toast } from 'sonner';
+import { Textarea } from '@/components/ui/textarea';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
   const { currentUser } = useAuth();
@@ -15,6 +17,15 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
   const [versions, setVersions] = useState([]);
   const [showVersions, setShowVersions] = useState(false);
   const [rolling, setRolling]   = useState(false);
+
+  // Social: likes + comments
+  const [liked, setLiked]             = useState(false);
+  const [likesCount, setLikesCount]   = useState(0);
+  const [likeBusy, setLikeBusy]       = useState(false);
+  const [comments, setComments]       = useState([]);
+  const [commentsCount, setCommentsCount] = useState(0);
+  const [commentText, setCommentText] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
 
   useEffect(() => {
     if (!currentUser) { setIsAdmin(false); return; }
@@ -34,8 +45,104 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
       .catch(() => {});
   }, [open, isAdmin, skill?.id]);
 
+  // Hydrate likes + comments whenever the modal opens for a skill
+  useEffect(() => {
+    if (!open || !skill?.id) return;
+    setLikesCount(skill.likes_count || 0);
+    setCommentsCount(skill.comments_count || 0);
+    setLiked(false);
+    setComments([]);
+    setCommentText('');
+
+    const token = pb.authStore.token;
+    // Comments are public
+    fetch(`/api/skills/${skill.id}/comments`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.items) { setComments(d.items); setCommentsCount(d.total || d.items.length); } })
+      .catch(() => {});
+    // "Have I liked this?" needs auth
+    if (token) {
+      fetch(`/api/skills/${skill.id}/like/me`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setLiked(!!d.liked); })
+        .catch(() => {});
+    }
+  }, [open, skill?.id]);
+
   if (!skill) return null;
   const canEdit = !!currentUser;
+
+  async function toggleLike() {
+    if (!currentUser) { toast.error('Sign in to like this skill'); return; }
+    if (likeBusy) return;
+    setLikeBusy(true);
+    // optimistic
+    const prevLiked = liked;
+    const prevCount = likesCount;
+    setLiked(!prevLiked);
+    setLikesCount(prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1);
+    try {
+      const token = pb.authStore.token;
+      const r = await fetch(`/api/skills/${skill.id}/like`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `API ${r.status}`);
+      setLiked(!!d.liked);
+      setLikesCount(d.likes_count);
+    } catch (err) {
+      setLiked(prevLiked);
+      setLikesCount(prevCount);
+      toast.error(err.message);
+    } finally {
+      setLikeBusy(false);
+    }
+  }
+
+  async function postComment(e) {
+    e?.preventDefault();
+    if (!currentUser) { toast.error('Sign in to comment'); return; }
+    const text = commentText.trim();
+    if (!text || postingComment) return;
+    setPostingComment(true);
+    try {
+      const token = pb.authStore.token;
+      const r = await fetch(`/api/skills/${skill.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `API ${r.status}`);
+      setComments(prev => [d.comment, ...prev]);
+      setCommentsCount(d.comments_count);
+      setCommentText('');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setPostingComment(false);
+    }
+  }
+
+  async function deleteComment(commentId) {
+    if (!confirm('Delete this comment?')) return;
+    try {
+      const token = pb.authStore.token;
+      const r = await fetch(`/api/skills/${skill.id}/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || `API ${r.status}`);
+      }
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      setCommentsCount(n => Math.max(0, n - 1));
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
 
   async function rollback(versionId, versionNumber) {
     if (!confirm(`Roll back this skill to version ${versionNumber}? The current state will be saved as a new version first.`)) return;
@@ -195,32 +302,95 @@ const SkillDetailModal = ({ skill, open, onOpenChange, onEdit }) => {
               </section>
             )}
 
-            {/* Community Stats */}
+            {/* Community Engagement — like + comments */}
             <section className="bg-muted/30 rounded-2xl p-5 border shadow-sm">
               <h3 className="text-xs font-bold mb-4 flex items-center gap-2 text-muted-foreground uppercase tracking-widest">
                 <Users className="w-4 h-4" />
                 Community Engagement
               </h3>
-              <div className="flex gap-8">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Heart className="w-6 h-6 text-primary" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xl tabular-nums">{skill.likes_count || 0}</div>
-                    <div className="text-xs font-medium text-muted-foreground">Likes</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
-                    <MessageCircle className="w-6 h-6 text-secondary" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xl tabular-nums">{skill.comments_count || 0}</div>
-                    <div className="text-xs font-medium text-muted-foreground">Comments</div>
-                  </div>
+
+              {/* Like / Comment count row */}
+              <div className="flex items-center gap-3 mb-5">
+                <button
+                  onClick={toggleLike}
+                  disabled={likeBusy}
+                  title={currentUser ? (liked ? 'Unlike' : 'Like this skill') : 'Sign in to like'}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${
+                    liked
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'bg-background border-border hover:border-primary/40 hover:bg-primary/5'
+                  } ${likeBusy ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                >
+                  <Heart className={`w-4 h-4 ${liked ? 'fill-current' : ''}`} />
+                  <span className="font-semibold text-sm tabular-nums">{likesCount}</span>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">{likesCount === 1 ? 'Like' : 'Likes'}</span>
+                </button>
+
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl border bg-background">
+                  <MessageCircle className="w-4 h-4 text-secondary" />
+                  <span className="font-semibold text-sm tabular-nums">{commentsCount}</span>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">{commentsCount === 1 ? 'Comment' : 'Comments'}</span>
                 </div>
               </div>
+
+              {/* Add comment */}
+              {currentUser ? (
+                <form onSubmit={postComment} className="mb-5">
+                  <Textarea
+                    value={commentText}
+                    onChange={e => setCommentText(e.target.value)}
+                    placeholder="Share what you think about this skill…"
+                    rows={2}
+                    maxLength={2000}
+                    className="text-gray-900 dark:text-gray-100 resize-y mb-2"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground font-mono">{commentText.length} / 2000</span>
+                    <Button type="submit" size="sm" disabled={postingComment || !commentText.trim()} className="gap-1.5">
+                      <Send className="w-3.5 h-3.5" /> {postingComment ? 'Posting…' : 'Post comment'}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-4 italic">Sign in to like this skill or join the conversation.</p>
+              )}
+
+              {/* Comments list */}
+              {comments.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No comments yet — be the first.</p>
+              ) : (
+                <div className="space-y-3">
+                  {comments.map(c => {
+                    const a = c.author;
+                    const initials = (a?.name || a?.username || 'U').slice(0, 2).toUpperCase();
+                    const canDelete = currentUser && (currentUser.id === c.user_id || isAdmin);
+                    return (
+                      <div key={c.id} className="flex gap-3 bg-background border rounded-lg p-3">
+                        <Avatar className="w-8 h-8 shrink-0">
+                          <AvatarImage src={a?.avatar ? pb.files.getUrl(a, a.avatar) : ''} alt={a?.username || ''} />
+                          <AvatarFallback className="text-[10px] bg-primary/10 text-primary">{initials}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-sm font-semibold">{a?.name || a?.username || 'Member'}</span>
+                            {a?.username && <span className="text-[11px] text-muted-foreground font-mono">@{a.username}</span>}
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              · {c.created ? new Date(c.created).toLocaleString() : ''}
+                            </span>
+                            {canDelete && (
+                              <button onClick={() => deleteComment(c.id)} title="Delete"
+                                className="ml-auto text-muted-foreground hover:text-destructive transition-colors">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-sm text-foreground whitespace-pre-wrap break-words">{c.text}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
           </div>
         </div>
