@@ -103,4 +103,23 @@ router.get('/members', listMembers);
 // Keep /contributors as a temporary alias so any cached client doesn't 404
 router.get('/contributors', listMembers);
 
+// GET /stats — public totals for landing/about pages
+router.get('/stats', async (_req, res) => {
+    try {
+        const [members, skills, leaderboard] = await Promise.all([
+            pb.collection('users').getList(1, 1, { filter: 'is_admin != true', fields: 'id', $autoCancel: false }),
+            pb.collection('skills').getList(1, 1, { fields: 'id', $autoCancel: false }),
+            pb.collection('leaderboard').getList(1, 1, { fields: 'id', $autoCancel: false }),
+        ]);
+        res.json({
+            members: members.totalItems,
+            skills: skills.totalItems,
+            leaderboard: leaderboard.totalItems,
+        });
+    } catch (err) {
+        logger.error('stats error:', err.message);
+        res.status(500).json({ error: err.message, members: 0, skills: 0, leaderboard: 0 });
+    }
+});
+
 export default router;

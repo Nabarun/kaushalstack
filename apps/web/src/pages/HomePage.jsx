@@ -146,14 +146,12 @@ const HomePage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [trendingRes, skillsCount, usersRes, lbRes] = await Promise.all([
+        const [trendingRes, statsRes] = await Promise.all([
           pb.collection('skills').getList(1, 6, { sort: '-likes_count,-created', $autoCancel: false }),
-          pb.collection('skills').getList(1, 1, { $autoCancel: false }),
-          pb.collection('users').getFullList({ $autoCancel: false }).catch(() => []),
-          pb.collection('leaderboard').getFullList({ $autoCancel: false }).catch(() => []),
+          fetch('/api/stats').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
         setTrendingSkills(trendingRes.items);
-        setStats({ users: usersRes.length, skills: skillsCount.totalItems, leaderboard: lbRes.length });
+        if (statsRes) setStats({ users: statsRes.members, skills: statsRes.skills, leaderboard: statsRes.leaderboard });
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {

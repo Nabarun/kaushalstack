@@ -11,25 +11,12 @@ const AboutPage = () => {
   const [stats, setStats] = useState({ users: 0, skills: 0, leaderboard: 0 });
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [usersList, skillsList, leaderboardList] = await Promise.all([
-          pb.collection('users').getFullList({ $autoCancel: false }).catch(() => []),
-          pb.collection('skills').getFullList({ $autoCancel: false }).catch(() => []),
-          pb.collection('leaderboard').getFullList({ $autoCancel: false }).catch(() => [])
-        ]);
-        
-        setStats({
-          users: usersList.length,
-          skills: skillsList.length,
-          leaderboard: leaderboardList.length
-        });
-      } catch (error) {
-        console.error('Failed to fetch platform stats:', error);
-      }
-    };
-
-    fetchStats();
+    // /api/stats does the join via the API's superuser PB client — the
+    // browser can't query users directly because of the auth.id read rule.
+    fetch('/api/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setStats({ users: d.members, skills: d.skills, leaderboard: d.leaderboard }); })
+      .catch(err => console.error('Failed to fetch platform stats:', err));
   }, []);
 
   return (

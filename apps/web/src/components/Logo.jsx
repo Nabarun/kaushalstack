@@ -20,8 +20,9 @@ export function LogoMark({ size = 28, gradientId, className }) {
     >
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3DBAF0" />
-          <stop offset="100%" stopColor="#1E6FD9" />
+          {/* Matches site brand: --accent (#FAB03E amber) → --primary (#EF6A1A orange) */}
+          <stop offset="0%" stopColor="#FAB03E" />
+          <stop offset="100%" stopColor="#EF6A1A" />
         </linearGradient>
       </defs>
       <rect width="96" height="96" rx="22" fill={`url(#${gid})`} />
@@ -48,7 +49,7 @@ export default function Logo({ size = 28, showText = true, tagline = false, clas
         <span className="flex flex-col leading-none">
           <span className="font-bold tracking-tight" style={{ fontSize: Math.round(size * 0.7) }}>
             <span className="text-foreground">kaushal</span>
-            <span style={{ color: '#3DBAF0' }}>stack</span>
+            <span className="text-primary">stack</span>
           </span>
           {tagline && (
             <span
