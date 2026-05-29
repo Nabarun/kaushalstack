@@ -103,18 +103,33 @@ router.get('/members', listMembers);
 // Keep /contributors as a temporary alias so any cached client doesn't 404
 router.get('/contributors', listMembers);
 
-// GET /stats — public totals for landing/about pages
+// GET /stats — public totals for landing/about pages. Mirrors the filters
+// applied on the /leaderboard and /members views so the headline numbers
+// don't disagree with the lists they summarise.
 router.get('/stats', async (_req, res) => {
     try {
-        const [members, skills, leaderboard] = await Promise.all([
+        const month = new Date().toISOString().slice(0, 7);
+        const adminIds = await getAdminUserIds();
+
+        // Leaderboard: count current-month rows that aren't owned by an admin.
+        // Filter admins client-side because user_id is plain text, not a relation.
+        const lbList = await pb.collection('leaderboard').getFullList({
+            filter: `month = "${month}"`,
+            fields: 'id,user_id',
+            $autoCancel: false,
+        });
+        const leaderboardCount = lbList.filter(r => !adminIds.has(r.user_id)).length;
+
+        const [members, skills] = await Promise.all([
             pb.collection('users').getList(1, 1, { filter: 'is_admin != true', fields: 'id', $autoCancel: false }),
             pb.collection('skills').getList(1, 1, { fields: 'id', $autoCancel: false }),
-            pb.collection('leaderboard').getList(1, 1, { fields: 'id', $autoCancel: false }),
         ]);
+
         res.json({
             members: members.totalItems,
             skills: skills.totalItems,
-            leaderboard: leaderboard.totalItems,
+            leaderboard: leaderboardCount,
+            month,
         });
     } catch (err) {
         logger.error('stats error:', err.message);
