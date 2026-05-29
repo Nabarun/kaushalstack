@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import { toast } from 'sonner';
-import { Sparkles } from 'lucide-react';
+import Logo from '@/components/Logo.jsx';
 
 const SignupPage = () => {
   const navigate = useNavigate();
@@ -47,9 +47,8 @@ const SignupPage = () => {
       <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-background via-muted/30 to-background">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Sparkles className="w-6 h-6 text-primary" />
-              <span className="text-xl font-bold">kaushalstack</span>
+            <div className="flex items-center justify-center mb-4">
+              <Logo size={28} />
             </div>
             <CardTitle className="text-2xl">Create your account</CardTitle>
             <CardDescription>

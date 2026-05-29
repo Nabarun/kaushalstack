@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Sparkles, GitPullRequest } from 'lucide-react';
+import { Menu, X, GitPullRequest } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import Logo from '@/components/Logo.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 
@@ -36,11 +37,8 @@ const Header = () => {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <Sparkles className="w-6 h-6 text-primary" />
-            <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              kaushalstack
-            </span>
+          <Link to="/" className="flex items-center">
+            <Logo size={30} />
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
