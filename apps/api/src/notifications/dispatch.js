@@ -28,11 +28,13 @@ function getTransporter() {
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
     if (!user || !pass) { logger.warn('notifications: SMTP not configured — emails skipped'); return null; }
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const useImplicitTLS = port === 465;
     transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: false,
-        requireTLS: true,
+        port,
+        secure: useImplicitTLS,
+        requireTLS: !useImplicitTLS,
         auth: { user, pass },
     });
     return transporter;

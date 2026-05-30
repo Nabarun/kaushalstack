@@ -20,11 +20,13 @@ function getTransporter() {
         logger.warn('contact: SMTP credentials not configured — emails will fail');
         return null;
     }
+    // 465 → implicit SSL/TLS (Hostinger default). 587 → STARTTLS (Gmail/etc.).
+    const useImplicitTLS = SMTP_PORT === 465;
     transporter = nodemailer.createTransport({
         host: SMTP_HOST,
         port: SMTP_PORT,
-        secure: false,            // STARTTLS upgrade on port 587
-        requireTLS: true,
+        secure: useImplicitTLS,
+        requireTLS: !useImplicitTLS,
         auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
     return transporter;
