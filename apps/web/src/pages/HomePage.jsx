@@ -5,10 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords } from 'lucide-react';
+import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X } from 'lucide-react';
 import SkillCard from '@/components/SkillCard.jsx';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
+import DemoVideoCard from '@/components/DemoVideoCard.jsx';
+import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 import { avatarUrl } from '@/lib/avatar';
 
@@ -125,6 +127,7 @@ async function recommendTeam(query) {
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
   const [trendingSkills, setTrendingSkills] = useState([]);
   const [loading, setLoading]               = useState(true);
@@ -202,6 +205,72 @@ const HomePage = () => {
   const handleViewDetails = (skill) => { setSelectedSkill(skill); setIsModalOpen(true); };
 
   const isEmpty = messages.length === 0;
+  // Split hero (video + prompt side-by-side) only for anonymous visitors who
+  // haven't started a chat. Members go straight to the existing centered
+  // prompt-first layout. Render nothing flicker-y until auth resolves.
+  const showSplitHero = isEmpty && !authLoading && !isAuthenticated;
+
+  // First-visit banner for members. Persists dismissal in localStorage so it
+  // never re-shows after they've closed it (per device).
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !isEmpty) { setShowWelcomeBanner(false); return; }
+    try {
+      if (!localStorage.getItem('ks_welcome_dismissed')) setShowWelcomeBanner(true);
+    } catch { /* private mode */ }
+  }, [authLoading, isAuthenticated, isEmpty]);
+  function dismissWelcome() {
+    try { localStorage.setItem('ks_welcome_dismissed', '1'); } catch {}
+    setShowWelcomeBanner(false);
+  }
+
+  function HeroBanner() {
+    return (
+      <div className="text-center mb-6 lg:text-left lg:mb-0">
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
+          <Sparkles className="w-4 h-4 text-primary" />
+          <span className="text-sm font-medium">AI Agent Team Builder</span>
+        </div>
+        <h1 className="text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
+          What do you want{' '}
+          <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to build?</span>
+        </h1>
+        <p className="text-base text-muted-foreground lg:max-w-md">
+          Describe your project and we'll assemble the right team of AI agent skills for you.
+        </p>
+      </div>
+    );
+  }
+
+  function CompactPromptInput() {
+    return (
+      <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={e => {
+              setInput(e.target.value);
+              e.target.style.height = '24px';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+            placeholder="What do you want to build today?"
+            className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
+            style={{ height: '24px' }}
+          />
+          <button
+            onClick={() => handleSubmit()}
+            disabled={!input.trim() || chatLoading}
+            className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -217,11 +286,90 @@ const HomePage = () => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
-          <div className="relative flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 sm:px-6 py-12">
+          <div className={`relative flex-1 flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
 
-            {/* Heading — fades out once chat starts */}
+            {/* ── SPLIT HERO (logged-out, empty) ── video + compact prompt ── */}
+            {showSplitHero && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="grid lg:grid-cols-[1.1fr_1fr] gap-8 lg:gap-12 items-start mb-2"
+              >
+                {/* LEFT: Demo video */}
+                <div className="order-2 lg:order-1">
+                  <DemoVideoCard duration="5 min" />
+                  <p className="text-center text-xs text-muted-foreground mt-3">
+                    🎥 Watch how kaushalstack assembles a 5-agent team and discusses your project.
+                  </p>
+                </div>
+
+                {/* RIGHT: Headline + input + compact trending */}
+                <div className="order-1 lg:order-2 space-y-5 lg:pt-1">
+                  <HeroBanner />
+                  <CompactPromptInput />
+
+                  {/* Trending in India — compact (top 5 only) */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-base">🇮🇳</span>
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Trending in India</span>
+                      {trendingSource === 'google-trends' && (
+                        <span className="text-[9px] text-muted-foreground/60 font-mono">· live</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {trendingTopics.slice(0, 5).map((t, i) => (
+                        <button key={i} onClick={() => handleSubmit(t.prompt)}
+                          title={t.traffic ? `${t.traffic} searches` : undefined}
+                          className="text-[11px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors">
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="text-center lg:text-left pt-1">
+                    <Link to="/signup" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                      New here? <span className="text-primary font-semibold">Create a free account →</span>
+                    </Link>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* First-visit member welcome — soft banner above the centered prompt */}
             <AnimatePresence>
-              {isEmpty && (
+              {showWelcomeBanner && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8, transition: { duration: 0.2 } }}
+                  className="mb-6 relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 via-accent/8 to-transparent px-4 py-3 flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+                    <Play className="w-4 h-4 text-primary fill-primary translate-x-0.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground">New here? Watch the 5-min walkthrough</div>
+                    <div className="text-xs text-muted-foreground">See the round table, community edits, and BYOK in action.</div>
+                  </div>
+                  <Link to="/about#demo">
+                    <button className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap">
+                      Watch demo
+                    </button>
+                  </Link>
+                  <button onClick={dismissWelcome} aria-label="Dismiss"
+                    className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex items-center justify-center shrink-0">
+                    <X className="w-4 h-4" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Heading — fades out once chat starts. Hidden in split-hero mode (banner is shown there instead). */}
+            <AnimatePresence>
+              {isEmpty && !showSplitHero && (
                 <motion.div
                   initial={{ opacity: 1 }}
                   exit={{ opacity: 0, y: -16, transition: { duration: 0.25 } }}
@@ -244,9 +392,9 @@ const HomePage = () => {
               )}
             </AnimatePresence>
 
-            {/* Trending topics + example chips — only when empty */}
+            {/* Trending topics + example chips — only when empty and not in split-hero mode */}
             <AnimatePresence>
-              {isEmpty && (
+              {isEmpty && !showSplitHero && (
                 <motion.div
                   initial={{ opacity: 1 }}
                   exit={{ opacity: 0, transition: { duration: 0.2 } }}
@@ -415,8 +563,8 @@ const HomePage = () => {
               </div>
             )}
 
-            {/* Chat input */}
-            <div className="sticky bottom-4 mt-auto">
+            {/* Chat input (sticky bottom). Hidden in split-hero mode — the compact input lives in the right column there. */}
+            <div className={`sticky bottom-4 mt-auto ${showSplitHero ? 'hidden' : ''}`}>
               <div className="flex items-end gap-2 bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
                 <textarea
                   ref={inputRef}

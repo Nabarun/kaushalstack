@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Heart, Users, Code, TrendingUp, ArrowRight, Sparkles } from 'lucide-react';
+import DemoVideoCard from '@/components/DemoVideoCard.jsx';
 import pb from '@/lib/pocketbaseClient';
 
 const AboutPage = () => {
@@ -17,6 +18,14 @@ const AboutPage = () => {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setStats({ users: d.members, skills: d.skills, leaderboard: d.leaderboard }); })
       .catch(err => console.error('Failed to fetch platform stats:', err));
+
+    // ScrollToTop globally yanks the page to top on route change, so an in-URL
+    // #demo hash gets clobbered. Re-honor it after mount.
+    if (window.location.hash === '#demo') {
+      setTimeout(() => {
+        document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
   }, []);
 
   return (
@@ -42,6 +51,23 @@ const AboutPage = () => {
             <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl mx-auto">
               kaushalstack is a free, open-source platform where anyone can share their skills, learn from others, and contribute to a growing knowledge base. We believe in the power of community-driven education and collaborative growth.
             </p>
+          </div>
+        </section>
+
+        {/* Demo video — anchored at #demo so the homepage banner + footer links land here */}
+        <section id="demo" className="py-12 sm:py-16 -mt-6">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full mb-3">
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-semibold text-primary uppercase tracking-widest">5-min walkthrough</span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-bold mb-2">See kaushalstack in action</h2>
+              <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+                A guided tour through the skills library, community editing workflow, and the round table.
+              </p>
+            </div>
+            <DemoVideoCard duration="5 min" />
           </div>
         </section>
 

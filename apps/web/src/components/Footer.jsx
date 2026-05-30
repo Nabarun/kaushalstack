@@ -47,6 +47,11 @@ const Footer = () => {
                   Contact Us
                 </Link>
               </li>
+              <li>
+                <Link to="/about#demo" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors inline-flex items-center gap-1">
+                  ▶ Watch demo
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
