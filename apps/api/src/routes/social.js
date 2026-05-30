@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { notify, NotificationKind } from '../notifications/dispatch.js';
 
 const router = Router();
 
@@ -144,6 +145,21 @@ router.post('/skills/:id/comments', async (req, res) => {
 
         // hydrate author for immediate render
         const u = await pb.collection('users').getOne(userId).catch(() => null);
+
+        // Notify the skill's creator (not the commenter themselves).
+        if (skill.created_by) {
+            notify({
+                userId: skill.created_by,
+                kind: NotificationKind.COMMENT_ON_SKILL,
+                actor_id: userId,
+                subject_id: skill.id,
+                data: {
+                    skill_name: skill.name,
+                    comment_excerpt: text.slice(0, 240),
+                    author_username: u?.username || 'A member',
+                },
+            });
+        }
 
         res.json({
             comment: {

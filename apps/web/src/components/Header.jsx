@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, GitPullRequest } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Logo from '@/components/Logo.jsx';
+import NotificationBell from '@/components/NotificationBell.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 
@@ -71,6 +72,7 @@ const Header = () => {
                     )}
                   </Button>
                 </Link>
+                <NotificationBell />
                 <Link to="/profile">
                   <Button variant="outline" size="sm">
                     {currentUser?.username || 'Profile'}

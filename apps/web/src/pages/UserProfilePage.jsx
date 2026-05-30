@@ -9,7 +9,7 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X } from 'lucide-react';
+import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X, Bell, BellOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -131,6 +131,9 @@ const UserProfilePage = () => {
 
               {/* OpenAI API key management */}
               <OpenAIKeySection />
+
+              {/* Email notification preferences */}
+              <EmailPrefsSection user={user} />
 
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold">My Shared Skills</h2>
@@ -290,6 +293,60 @@ function ProfileEditSection({ user }) {
             </div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmailPrefsSection({ user }) {
+  const [disabled, setDisabled] = useState(!!user?.notify_email_disabled);
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    setBusy(true);
+    const next = !disabled;
+    try {
+      await pb.collection('users').update(user.id, { notify_email_disabled: next }, { $autoCancel: false });
+      setDisabled(next);
+      toast.success(next ? 'Email notifications turned off' : 'Email notifications turned on');
+    } catch (err) {
+      toast.error(err?.message || 'Failed to update preference');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-center gap-2">
+          {disabled ? <BellOff className="w-5 h-5 text-muted-foreground" /> : <Bell className="w-5 h-5 text-primary" />}
+          <h2 className="text-xl font-bold">Email notifications</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Get an email when one of your edits is merged, discarded, or someone comments on a skill you authored.
+          The bell icon in the header always works regardless of this setting.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5">
+        <div className="flex items-center justify-between gap-4 bg-muted/30 border rounded-lg px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">
+              {disabled ? 'Emails are off' : 'Emails are on'}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Sent to <span className="font-mono">{user?.email}</span>
+            </div>
+          </div>
+          <Button
+            onClick={toggle}
+            disabled={busy}
+            variant={disabled ? 'default' : 'outline'}
+            size="sm"
+          >
+            {busy ? 'Saving…' : (disabled ? 'Turn on' : 'Turn off')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

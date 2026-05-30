@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { notify, NotificationKind } from '../notifications/dispatch.js';
 
 const router = Router();
 
@@ -203,11 +204,30 @@ async function voteOnEdit(editId, voterId, type, voteKind /* 'approve' | 'reject
             try {
                 const skill = await pb.collection('skills').getOne(edit.skill_id);
                 await mergeEdit({ ...edit, approvals }, skill);
+                // Fire MERGED notification to the edit author
+                notify({
+                    userId: edit.user_id,
+                    kind: NotificationKind.EDIT_MERGED,
+                    actor_id: voterId,
+                    subject_id: edit.skill_id,
+                    data: { skill_name: skill.name, version: (skill.version || 1) + 1, approvals_count: approvals.length },
+                });
                 return { status: 200, body: { merged: true, approvals, rejections } };
             } catch (err) {
                 logger.error(`merge failed for edit ${editId}:`, err.message);
                 return { status: 422, body: { error: 'merge_failed', detail: err.message, approvals, rejections } };
             }
+        }
+        // Vote acknowledged but not merged — let the author know someone weighed in
+        if (type === 'human') {
+            const skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+            notify({
+                userId: edit.user_id,
+                kind: NotificationKind.EDIT_VOTED,
+                actor_id: voterId,
+                subject_id: edit.skill_id,
+                data: { skill_name: skill?.name || '', vote: 'approve', approvals_count: approvals.length, threshold: APPROVAL_THRESHOLD },
+            });
         }
         return { status: 200, body: { approvals, rejections, threshold: APPROVAL_THRESHOLD } };
     } else {
@@ -215,7 +235,25 @@ async function voteOnEdit(editId, voterId, type, voteKind /* 'approve' | 'reject
         await pb.collection('skill_edits').update(editId, { rejections });
         if (rejections.length >= REJECTION_THRESHOLD) {
             await discardEdit(editId);
+            const skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+            notify({
+                userId: edit.user_id,
+                kind: NotificationKind.EDIT_DISCARDED,
+                actor_id: voterId,
+                subject_id: edit.skill_id,
+                data: { skill_name: skill?.name || '', rejections_count: rejections.length },
+            });
             return { status: 200, body: { discarded: true, approvals, rejections } };
+        }
+        if (type === 'human') {
+            const skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+            notify({
+                userId: edit.user_id,
+                kind: NotificationKind.EDIT_VOTED,
+                actor_id: voterId,
+                subject_id: edit.skill_id,
+                data: { skill_name: skill?.name || '', vote: 'reject', rejections_count: rejections.length, threshold: REJECTION_THRESHOLD },
+            });
         }
         return { status: 200, body: { approvals, rejections, threshold: REJECTION_THRESHOLD } };
     }
@@ -297,6 +335,16 @@ Respond with ONLY valid JSON:
         // Stamp the ai_review field so it can't be re-run
         await pb.collection('skill_edits').update(edit.id, {
             ai_review: { decision, reason, at: new Date().toISOString() },
+        });
+
+        // Notify the edit author about the AI verdict (in-app only — no email
+        // for lower-emotion events).
+        notify({
+            userId: edit.user_id,
+            kind: NotificationKind.EDIT_AI_REVIEWED,
+            actor_id: AI_REVIEWER_ID,
+            subject_id: edit.skill_id,
+            data: { skill_name: skill.name, decision, reason },
         });
 
         // Cast the vote

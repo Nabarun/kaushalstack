@@ -9,6 +9,7 @@ import leaderboardRouter from './leaderboard.js';
 import userKeysRouter from './user-keys.js';
 import contactRouter from './contact.js';
 import socialRouter from './social.js';
+import notificationsRouter from './notifications.js';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ export default () => {
     router.use('/', userKeysRouter);
     router.use('/', contactRouter);
     router.use('/', socialRouter);
+    router.use('/', notificationsRouter);
 
     return router;
 };
