@@ -5,13 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X } from 'lucide-react';
-import SkillCard from '@/components/SkillCard.jsx';
+import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone } from 'lucide-react';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
 import DemoVideoCard from '@/components/DemoVideoCard.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
-import pb from '@/lib/pocketbaseClient';
 import { avatarUrl } from '@/lib/avatar';
 
 const EXAMPLES = [
@@ -21,6 +19,23 @@ const EXAMPLES = [
   'An EV charging network management dashboard',
   'A telemedicine platform for rural healthcare in India',
   'A fantasy cricket analytics tool for IPL season',
+];
+
+// Apps that kaushalstack powers — i.e. real products built by/with the community.
+const POWERED_APPS = [
+  {
+    name: 'ReFunction Rehab',
+    description: 'Physiotherapy clinic in Bangalore',
+    url: 'https://refunctionrehab.in/',
+    domain: 'refunctionrehab.in',
+  },
+];
+
+const PHASE_TILES = [
+  { id: null,        label: 'All agents', Icon: Sparkles },
+  { id: 'ideation',  label: 'Ideation',   Icon: Lightbulb },
+  { id: 'execution', label: 'Execution',  Icon: Code },
+  { id: 'marketing', label: 'Marketing',  Icon: Megaphone },
 ];
 
 const TRENDING_INDIA_FALLBACK = [
@@ -109,12 +124,12 @@ function AgentCard({ skill, index, onViewDetails }) {
 }
 
 
-async function recommendTeam(query) {
+async function recommendTeam(query, phase = null) {
   try {
     const res = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, phase }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
     const data = await res.json();
@@ -129,9 +144,9 @@ const HomePage = () => {
   const navigate = useNavigate();
   const { isAuthenticated, loading: authLoading } = useAuth();
 
-  const [trendingSkills, setTrendingSkills] = useState([]);
-  const [loading, setLoading]               = useState(true);
-  const [stats, setStats]                   = useState({ users: 0, skills: 0, leaderboard: 0 });
+  const [stats, setStats] = useState({ users: 0, skills: 0, leaderboard: 0 });
+  // null = search across all phases. Otherwise: 'ideation' | 'execution' | 'marketing'.
+  const [selectedPhase, setSelectedPhase] = useState(null);
 
   const [input, setInput]       = useState('');
   const [messages, setMessages] = useState([]);
@@ -147,21 +162,10 @@ const HomePage = () => {
   const messagesRef = useRef(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [trendingRes, statsRes] = await Promise.all([
-          pb.collection('skills').getList(1, 6, { sort: '-likes_count,-created', $autoCancel: false }),
-          fetch('/api/stats').then(r => r.ok ? r.json() : null).catch(() => null),
-        ]);
-        setTrendingSkills(trendingRes.items);
-        if (statsRes) setStats({ users: statsRes.members, skills: statsRes.skills, leaderboard: statsRes.leaderboard });
-      } catch (err) {
-        console.error('Failed to fetch data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    fetch('/api/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(s => { if (s) setStats({ users: s.members, skills: s.skills, leaderboard: s.leaderboard }); })
+      .catch(err => console.error('Failed to fetch stats:', err));
   }, []);
 
   useEffect(() => {
@@ -191,11 +195,11 @@ const HomePage = () => {
     if (!text || chatLoading) return;
 
     setInput('');
-    setMessages(prev => [...prev, { type: 'user', text }]);
+    setMessages(prev => [...prev, { type: 'user', text, phase: selectedPhase }]);
     setChatLoading(true);
 
-    const team = await recommendTeam(text);
-    setMessages(prev => [...prev, { type: 'result', skills: team, query: text }]);
+    const team = await recommendTeam(text, selectedPhase);
+    setMessages(prev => [...prev, { type: 'result', skills: team, query: text, phase: selectedPhase }]);
     setChatLoading(false);
     setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   };
@@ -209,6 +213,11 @@ const HomePage = () => {
   // haven't started a chat. Members go straight to the existing centered
   // prompt-first layout. Render nothing flicker-y until auth resolves.
   const showSplitHero = isEmpty && !authLoading && !isAuthenticated;
+
+  // Placeholder text — narrows the prompt to whatever scope the user picked.
+  const promptPlaceholder = selectedPhase
+    ? `What do you want to build in the ${selectedPhase} phase?`
+    : 'What do you want to build today?';
 
   // First-visit banner for members. Persists dismissal in localStorage so it
   // never re-shows after they've closed it (per device).
@@ -224,53 +233,10 @@ const HomePage = () => {
     setShowWelcomeBanner(false);
   }
 
-  function HeroBanner() {
-    return (
-      <div className="text-center mb-6 lg:text-left lg:mb-0">
-        <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
-          <Sparkles className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium">AI Agent Team Builder</span>
-        </div>
-        <h1 className="text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
-          What do you want{' '}
-          <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to build?</span>
-        </h1>
-        <p className="text-base text-muted-foreground lg:max-w-md">
-          Describe your project and we'll assemble the right team of AI agent skills for you.
-        </p>
-      </div>
-    );
-  }
-
-  function CompactPromptInput() {
-    return (
-      <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={input}
-            onChange={e => {
-              setInput(e.target.value);
-              e.target.style.height = '24px';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-            placeholder="What do you want to build today?"
-            className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
-            style={{ height: '24px' }}
-          />
-          <button
-            onClick={() => handleSubmit()}
-            disabled={!input.trim() || chatLoading}
-            className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // NOTE: HeroBanner and CompactPromptInput were previously defined as nested
+  // functions here. That created a new component identity on every render, so
+  // React unmounted and remounted the textarea on every keystroke, killing
+  // focus for guest users. They are now inlined where used in the JSX below.
 
   return (
     <>
@@ -281,12 +247,33 @@ const HomePage = () => {
 
       <div className="min-h-screen">
 
-        {/* ── Chat Hero ── */}
+        {/* ── Chat Hero with phase scope ── */}
         <section className="relative min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
           <div className={`relative flex-1 flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
+
+            {/* ── Phase scope selector — sets recommend() filter ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-8 max-w-3xl mx-auto w-full">
+              {PHASE_TILES.map(({ id, label, Icon }) => {
+                const active = selectedPhase === id;
+                return (
+                  <button
+                    key={id || 'all'}
+                    onClick={() => setSelectedPhase(id)}
+                    className={`flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-all ${
+                      active
+                        ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                        : 'border-border bg-card hover:border-primary/40 text-foreground'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* ── SPLIT HERO (logged-out, empty) ── video + compact prompt ── */}
             {showSplitHero && (
@@ -306,8 +293,44 @@ const HomePage = () => {
 
                 {/* RIGHT: Headline + input + compact trending */}
                 <div className="order-1 lg:order-2 space-y-5 lg:pt-1">
-                  <HeroBanner />
-                  <CompactPromptInput />
+                  <div className="text-center mb-6 lg:text-left lg:mb-0">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium">AI Agent Team Builder</span>
+                    </div>
+                    <h1 className="text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
+                      What do you want{' '}
+                      <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to build?</span>
+                    </h1>
+                    <p className="text-base text-muted-foreground lg:max-w-md">
+                      Describe your project and we'll assemble the right team of AI agent skills for you.
+                    </p>
+                  </div>
+                  <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        ref={inputRef}
+                        rows={1}
+                        value={input}
+                        onChange={e => {
+                          setInput(e.target.value);
+                          e.target.style.height = '24px';
+                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                        placeholder={promptPlaceholder}
+                        className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
+                        style={{ height: '24px' }}
+                      />
+                      <button
+                        onClick={() => handleSubmit()}
+                        disabled={!input.trim() || chatLoading}
+                        className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Trending in India — compact (top 5 only) */}
                   <div>
@@ -576,7 +599,7 @@ const HomePage = () => {
                     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
                   }}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                  placeholder="What do you want to build today?"
+                  placeholder={promptPlaceholder}
                   className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
                   style={{ height: '24px' }}
 
@@ -633,40 +656,56 @@ const HomePage = () => {
           </div>
         </section>
 
-        {/* ── Trending skills ── */}
-        <section className="py-20 bg-background">
+        {/* ── Powered by kaushalstack ── */}
+        <section className="py-20 bg-muted/20 border-t">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <div className="inline-flex items-center gap-2 mb-4">
-                <TrendingUp className="w-5 h-5 text-primary" />
-                <span className="text-sm font-medium text-primary">Popular Right Now</span>
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-sm font-medium text-primary">Built with our community</span>
               </div>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">Trending skills</h2>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">Powered by kaushalstack</h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Discover what the community is learning and building today
+                Real products built using AI agent teams assembled on kaushalstack
               </p>
             </div>
 
-            {loading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-80 bg-card rounded-2xl animate-pulse" />)}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {trendingSkills.map((skill, index) => (
-                  <motion.div key={skill.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: index * 0.1 }}>
-                    <SkillCard skill={skill} onViewDetails={handleViewDetails} />
-                  </motion.div>
-                ))}
-              </div>
-            )}
-
-            <div className="text-center mt-12">
-              <Link to="/skills">
-                <Button size="lg" variant="outline" className="gap-2">
-                  View All Skills <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {POWERED_APPS.map((app, i) => (
+                <motion.a
+                  key={app.url}
+                  href={app.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: i * 0.1 }}
+                  className="block group"
+                >
+                  <Card className="h-full hover:shadow-lg hover:-translate-y-0.5 transition-all border-border/60">
+                    <CardContent className="p-6 flex items-start gap-4">
+                      <img
+                        src={`https://www.google.com/s2/favicons?sz=128&domain=${app.domain}`}
+                        alt={`${app.name} logo`}
+                        className="w-12 h-12 rounded-xl bg-background ring-1 ring-border object-contain p-1.5 shrink-0"
+                        loading="lazy"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                            {app.name}
+                          </h3>
+                          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+                        </div>
+                        <p className="text-sm text-muted-foreground leading-relaxed mb-2">
+                          {app.description}
+                        </p>
+                        <span className="text-xs font-mono text-muted-foreground/70">{app.domain}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.a>
+              ))}
             </div>
           </div>
         </section>
