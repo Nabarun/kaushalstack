@@ -10,6 +10,9 @@ import userKeysRouter from './user-keys.js';
 import contactRouter from './contact.js';
 import socialRouter from './social.js';
 import notificationsRouter from './notifications.js';
+import buildRouter from './build.js';
+import mockupRouter from './mockup.js';
+import creativeRouter from './creative.js';
 
 const router = Router();
 
@@ -29,6 +32,9 @@ export default () => {
     router.use('/', contactRouter);
     router.use('/', socialRouter);
     router.use('/', notificationsRouter);
+    router.use('/', buildRouter);
+    router.use('/', mockupRouter);
+    router.use('/', creativeRouter);
 
     return router;
 };

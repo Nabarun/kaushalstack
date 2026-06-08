@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
-import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
+import { ensureCache, search, cacheSize, getSkillById } from '../embeddings/cache.js';
 
 const router = Router();
 
@@ -35,7 +35,55 @@ async function embedQuery(text) {
 // queries lands at ~0.35, while Linux Monitor for telemedicine lands at ~0.26).
 const TECH_MIN_SCORE = 0.30;
 
-function pickTeam(scored, size = 5) {
+// Ananya is the tool-using App Builder. For execution-phase queries that are
+// clearly "build me a {page/app/site}", her presence in the team is required —
+// regardless of cosine score. The embedding match gets dominated by the noun
+// (e.g. "physiotherapy clinic") and she falls off the top-5 even though she's
+// the right agent for the verb.
+const ANANYA_SKILL_ID = '0v9syxxawznp95v';
+const BUILD_VERBS = /\b(build|create|make|develop|generate|scaffold|construct|design)\b/i;
+const BUILD_NOUNS = /\b(landing\s+page|website|webpage|web\s+app|web\s+page|web\s+site|microsite|portfolio|prototype|app|site|page|html|web|timer|generator|tracker|calculator|quiz|tool|utility|game|dashboard|form|viewer|picker|finder|converter|filter|widget|countdown|to-?do)\b/i;
+
+function isBuildQuery(q) {
+    return BUILD_VERBS.test(q) && BUILD_NOUNS.test(q);
+}
+
+// Maya is the UX Mockup Designer. Pinned for design/mockup-shaped queries in
+// either ideation OR execution phase (you might want mockups before deciding
+// what to build, or alongside building it).
+const MAYA_SKILL_ID = 'uepji0o2teuf29b';
+const DESIGN_EXPLICIT = /\b(mockup|mockups|wireframe|wireframes|prototype|prototypes|sketch|ui[\s-]design|ux[\s-]design)\b/i;
+const DESIGN_VERB_OBJECT = /\b(design|visualize|mock\s+up)\b[^.!?]{0,80}?\b(app|website|webpage|web\s+app|screens?|ui|ux|interface|landing\s+page|page|site|mobile)\b/i;
+
+function isDesignQuery(q) {
+    return DESIGN_EXPLICIT.test(q) || DESIGN_VERB_OBJECT.test(q);
+}
+
+// Kavya is the Email Campaign Designer — Maya's marketing-phase counterpart.
+// Pinned for marketing-phase queries that mention email-shaped artifacts.
+// Bare "email" is enough; we also accept newsletter / inbox / drip / mailing
+// list and explicit pairs like "email campaign" / "launch email".
+const KAVYA_SKILL_ID = 'ip1bvcutzgsy28p';
+const EMAIL_CAMPAIGN_KEYWORDS = /\b(email|newsletter|inbox|preheader|subject\s+line|mailing\s+list|drip\s+sequence|onboarding\s+email|launch\s+email|announcement\s+email|email\s+campaign|email\s+blast|email\s+sequence)\b/i;
+
+function isEmailCampaignQuery(q) {
+    return EMAIL_CAMPAIGN_KEYWORDS.test(q);
+}
+
+// Tara is the Social Media Campaign Designer — Kavya's social counterpart.
+// Pinned for marketing-phase queries that mention a social platform or
+// platform-native content shape (story, reel, carousel, thread, etc.).
+// Bare "instagram" or "facebook + content noun" is enough; bare "linkedin"
+// requires a content noun so we don't blanket-claim every LinkedIn-related
+// prompt away from existing LinkedIn-specific coaches.
+const TARA_SKILL_ID = 'eu6cweasi3d4xt8';
+const SOCIAL_MEDIA_KEYWORDS = /\b(instagram|insta\b|ig\s+(?:post|story|reel|carousel)|facebook\s+(?:post|page|ad|ads|campaign|reel|story|content)|linkedin\s+(?:post|thread|carousel|article|update|content)|twitter\s+thread|tweet\s+thread|x\s+thread|social\s+(?:media|post|campaign|content)|reels?|carousel\s+(?:post|slide)|insta\s+story)\b/i;
+
+function isSocialMediaQuery(q) {
+    return SOCIAL_MEDIA_KEYWORDS.test(q);
+}
+
+function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // One per category, in order of score, until we hit `size`.
     const seenCats = new Set();
     const team = [];
@@ -59,14 +107,93 @@ function pickTeam(scored, size = 5) {
         }
     }
 
+    // Required pins — Ananya for build-shaped execution, Maya for design-shaped
+    // ideation OR execution. We first try the phase-filtered scored list (so
+    // we keep _score if available); otherwise fall back to getSkillById, which
+    // ignores phase and ensures cross-phase pins still work.
+    const pins = [];
+    if (phase === 'execution' && isBuildQuery(query)) {
+        const ananya = scored.find(s => s.id === ANANYA_SKILL_ID) || getSkillById(ANANYA_SKILL_ID);
+        if (ananya) pins.push(ananya);
+    }
+    // Maya pins on either explicit design language OR any web/app-y build query.
+    // Rationale: every "build a landing page / app / site" intrinsically has a
+    // UX layer — palette, typography, layout. Showing mockups alongside the
+    // build is almost always useful, never harmful.
+    if ((phase === 'ideation' || phase === 'execution') && (isDesignQuery(query) || isBuildQuery(query))) {
+        const maya = scored.find(s => s.id === MAYA_SKILL_ID) || getSkillById(MAYA_SKILL_ID);
+        if (maya) pins.push(maya);
+    }
+    // Kavya pins for marketing-phase email-shaped queries — she's the
+    // tool-using designer that renders an actual HTML email + preview, the
+    // way Maya does for app UI. Any marketing prompt that names email /
+    // newsletter / inbox / drip / launch email triggers the pin.
+    if (phase === 'marketing' && isEmailCampaignQuery(query)) {
+        const kavya = scored.find(s => s.id === KAVYA_SKILL_ID) || getSkillById(KAVYA_SKILL_ID);
+        if (kavya) pins.push(kavya);
+    }
+    // Tara pins for marketing-phase social-media queries — Instagram, Facebook,
+    // LinkedIn post/thread, Twitter/X thread, reels, stories, carousels. She
+    // renders the post inside the platform's own UI chrome the way Maya does
+    // for apps and Kavya does for inboxes.
+    if (phase === 'marketing' && isSocialMediaQuery(query)) {
+        const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
+        if (tara) pins.push(tara);
+    }
+    const pinnedIds = new Set(pins.map(p => p.id));
+    for (const pin of pins) {
+        if (team.some(s => s.id === pin.id)) continue;
+        if (team.length < size) {
+            team.push(pin);
+        } else {
+            // Replace the weakest non-pinned slot (last position by score).
+            for (let i = team.length - 1; i >= 0; i--) {
+                if (!pinnedIds.has(team[i].id)) {
+                    team[i] = pin;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Ananya ↔ Maya travel together. If one is in the team via any path
+    // (pin, natural cosine, or Tech force-include), the other comes along
+    // — a build needs a designer, and a design without a builder usually
+    // wants one too. Symmetric so users always see both halves of the
+    // build/design pair, regardless of which keyword tripped first.
+    const ensurePartner = (presentId, partnerId) => {
+        if (!team.some(s => s.id === presentId)) return;
+        if (team.some(s => s.id === partnerId)) return;
+        const partner = scored.find(s => s.id === partnerId) || getSkillById(partnerId);
+        if (!partner) return;
+        if (team.length < size) {
+            team.push(partner);
+            pinnedIds.add(partnerId);
+            return;
+        }
+        // Replace the weakest non-pinned, non-`presentId` slot.
+        for (let i = team.length - 1; i >= 0; i--) {
+            if (team[i].id !== presentId && !pinnedIds.has(team[i].id)) {
+                team[i] = partner;
+                pinnedIds.add(partnerId);
+                break;
+            }
+        }
+    };
+    ensurePartner(ANANYA_SKILL_ID, MAYA_SKILL_ID);
+    ensurePartner(MAYA_SKILL_ID, ANANYA_SKILL_ID);
+
     return team.slice(0, size);
 }
 
+const VALID_PHASES = new Set(['ideation', 'execution', 'marketing']);
+
 router.post('/recommend', async (req, res) => {
-    const { query } = req.body || {};
+    const { query, phase: rawPhase } = req.body || {};
     if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: 'query is required' });
     }
+    const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
 
     // Clean query for embedding — remove stopwords for a tighter semantic signal
     const cleaned = query
@@ -86,14 +213,14 @@ router.post('/recommend', async (req, res) => {
         }
 
         const vector    = await embedQuery(cleaned);
-        const topSkills = search(vector, 500);
-        let team        = pickTeam(topSkills);
+        const topSkills = search(vector, 500, phase);
+        let team        = pickTeam(topSkills, 6, { query, phase });
 
         const techPick = team.find(s => s.category === 'Tech');
-        logger.info(`recommend: "${query}" → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
+        logger.info(`recommend: "${query}" phase=${phase || 'all'} → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
 
         // Strip the _score before sending to the client — internal detail
-        res.json({ skills: team.slice(0, 5).map(({ _score, ...s }) => s) });
+        res.json({ skills: team.slice(0, 6).map(({ _score, ...s }) => s) });
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });

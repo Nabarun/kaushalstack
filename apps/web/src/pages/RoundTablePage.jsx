@@ -2,19 +2,33 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Hammer, Download, CheckCircle2, AlertCircle, Eye, Palette, Lock, Sparkles, Mail, Megaphone } from 'lucide-react';
+
+// Tool-using agents — when their skill is in the active chat's team, the
+// matching CTA panel renders.
+//   Ananya — full-stack web build
+//   Maya   — 5 device-framed HTML mockups
+//   Kavya  — HTML email campaign + Gmail-frame preview
+//   Tara   — platform-native social posts + per-platform chrome
+const ANANYA_SKILL_ID = '0v9syxxawznp95v';
+const MAYA_SKILL_ID   = 'uepji0o2teuf29b';
+const KAVYA_SKILL_ID  = 'ip1bvcutzgsy28p';
+const TARA_SKILL_ID   = 'eu6cweasi3d4xt8';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
 
-const PALETTE = ['#5b8dee', '#b07ef8', '#f0a04b', '#4ecba8', '#f06b6b'];
+const PALETTE = ['#5b8dee', '#b07ef8', '#f0a04b', '#4ecba8', '#f06b6b', '#e070c2'];
 const FREE_LIMIT = 10;
 
+// 6-point hexagon around CENTER (radius ~100). Order: top, upper-right,
+// lower-right, bottom, lower-left, upper-left.
 const POSITIONS = [
-  { x: 130, y: 50 },
-  { x: 230, y: 130 },
-  { x: 190, y: 240 },
-  { x: 70,  y: 240 },
-  { x: 30,  y: 130 },
+  { x: 130, y: 60  },
+  { x: 217, y: 110 },
+  { x: 217, y: 210 },
+  { x: 130, y: 260 },
+  { x: 43,  y: 210 },
+  { x: 43,  y: 110 },
 ];
 const CENTER = { x: 130, y: 160 };
 
@@ -79,6 +93,109 @@ function BYOKScreen({ reason }) {
   );
 }
 
+// Reusable creative-tool CTA panel. Used for Kavya (email) and Tara (social).
+// Maya (mockups) and Ananya (build) have bespoke panels with extra state
+// (lock interlock, design inheritance) so they aren't using this helper —
+// keep it focused on the simple idle → running → done → error flow.
+function CreativeToolPanel({
+  status, result, error,
+  color, Icon, label,
+  idleHeadline, idleBlurb, idleCta,
+  runningHeadline, runningBlurb,
+  doneLabel,
+  onTrigger,
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: 0.25 }}
+      style={{ marginTop: 16, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
+    >
+      {status === 'idle' && (
+        <>
+          <div style={{ fontSize: 10, color, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+            {idleHeadline}
+          </div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+            {idleBlurb}
+          </div>
+          <button onClick={onTrigger} style={{
+            background: color, color: '#fff', border: 'none', borderRadius: 8,
+            padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+          }}>
+            <Icon style={{ width: 14, height: 14 }} /> {idleCta}
+          </button>
+        </>
+      )}
+      {status === 'running' && (
+        <div className="flex items-center gap-3">
+          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+            <Icon style={{ width: 22, height: 22, color }} />
+          </motion.div>
+          <div>
+            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>{runningHeadline}</div>
+            <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>{runningBlurb}</div>
+          </div>
+        </div>
+      )}
+      {status === 'done' && result && (
+        <>
+          <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
+            <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
+            <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{doneLabel}</span>
+          </div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{result.summary}</div>
+          {result.files?.length > 0 && (
+            <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130', maxHeight: 180, overflow: 'auto' }}>
+              {result.files.map(f => (
+                <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                  <span>{f.path}</span>
+                  <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {result.preview_url && (
+              <a href={`/api${result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
+                background: color, color: '#fff', borderRadius: 8,
+                padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+              }}>
+                <Eye style={{ width: 14, height: 14 }} /> Preview
+              </a>
+            )}
+            <a href={`/api${result.download_url.replace(/^\/api/, '')}`} download style={{
+              background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
+              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+            }}>
+              <Download style={{ width: 14, height: 14 }} /> Download ZIP
+            </a>
+          </div>
+        </>
+      )}
+      {status === 'error' && (
+        <div className="flex items-start gap-3">
+          <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>{label} generation failed</div>
+            <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{error}</div>
+            <button onClick={onTrigger} style={{
+              marginTop: 10, color, background: 'none', border: `1px solid ${color}44`,
+              borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+            }}>
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 function formatRelativeTime(iso) {
   if (!iso) return '';
   const ms   = Date.now() - new Date(iso).getTime();
@@ -109,13 +226,86 @@ export default function RoundTablePage() {
 
   const [chats, setChats]           = useState([]);     // [{ id, query, team, responses, created }]
   const [activeChat, setActiveChat] = useState(null);   // current chat object
-  const [draftTeam, setDraftTeam]   = useState(initTeam.slice(0, 5));
+  const [draftTeam, setDraftTeam]   = useState(initTeam.slice(0, 6));
+
+  // Tool-action states — scoped to the active chat, reset on chat change.
+  // `build` = Ananya app, `mockup` = Maya screens, `email` = Kavya campaign,
+  // `social` = Tara social posts.
+  const [build, setBuild]   = useState({ status: 'idle', result: null, error: null });
+  const [mockup, setMockup] = useState({ status: 'idle', result: null, error: null });
+  const [email,  setEmail]  = useState({ status: 'idle', result: null, error: null });
+  const [social, setSocial] = useState({ status: 'idle', result: null, error: null });
+  useEffect(() => {
+    setBuild({ status: 'idle', result: null, error: null });
+    setMockup({ status: 'idle', result: null, error: null });
+    setEmail({ status: 'idle', result: null, error: null });
+    setSocial({ status: 'idle', result: null, error: null });
+  }, [activeChat?.id]);
+
+  async function runToolAction({ endpoint, excludeAgentId, setState, extraBody = {} }) {
+    if (!activeChat) return;
+    setState({ status: 'running', result: null, error: null });
+    try {
+      const skill = activeChat.team.find(s => s.id === excludeAgentId);
+      const skillAgentName = skill?.agent_name;
+      const context = (activeChat.responses || [])
+        .filter(r => r.name && r.text && r.name !== skillAgentName)
+        .map(r => ({ agent_name: r.name, perspective: r.text }));
+      const token = pb.authStore.token;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ query: activeChat.query, context, ...extraBody }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Action failed');
+      setState({ status: 'done', result: data, error: null });
+    } catch (err) {
+      setState({ status: 'error', result: null, error: err.message });
+    }
+  }
+
+  // If Maya already produced mockups in this chat, Ananya consumes them as a
+  // design brief — palette, typography, layout structure carry over.
+  const triggerBuild = () => runToolAction({
+    endpoint: '/api/build',
+    excludeAgentId: ANANYA_SKILL_ID,
+    setState: setBuild,
+    extraBody: mockup.status === 'done' && mockup.result?.session_id
+      ? { design_session_id: mockup.result.session_id }
+      : {},
+  });
+  const triggerMockup = () => runToolAction({
+    endpoint: '/api/mockup',
+    excludeAgentId: MAYA_SKILL_ID,
+    setState: setMockup,
+  });
+  // Kavya + Tara both run via the generic /api/creative endpoint — the agent
+  // is picked by agent_id (PocketBase skill id). See routes/creative.js.
+  const triggerEmail = () => runToolAction({
+    endpoint: '/api/creative',
+    excludeAgentId: KAVYA_SKILL_ID,
+    setState: setEmail,
+    extraBody: { agent_id: KAVYA_SKILL_ID },
+  });
+  const triggerSocial = () => runToolAction({
+    endpoint: '/api/creative',
+    excludeAgentId: TARA_SKILL_ID,
+    setState: setSocial,
+    extraBody: { agent_id: TARA_SKILL_ID },
+  });
+
+  // Convenience flag for the UI to indicate Ananya will inherit Maya's design.
+  const buildWillInheritDesign = mockup.status === 'done' && !!mockup.result?.session_id;
 
   const inputRef = useRef(null);
 
   // Agents shown in the round table viz: from active chat if one is loaded, else from the draft team
   const visTeam = activeChat?.team || draftTeam;
-  const agents  = visTeam.slice(0, 5).map((skill, i) => ({ ...skill, color: PALETTE[i], idx: i }));
+  const agents  = visTeam.slice(0, 6).map((skill, i) => ({ ...skill, color: PALETTE[i], idx: i }));
 
   // Load history + usage on mount
   useEffect(() => {
@@ -160,7 +350,7 @@ export default function RoundTablePage() {
 
     // animate cycling agents during wait
     let cur = 0;
-    const teamForRun = draftTeam.slice(0, 5);
+    const teamForRun = draftTeam.slice(0, 6);
     const animTimer = setInterval(() => {
       setActiveIdx(cur % teamForRun.length);
       cur++;
@@ -566,6 +756,309 @@ export default function RoundTablePage() {
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+
+              {/* Design Mockups — only when Maya is in the team and all responses are in */}
+              {(() => {
+                if (!activeChat) return null;
+                const teamHasMaya = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
+                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+                if (!teamHasMaya || !allResponsesIn || loading) return null;
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.25 }}
+                    style={{ marginTop: 16, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
+                  >
+                    {mockup.status === 'idle' && (
+                      <>
+                        <div style={{ fontSize: 10, color: '#b07ef8', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+                          Round table done · Maya can design this
+                        </div>
+                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+                          Generate 5 device-framed HTML mockups so you can see screens before anything ships.
+                        </div>
+                        <button onClick={triggerMockup} style={{
+                          background: '#b07ef8', color: '#fff', border: 'none', borderRadius: 8,
+                          padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: 8,
+                        }}>
+                          <Palette style={{ width: 14, height: 14 }} /> Design Mockups
+                        </button>
+                      </>
+                    )}
+                    {mockup.status === 'running' && (
+                      <div className="flex items-center gap-3">
+                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                          <Palette style={{ width: 22, height: 22, color: '#b07ef8' }} />
+                        </motion.div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Maya is sketching…</div>
+                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Picking a palette, fetching photos, drawing 5 screens. 1–2 minutes.</div>
+                        </div>
+                      </div>
+                    )}
+                    {mockup.status === 'done' && mockup.result && (
+                      <>
+                        <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
+                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
+                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Mockups ready</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{mockup.result.summary}</div>
+                        {mockup.result.files?.length > 0 && (
+                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130', maxHeight: 180, overflow: 'auto' }}>
+                            {mockup.result.files.map(f => (
+                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                                <span>{f.path}</span>
+                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {mockup.result.preview_url && (
+                            <a href={`/api${mockup.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
+                              background: '#b07ef8', color: '#fff', borderRadius: 8,
+                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+                            }}>
+                              <Eye style={{ width: 14, height: 14 }} /> Preview
+                            </a>
+                          )}
+                          <a href={`/api${mockup.result.download_url.replace(/^\/api/, '')}`} download style={{
+                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
+                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+                          }}>
+                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+                          </a>
+                        </div>
+                      </>
+                    )}
+                    {mockup.status === 'error' && (
+                      <div className="flex items-start gap-3">
+                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Mockup generation failed</div>
+                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{mockup.error}</div>
+                          <button onClick={triggerMockup} style={{
+                            marginTop: 10, color: '#b07ef8', background: 'none', border: '1px solid #b07ef844',
+                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+                          }}>
+                            Try again
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })()}
+
+              {/* Build & Download — only when Ananya is in the team and all responses are in.
+                  When Maya is ALSO in the team, this panel renders in a locked state until
+                  her mockups complete, then animates open to unlock the build action. */}
+              {(() => {
+                if (!activeChat) return null;
+                const teamHasAnanya = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
+                const teamHasMaya   = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
+                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+                if (!teamHasAnanya || !allResponsesIn || loading) return null;
+                const buildLocked = teamHasMaya && mockup.status !== 'done';
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
+                    style={{ marginTop: 32, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
+                  >
+                    {build.status === 'idle' && (
+                      <AnimatePresence mode="wait">
+                        {buildLocked ? (
+                          <motion.div
+                            key="locked"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.2 } }}
+                          >
+                            <div style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <Lock style={{ width: 11, height: 11 }} />
+                              Waiting for Maya
+                            </div>
+                            <div style={{ fontSize: 13, color: '#8a91a8', marginBottom: 14, lineHeight: 1.65 }}>
+                              Generate the mockups first — Ananya will build the production website using <span style={{ color: '#b07ef8', fontWeight: 600 }}>Maya's palette, typography, and layout</span>.
+                            </div>
+                            <button disabled style={{
+                              background: '#1e2130', color: '#5a607a', border: '1px solid #1e2130',
+                              borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
+                              cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8,
+                            }}>
+                              <Lock style={{ width: 14, height: 14 }} />
+                              Locked — design first
+                            </button>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key="unlocked"
+                            initial={{
+                              opacity: 0,
+                              scale: 0.95,
+                              boxShadow: '0 0 0 0 rgba(92, 194, 138, 0)',
+                            }}
+                            animate={{
+                              opacity: 1,
+                              scale: 1,
+                              boxShadow: [
+                                '0 0 0 0 rgba(92, 194, 138, 0)',
+                                '0 0 0 16px rgba(92, 194, 138, 0.25)',
+                                '0 0 0 32px rgba(92, 194, 138, 0)',
+                              ],
+                            }}
+                            transition={{
+                              opacity: { duration: 0.35 },
+                              scale:   { duration: 0.5, type: 'spring', stiffness: 240, damping: 18 },
+                              boxShadow: { duration: 1.2, times: [0, 0.5, 1], ease: 'easeOut' },
+                            }}
+                            style={{ borderRadius: 10, padding: 2 }}
+                          >
+                            <div style={{ fontSize: 10, color: '#5b8dee', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {buildWillInheritDesign && <Sparkles style={{ width: 11, height: 11, color: '#5cc28a' }} />}
+                              {buildWillInheritDesign
+                                ? "Maya designed it · Ananya will build from her design"
+                                : "Round table done · Ananya can build this"}
+                            </div>
+                            <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+                              {buildWillInheritDesign
+                                ? <>Ananya inherits Maya's <span style={{ color: '#b07ef8', fontWeight: 600 }}>palette, typography, and layout structure</span>, then ships the production website (no mockup device frame).</>
+                                : <>The team's input becomes Ananya's brief. She'll write the files, you download the ZIP.</>}
+                            </div>
+                            <button onClick={triggerBuild} style={{
+                              background: '#5b8dee', color: '#fff', border: 'none', borderRadius: 8,
+                              padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 8,
+                            }}>
+                              <Hammer style={{ width: 14, height: 14 }} />
+                              {buildWillInheritDesign ? "Build from Maya's design" : 'Build & Download'}
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    )}
+                    {build.status === 'running' && (
+                      <div className="flex items-center gap-3">
+                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                          <Hammer style={{ width: 22, height: 22, color: '#5b8dee' }} />
+                        </motion.div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Ananya is building…</div>
+                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Reading the team input, calling tools, writing files. 30–90 seconds.</div>
+                        </div>
+                      </div>
+                    )}
+                    {build.status === 'done' && build.result && (
+                      <>
+                        <div className="flex items-center gap-2 mb-2" style={{ marginBottom: 10 }}>
+                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
+                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>App ready</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{build.result.summary}</div>
+                        {build.result.files?.length > 0 && (
+                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130' }}>
+                            {build.result.files.map(f => (
+                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                                <span>{f.path}</span>
+                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {build.result.preview_url && (
+                            <a href={`/api${build.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
+                              background: '#5b8dee', color: '#fff', borderRadius: 8,
+                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+                            }}>
+                              <Eye style={{ width: 14, height: 14 }} /> Preview
+                            </a>
+                          )}
+                          <a href={`/api${build.result.download_url.replace(/^\/api/, '')}`} download style={{
+                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
+                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+                          }}>
+                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+                          </a>
+                        </div>
+                      </>
+                    )}
+                    {build.status === 'error' && (
+                      <div className="flex items-start gap-3">
+                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Build failed</div>
+                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{build.error}</div>
+                          <button onClick={triggerBuild} style={{
+                            marginTop: 10, color: '#5b8dee', background: 'none', border: '1px solid #5b8dee44',
+                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+                          }}>
+                            Try again
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })()}
+
+              {/* Email Campaign — only when Kavya is in the team and all responses are in */}
+              {(() => {
+                if (!activeChat) return null;
+                const teamHasKavya   = activeChat.team?.some(s => s.id === KAVYA_SKILL_ID);
+                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+                if (!teamHasKavya || !allResponsesIn || loading) return null;
+                return (
+                  <CreativeToolPanel
+                    status={email.status}
+                    result={email.result}
+                    error={email.error}
+                    color="#f0a04b"
+                    Icon={Mail}
+                    label="Email"
+                    idleHeadline="Round table done · Kavya can draft this"
+                    idleBlurb="Generate a send-ready HTML email — subject-line variants, preheader, plain-text fallback, all inside a Gmail-frame preview."
+                    idleCta="Design Email Campaign"
+                    runningHeadline="Kavya is drafting…"
+                    runningBlurb="Choosing a frame, writing copy, inlining CSS, fetching a hero photo. 1–2 minutes."
+                    doneLabel="Email ready"
+                    onTrigger={triggerEmail}
+                  />
+                );
+              })()}
+
+              {/* Social Posts — only when Tara is in the team and all responses are in */}
+              {(() => {
+                if (!activeChat) return null;
+                const teamHasTara    = activeChat.team?.some(s => s.id === TARA_SKILL_ID);
+                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+                if (!teamHasTara || !allResponsesIn || loading) return null;
+                return (
+                  <CreativeToolPanel
+                    status={social.status}
+                    result={social.result}
+                    error={social.error}
+                    color="#e070c2"
+                    Icon={Megaphone}
+                    label="Social"
+                    idleHeadline="Round table done · Tara can post this"
+                    idleBlurb="Generate platform-native posts (Instagram, Facebook, LinkedIn, X) rendered inside each platform's UI chrome with captions, hashtags, and asset specs."
+                    idleCta="Design Social Posts"
+                    runningHeadline="Tara is composing…"
+                    runningBlurb="Picking platforms, drafting captions, fetching photos, rendering platform chrome. 1–2 minutes."
+                    doneLabel="Posts ready"
+                    onTrigger={triggerSocial}
+                  />
+                );
+              })()}
             </div>
 
             {/* Dot nav at bottom (within active chat) */}
