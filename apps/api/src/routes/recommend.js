@@ -83,6 +83,20 @@ function isSocialMediaQuery(q) {
     return SOCIAL_MEDIA_KEYWORDS.test(q);
 }
 
+// Zach is the Tech-to-B2B Founder Strategist — for senior tech operators
+// (Salesforce / Stripe / Shopify / Atlassian alumni) thinking about leaving
+// to start a B2B SaaS. He competes for the single career-ideation slot with
+// Fabrice (D2C / consumer-brand pivots), so we pin him only on prompts that
+// are clearly B2B-SaaS-founder shaped — bare "Salesforce" alone is too
+// ambiguous (could be Salesforce admin learning), so we require it paired
+// with founder/alum/leave/build language.
+const ZACH_SKILL_ID = 'guysr11w0w3xqa0';
+const B2B_FOUNDER_KEYWORDS = /\b(b2b\s+saas|saas\s+founder|founder[-\s]market\s+fit|services[-\s]first|tech[-\s]to[-\s]founder|build\s+what\s+you\s+know|slack\s+community|b2b\s+community\s+platform|bootstrapped\s+b2b|big[-\s]co\s+to\s+founder|big\s+company\s+to\s+founder|salesforce\s+(?:alum|alumni|veteran|ecosystem)|(?:salesforce|stripe|shopify|atlassian|twilio)\s+(?:pm|engineer|director).*founder|validate\s+b2b|b2b\s+demand|b2b\s+icp)\b/i;
+
+function isB2BFounderQuery(q) {
+    return B2B_FOUNDER_KEYWORDS.test(q);
+}
+
 function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // One per category, in order of score, until we hit `size`.
     const seenCats = new Set();
@@ -139,6 +153,15 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     if (phase === 'marketing' && isSocialMediaQuery(query)) {
         const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
         if (tara) pins.push(tara);
+    }
+    // Zach pins for ideation-phase B2B-SaaS-founder queries. The career
+    // category only has one slot per recommendation team, and Fabrice (D2C)
+    // wins most natural-cosine matches; this pin guarantees Zach surfaces on
+    // prompts that are clearly B2B-founder shaped, displacing Fabrice for
+    // that one slot.
+    if (phase === 'ideation' && isB2BFounderQuery(query)) {
+        const zach = scored.find(s => s.id === ZACH_SKILL_ID) || getSkillById(ZACH_SKILL_ID);
+        if (zach) pins.push(zach);
     }
     const pinnedIds = new Set(pins.map(p => p.id));
     for (const pin of pins) {
