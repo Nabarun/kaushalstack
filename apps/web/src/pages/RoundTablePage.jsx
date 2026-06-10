@@ -17,11 +17,20 @@ const TARA_SKILL_ID   = 'eu6cweasi3d4xt8';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
 
-const PALETTE = ['#5b8dee', '#b07ef8', '#f0a04b', '#4ecba8', '#f06b6b', '#e070c2'];
+// 10-slot palette so teams of 6 (hex viz) and 7–10 (grid viz) both have
+// distinct colors per slot. Slots 0–5 are the originals so existing screens
+// don't shift colors when team size stays at 6.
+const PALETTE = [
+  '#5b8dee', '#b07ef8', '#f0a04b', '#4ecba8', '#f06b6b', '#e070c2',
+  '#5cc28a', '#f7c948', '#38b6ff', '#ff8a3d',
+];
+const TEAM_SIZE_MAX = 10;
+const HEX_SIZE = 6;  // ≤ this: hexagon viz; > this: 2-column avatar grid
 const FREE_LIMIT = 10;
 
 // 6-point hexagon around CENTER (radius ~100). Order: top, upper-right,
-// lower-right, bottom, lower-left, upper-left.
+// lower-right, bottom, lower-left, upper-left. Only used when team size
+// is ≤ HEX_SIZE; larger teams render in the 2-column grid below.
 const POSITIONS = [
   { x: 130, y: 60  },
   { x: 217, y: 110 },
@@ -226,7 +235,7 @@ export default function RoundTablePage() {
 
   const [chats, setChats]           = useState([]);     // [{ id, query, team, responses, created }]
   const [activeChat, setActiveChat] = useState(null);   // current chat object
-  const [draftTeam, setDraftTeam]   = useState(initTeam.slice(0, 6));
+  const [draftTeam, setDraftTeam]   = useState(initTeam.slice(0, TEAM_SIZE_MAX));
 
   // Tool-action states — scoped to the active chat, reset on chat change.
   // `build` = Ananya app, `mockup` = Maya screens, `email` = Kavya campaign,
@@ -305,7 +314,8 @@ export default function RoundTablePage() {
 
   // Agents shown in the round table viz: from active chat if one is loaded, else from the draft team
   const visTeam = activeChat?.team || draftTeam;
-  const agents  = visTeam.slice(0, 6).map((skill, i) => ({ ...skill, color: PALETTE[i], idx: i }));
+  const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
+  const useGridViz = agents.length > HEX_SIZE;
 
   // Load history + usage on mount
   useEffect(() => {
@@ -350,7 +360,7 @@ export default function RoundTablePage() {
 
     // animate cycling agents during wait
     let cur = 0;
-    const teamForRun = draftTeam.slice(0, 6);
+    const teamForRun = draftTeam.slice(0, TEAM_SIZE_MAX);
     const animTimer = setInterval(() => {
       setActiveIdx(cur % teamForRun.length);
       cur++;
@@ -521,10 +531,104 @@ export default function RoundTablePage() {
         {/* 3-column layout */}
         <div className="flex flex-1 overflow-hidden">
 
-          {/* ── Left: Round Table Viz ── */}
+          {/* ── Left: Round Table Viz (hidden on mobile — compact strip lives in
+                  the middle column instead) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
-            className="flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
+            className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
 
+            {useGridViz ? (
+              // 2-column avatar grid for 7–10 agent teams. The hex viz only
+              // has 6 slot positions; rather than crowd a heptagon/octagon
+              // around the same circle, we switch to a tidy stacked grid
+              // with the same active/focused state styling.
+              <div style={{ width: 260 }} className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-2">
+                  {agents.map((a, i) => {
+                    const hasResponse = responses.some(r => r.agentIdx === i);
+                    const isActive    = activeIdx === i;
+                    const isFocused   = focusedResponse?.agentIdx === i;
+                    return (
+                      <motion.button
+                        key={i}
+                        layout
+                        onClick={() => {
+                          const rIdx = responses.findIndex(r => r.agentIdx === i);
+                          if (rIdx >= 0) setFocusedIdx(rIdx);
+                        }}
+                        disabled={!hasResponse}
+                        style={{
+                          background: isFocused ? `${a.color}12` : '#0f1118',
+                          border: `1px solid ${isFocused ? `${a.color}55` : '#1a1d28'}`,
+                          borderRadius: 10,
+                          cursor: hasResponse ? 'pointer' : 'default',
+                        }}
+                        className="flex items-center gap-2 px-2 py-2"
+                      >
+                        <motion.div
+                          animate={
+                            isActive ? {
+                              boxShadow: [`0 0 0 2px ${a.color}50, 0 0 14px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 22px ${a.color}20`],
+                              scale: 1.1, borderColor: `${a.color}99`,
+                            } : isFocused ? {
+                              boxShadow: `0 0 0 2px ${a.color}55`, scale: 1.04, borderColor: `${a.color}88`,
+                            } : {
+                              boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                            }
+                          }
+                          transition={{ duration: 0.3 }}
+                          style={{
+                            width: 36, height: 36, borderRadius: '50%',
+                            border: '1.5px solid rgba(255,255,255,0.06)',
+                            overflow: 'hidden', flexShrink: 0,
+                          }}
+                        >
+                          <img src={avatarUrl(a.agent_name)} alt={a.agent_name}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </motion.div>
+                        <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.2,
+                            color: isActive ? a.color : isFocused ? `${a.color}cc` : '#7a7f92',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          }}>
+                            {a.agent_name}
+                          </div>
+                          {isActive && (
+                            <motion.div
+                              style={{ fontSize: 8, color: a.color, fontFamily: 'monospace', marginTop: 1 }}
+                              animate={{ opacity: [0.4, 1, 0.4] }}
+                              transition={{ duration: 1.2, repeat: Infinity }}
+                            >
+                              thinking…
+                            </motion.div>
+                          )}
+                        </div>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+                {/* Center "thinking" pill — replaces the hex's center node */}
+                {activeIdx >= 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                    style={{
+                      background: '#0f1118', border: `1px solid ${PALETTE[activeIdx]}55`,
+                      borderRadius: 999, padding: '6px 12px',
+                    }}
+                    className="flex items-center justify-center gap-2 self-center mt-1"
+                  >
+                    <TypingDots color={PALETTE[activeIdx]} />
+                    <motion.span
+                      style={{ fontSize: 10, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.05em' }}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
+                    >
+                      {agents[activeIdx].agent_name} thinking
+                    </motion.span>
+                  </motion.div>
+                )}
+              </div>
+            ) : (
             <div className="relative" style={{ width: 260, height: 300 }}>
               <svg width="260" height="300" viewBox="0 0 260 300" className="absolute top-0 left-0">
                 <circle cx={CENTER.x} cy={CENTER.y} r="110" fill="none" stroke="#14172090" strokeWidth="1" strokeDasharray="3 6" />
@@ -611,6 +715,7 @@ export default function RoundTablePage() {
                 )}
               </motion.div>
             </div>
+            )}
 
             <div className="w-full px-4 space-y-1 mt-2">
               {agents.map((a, i) => {
@@ -658,10 +763,52 @@ export default function RoundTablePage() {
           </div>
 
           {/* ── Middle: Active Chat (input at TOP) ── */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+            {/* Compact agents strip (mobile only — replaces the left viz which
+                is hidden below md). Horizontal scroll if more than ~6 fit. */}
+            <div className="md:hidden flex items-center gap-2 px-3 py-2 overflow-x-auto flex-shrink-0"
+              style={{ background: '#0a0c12', borderBottom: '1px solid #1e2130' }}>
+              {agents.map((a, i) => {
+                const hasResponse = responses.some(r => r.agentIdx === i);
+                const isActive    = activeIdx === i;
+                const isFocused   = focusedResponse?.agentIdx === i;
+                return (
+                  <button key={i}
+                    onClick={() => {
+                      const rIdx = responses.findIndex(r => r.agentIdx === i);
+                      if (rIdx >= 0) setFocusedIdx(rIdx);
+                    }}
+                    disabled={!hasResponse}
+                    style={{
+                      background: isFocused ? `${a.color}12` : 'transparent',
+                      border: `1px solid ${isFocused ? `${a.color}40` : 'transparent'}`,
+                      borderRadius: 999,
+                    }}
+                    className="flex items-center gap-1.5 px-2 py-1 flex-shrink-0"
+                  >
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      border: `1.5px solid ${isActive ? a.color : isFocused ? `${a.color}aa` : 'rgba(255,255,255,0.08)'}`,
+                      overflow: 'hidden',
+                    }}>
+                      <img src={avatarUrl(a.agent_name)} alt={a.agent_name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
+                      color: isActive ? a.color : isFocused ? `${a.color}cc` : '#4a4f60',
+                    }}>
+                      {a.agent_name}
+                    </span>
+                    {isActive && <TypingDots color={a.color} />}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Input pinned to top */}
-            <div style={{ background: '#0a0c12', borderBottom: '1px solid #1e2130' }} className="px-5 py-4 flex-shrink-0">
+            <div style={{ background: '#0a0c12', borderBottom: '1px solid #1e2130' }} className="px-3 sm:px-5 py-3 sm:py-4 flex-shrink-0">
               {/* Active chat query header */}
               {activeChat && (
                 <div className="mb-3 flex items-start gap-2">
@@ -699,7 +846,7 @@ export default function RoundTablePage() {
             </div>
 
             {/* Response feed */}
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
               <AnimatePresence mode="wait">
                 {limitReached && !activeChat ? (
                   <BYOKScreen key="byok" reason={limitReason} />
@@ -1078,9 +1225,11 @@ export default function RoundTablePage() {
             )}
           </div>
 
-          {/* ── Right: History sidebar ── */}
+          {/* ── Right: History sidebar (hidden on mobile — chat list drawer
+                  could go here later; for now the screen is too narrow to fit
+                  three columns) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderLeft: '1px solid #1e2130' }}
-            className="flex flex-col flex-shrink-0">
+            className="hidden md:flex flex-col flex-shrink-0">
 
             <div style={{ borderBottom: '1px solid #1e2130' }} className="px-4 py-3 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">

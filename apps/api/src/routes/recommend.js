@@ -210,13 +210,20 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
 }
 
 const VALID_PHASES = new Set(['ideation', 'execution', 'marketing']);
+// Team size bounds. 6 is the default round-table head count (the hex viz on
+// the frontend is sized for 6); 10 is the upper cap to keep round-table LLM
+// cost bounded and the layout legible. Anything outside this gets clamped.
+const MIN_TEAM_SIZE = 6;
+const MAX_TEAM_SIZE = 10;
 
 router.post('/recommend', async (req, res) => {
-    const { query, phase: rawPhase } = req.body || {};
+    const { query, phase: rawPhase, size: rawSize } = req.body || {};
     if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: 'query is required' });
     }
     const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
+    const parsedSize = Number.isFinite(+rawSize) ? Math.floor(+rawSize) : MIN_TEAM_SIZE;
+    const size = Math.max(MIN_TEAM_SIZE, Math.min(MAX_TEAM_SIZE, parsedSize));
 
     // Clean query for embedding — remove stopwords for a tighter semantic signal
     const cleaned = query
@@ -237,13 +244,13 @@ router.post('/recommend', async (req, res) => {
 
         const vector    = await embedQuery(cleaned);
         const topSkills = search(vector, 500, phase);
-        let team        = pickTeam(topSkills, 6, { query, phase });
+        let team        = pickTeam(topSkills, size, { query, phase });
 
         const techPick = team.find(s => s.category === 'Tech');
-        logger.info(`recommend: "${query}" phase=${phase || 'all'} → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
+        logger.info(`recommend: "${query}" phase=${phase || 'all'} size=${size} → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
 
         // Strip the _score before sending to the client — internal detail
-        res.json({ skills: team.slice(0, 6).map(({ _score, ...s }) => s) });
+        res.json({ skills: team.slice(0, size).map(({ _score, ...s }) => s) });
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });

@@ -12,13 +12,38 @@ import DemoVideoCard from '@/components/DemoVideoCard.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import { avatarUrl } from '@/lib/avatar';
 
-const EXAMPLES = [
-  'A UPI-based split-expense app for college students',
-  'An AI tutor for UPSC preparation in regional languages',
-  'A hyperlocal delivery platform for kirana stores',
-  'An EV charging network management dashboard',
-  'A telemedicine platform for rural healthcare in India',
-  'A fantasy cricket analytics tool for IPL season',
+// Phase-aligned prompt suggestions. Each entry carries the phase it belongs
+// to so the suggestion cards are scannable at a glance. When a phase tile is
+// active, the matching list renders; when none is selected, a mixed fallback
+// shows so the page still has useful starting points.
+const PHASE_EXAMPLES = {
+  ideation: [
+    { phase: 'ideation', prompt: 'Validate whether there is market demand for a UPI-based split-expense app for college students' },
+    { phase: 'ideation', prompt: 'Research the competitive landscape for hyperlocal delivery to kirana stores in India' },
+    { phase: 'ideation', prompt: 'Brainstorm features for an AI tutor focused on UPSC preparation in Hindi' },
+    { phase: 'ideation', prompt: 'Identify the target user persona and core problem for a rural healthcare telemedicine platform' },
+  ],
+  execution: [
+    { phase: 'execution', prompt: 'Build a landing page for a Bangalore physiotherapy clinic with services, hours, and contact' },
+    { phase: 'execution', prompt: 'Create a UPI QR code generator that takes a UPI ID and amount and renders a scannable QR' },
+    { phase: 'execution', prompt: 'Build a simple split-bill calculator that handles tip and uneven splits' },
+    { phase: 'execution', prompt: 'Design a pricing page with three plans and a feature comparison table' },
+  ],
+  marketing: [
+    { phase: 'marketing', prompt: 'Draft a launch announcement and Twitter thread for an EV charging station locator app' },
+    { phase: 'marketing', prompt: 'Plan a 4-week content marketing calendar for a fantasy cricket analytics tool around IPL' },
+    { phase: 'marketing', prompt: 'Write SEO meta descriptions and a Google Ads pitch for a JEE/NEET vernacular learning platform' },
+    { phase: 'marketing', prompt: 'Design a referral program with rewards for a kirana store delivery startup' },
+  ],
+};
+
+const DEFAULT_EXAMPLES = [
+  PHASE_EXAMPLES.ideation[0],
+  PHASE_EXAMPLES.execution[0],
+  PHASE_EXAMPLES.marketing[0],
+  PHASE_EXAMPLES.ideation[2],
+  PHASE_EXAMPLES.execution[1],
+  PHASE_EXAMPLES.marketing[1],
 ];
 
 // Apps that kaushalstack powers — i.e. real products built by/with the community.
@@ -32,21 +57,9 @@ const POWERED_APPS = [
 ];
 
 const PHASE_TILES = [
-  { id: null,        label: 'All agents', Icon: Sparkles },
   { id: 'ideation',  label: 'Ideation',   Icon: Lightbulb },
   { id: 'execution', label: 'Execution',  Icon: Code },
   { id: 'marketing', label: 'Marketing',  Icon: Megaphone },
-];
-
-const TRENDING_INDIA_FALLBACK = [
-  { label: 'IPL 2025 Analytics', prompt: 'A real-time cricket analytics and prediction platform for IPL 2025' },
-  { label: 'ONDC Integration', prompt: 'A seller onboarding tool to integrate small businesses with the ONDC network' },
-  { label: 'UPI for Business', prompt: 'A UPI-powered invoicing and payment reconciliation tool for small businesses' },
-  { label: 'AI in AgriTech', prompt: 'An AI-powered crop advisory app for Indian farmers using satellite and weather data' },
-  { label: 'EV Startup', prompt: 'An EV fleet management and charging station locator app for India' },
-  { label: 'Vernacular EdTech', prompt: 'An adaptive learning platform for competitive exams like JEE and NEET in Hindi and regional languages' },
-  { label: 'Digital Health', prompt: 'An ABHA-linked digital health records app connecting patients and doctors across India' },
-  { label: 'Startup India Tools', prompt: 'A compliance and funding tracker for startups registered under Startup India' },
 ];
 
 function TypingDots() {
@@ -124,12 +137,12 @@ function AgentCard({ skill, index, onViewDetails }) {
 }
 
 
-async function recommendTeam(query, phase = null) {
+async function recommendTeam(query, phase = null, size = 6) {
   try {
     const res = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, phase }),
+      body: JSON.stringify({ query, phase, size }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
     const data = await res.json();
@@ -138,6 +151,40 @@ async function recommendTeam(query, phase = null) {
     console.error('recommend failed:', err);
     return [];
   }
+}
+
+// Team-size selector used on the homepage prompt area. Backend clamps to
+// 6–10; default 6 (matches the round-table hex viz). Beyond 6 the round
+// table page switches to a 2-column avatar grid.
+const TEAM_SIZE_MIN = 6;
+const TEAM_SIZE_MAX = 10;
+const TEAM_SIZE_OPTIONS = [6, 7, 8, 9, 10];
+
+function TeamSizeSelector({ value, onChange, compact = false }) {
+  return (
+    <div className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-xs'}`}>
+      <span className="text-muted-foreground font-medium whitespace-nowrap">Team size</span>
+      <div className="flex items-center gap-1 rounded-full bg-muted/40 p-0.5">
+        {TEAM_SIZE_OPTIONS.map(n => {
+          const active = n === value;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onChange(n)}
+              className={`min-w-[26px] h-6 px-2 rounded-full text-xs font-semibold transition-colors ${
+                active
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 const HomePage = () => {
@@ -151,8 +198,9 @@ const HomePage = () => {
   const [input, setInput]       = useState('');
   const [messages, setMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
-  const [trendingTopics, setTrendingTopics] = useState(TRENDING_INDIA_FALLBACK);
-  const [trendingSource, setTrendingSource] = useState('fallback');
+  // Team size for the recommendation. Persisted across submissions on this
+  // page (user pick survives until they leave or refresh).
+  const [teamSize, setTeamSize] = useState(TEAM_SIZE_MIN);
 
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [isModalOpen, setIsModalOpen]     = useState(false);
@@ -173,33 +221,28 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
-    fetch('/api/trending-india')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data?.topics?.length) {
-          setTrendingTopics(data.topics);
-          setTrendingSource(data.source || 'fallback');
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, chatLoading]);
 
-  const handleSubmit = async (goal) => {
+  const handleSubmit = async (goal, phaseOverride) => {
     const text = (goal || input).trim();
     if (!text || chatLoading) return;
 
+    // When a suggestion card is clicked, it knows its own phase — use that
+    // (and update the tile selection so the UI reflects it).
+    const phase = phaseOverride !== undefined ? phaseOverride : selectedPhase;
+    if (phaseOverride !== undefined && phaseOverride !== selectedPhase) {
+      setSelectedPhase(phaseOverride);
+    }
+
     setInput('');
-    setMessages(prev => [...prev, { type: 'user', text, phase: selectedPhase }]);
+    setMessages(prev => [...prev, { type: 'user', text, phase }]);
     setChatLoading(true);
 
-    const team = await recommendTeam(text, selectedPhase);
-    setMessages(prev => [...prev, { type: 'result', skills: team, query: text, phase: selectedPhase }]);
+    const team = await recommendTeam(text, phase, teamSize);
+    setMessages(prev => [...prev, { type: 'result', skills: team, query: text, phase }]);
     setChatLoading(false);
     setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   };
@@ -248,32 +291,14 @@ const HomePage = () => {
       <div className="min-h-screen">
 
         {/* ── Chat Hero with phase scope ── */}
-        <section className="relative min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
+        {/* min-h scales with viewport: 60vh on mobile (where 90vh wastes most
+            of the screen on empty gradient) and 90vh from md up where content
+            naturally fills more. */}
+        <section className="relative min-h-[60vh] md:min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
           <div className={`relative flex-1 flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
-
-            {/* ── Phase scope selector — sets recommend() filter ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-8 max-w-3xl mx-auto w-full">
-              {PHASE_TILES.map(({ id, label, Icon }) => {
-                const active = selectedPhase === id;
-                return (
-                  <button
-                    key={id || 'all'}
-                    onClick={() => setSelectedPhase(id)}
-                    className={`flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-all ${
-                      active
-                        ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                        : 'border-border bg-card hover:border-primary/40 text-foreground'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
 
             {/* ── SPLIT HERO (logged-out, empty) ── video + compact prompt ── */}
             {showSplitHero && (
@@ -285,9 +310,9 @@ const HomePage = () => {
               >
                 {/* LEFT: Demo video */}
                 <div className="order-2 lg:order-1">
-                  <DemoVideoCard duration="5 min" />
+                  <DemoVideoCard src="/demo-jun6.mp4" poster="/demo-jun6-poster.jpg" duration="3 min" />
                   <p className="text-center text-xs text-muted-foreground mt-3">
-                    🎥 Watch how kaushalstack assembles a 5-agent team and discusses your project.
+                    🎥 Latest walkthrough — Maya designs, Ananya builds, you download.
                   </p>
                 </div>
 
@@ -298,7 +323,7 @@ const HomePage = () => {
                       <Sparkles className="w-4 h-4 text-primary" />
                       <span className="text-sm font-medium">AI Agent Team Builder</span>
                     </div>
-                    <h1 className="text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
+                    <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
                       What do you want{' '}
                       <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to build?</span>
                     </h1>
@@ -306,49 +331,34 @@ const HomePage = () => {
                       Describe your project and we'll assemble the right team of AI agent skills for you.
                     </p>
                   </div>
+                  {/* Split-hero prompt input. Tap targets: textarea is min-h-12 (48px)
+                      and the send button is 44×44, both above iOS's 44pt minimum. */}
                   <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
                     <div className="flex items-end gap-2">
                       <textarea
                         ref={inputRef}
-                        rows={1}
+                        rows={2}
                         value={input}
                         onChange={e => {
                           setInput(e.target.value);
-                          e.target.style.height = '24px';
-                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                          e.target.style.height = '48px';
+                          e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
                         }}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
                         placeholder={promptPlaceholder}
-                        className="flex-1 resize-none bg-transparent text-sm outline-none leading-relaxed max-h-32 placeholder:text-muted-foreground"
-                        style={{ height: '24px' }}
+                        className="flex-1 resize-none bg-transparent text-base outline-none leading-relaxed placeholder:text-muted-foreground"
+                        style={{ height: '48px', minHeight: '48px', maxHeight: '160px' }}
                       />
                       <button
                         onClick={() => handleSubmit()}
                         disabled={!input.trim() || chatLoading}
-                        className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
+                        className="w-11 h-11 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
                       >
-                        <Send className="w-4 h-4" />
+                        <Send className="w-5 h-5" />
                       </button>
                     </div>
-                  </div>
-
-                  {/* Trending in India — compact (top 5 only) */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-base">🇮🇳</span>
-                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Trending in India</span>
-                      {trendingSource === 'google-trends' && (
-                        <span className="text-[9px] text-muted-foreground/60 font-mono">· live</span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {trendingTopics.slice(0, 5).map((t, i) => (
-                        <button key={i} onClick={() => handleSubmit(t.prompt)}
-                          title={t.traffic ? `${t.traffic} searches` : undefined}
-                          className="text-[11px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors">
-                          {t.label}
-                        </button>
-                      ))}
+                    <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
+                      <TeamSizeSelector value={teamSize} onChange={setTeamSize} compact />
                     </div>
                   </div>
 
@@ -374,7 +384,7 @@ const HomePage = () => {
                     <Play className="w-4 h-4 text-primary fill-primary translate-x-0.5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-foreground">New here? Watch the 5-min walkthrough</div>
+                    <div className="text-sm font-semibold text-foreground">New here? Watch the 3-min walkthrough</div>
                     <div className="text-xs text-muted-foreground">See the round table, community edits, and BYOK in action.</div>
                   </div>
                   <Link to="/about#demo">
@@ -390,83 +400,116 @@ const HomePage = () => {
               )}
             </AnimatePresence>
 
-            {/* Heading — fades out once chat starts. Hidden in split-hero mode (banner is shown there instead). */}
-            <AnimatePresence>
-              {isEmpty && !showSplitHero && (
-                <motion.div
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0, y: -16, transition: { duration: 0.25 } }}
-                  className="text-center mb-10"
-                >
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium">AI Agent Team Builder</span>
-                  </div>
-                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight mb-4" style={{ letterSpacing: '-0.02em' }}>
-                    What do you want{' '}
-                    <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                      to build?
-                    </span>
-                  </h1>
-                  <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                    Describe your project and we'll assemble the right team of AI agent skills for you.
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Heading + phase tiles. Plain conditional render (no AnimatePresence)
+                so it disappears the instant `showSplitHero` flips — otherwise
+                Framer's exit animation can wedge in some browsers and the heading
+                stays mounted on top of the invisible split-hero, pushing all
+                content below the fold on mobile. */}
+            {isEmpty && !showSplitHero && (
+              <div className="text-center mb-10">
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium">AI Agent Team Builder</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold leading-tight mb-4" style={{ letterSpacing: '-0.02em' }}>
+                  What brings you to{' '}
+                  <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                    Kaushalstack?
+                  </span>
+                </h1>
+                <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto mb-6 px-2">
+                  Are you in <span className="font-semibold text-foreground">Ideation</span>, <span className="font-semibold text-foreground">Execution</span>, or <span className="font-semibold text-foreground">Marketing</span> stage?
+                </p>
 
-            {/* Trending topics + example chips — only when empty and not in split-hero mode */}
-            <AnimatePresence>
-              {isEmpty && !showSplitHero && (
-                <motion.div
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                  className="space-y-5 mb-8"
-                >
-                  {/* Trending in India */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <span className="text-base">🇮🇳</span>
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Trending in India</span>
-                      {trendingSource === 'google-trends' && (
-                        <span className="text-[10px] text-muted-foreground/60 font-mono">· live</span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {trendingTopics.map((t, i) => (
-                        <button
-                          key={i}
-                          onClick={() => handleSubmit(t.prompt)}
-                          title={t.traffic ? `${t.traffic} searches` : undefined}
-                          className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {/* Phase tiles — sit under the subtitle so users can pick a stage */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-2xl mx-auto w-full">
+                  {PHASE_TILES.map(({ id, label, Icon }) => {
+                    const active = selectedPhase === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setSelectedPhase(active ? null : id)}
+                        className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 rounded-xl border-2 px-2 sm:px-4 py-3 text-xs sm:text-sm font-semibold transition-all ${
+                          active
+                            ? 'border-primary bg-primary/10 text-primary shadow-sm -translate-y-0.5'
+                            : 'border-border bg-card hover:border-primary/40 text-foreground hover:-translate-y-0.5'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-                  {/* Build ideas */}
+            {/* Prompt input — bumped up high when empty, so it's the first interaction.
+                Plain conditional render (same reasoning as the heading above). */}
+            {isEmpty && !showSplitHero && (
+              <div className="mb-8">
+                <div className="bg-card rounded-2xl border-2 shadow-lg px-4 py-3 sm:px-5 sm:py-4 focus-within:border-primary transition-colors">
+                  <div className="flex items-end gap-2 sm:gap-3">
+                    <textarea
+                      ref={inputRef}
+                      rows={2}
+                      value={input}
+                      onChange={e => {
+                        setInput(e.target.value);
+                        e.target.style.height = '48px';
+                        e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                      }}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                      placeholder={promptPlaceholder}
+                      className="flex-1 resize-none bg-transparent text-base outline-none leading-relaxed placeholder:text-muted-foreground"
+                      style={{ height: '48px', minHeight: '48px' }}
+                    />
+                    <button
+                      onClick={() => handleSubmit()}
+                      disabled={!input.trim() || chatLoading}
+                      className="w-11 h-11 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
+                    <TeamSizeSelector value={teamSize} onChange={setTeamSize} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Recommended suggestions — only when empty and not in split-hero mode */}
+            {isEmpty && !showSplitHero && (
+              <div className="mb-8">
                   <div>
                     <div className="flex items-center gap-2 mb-2.5">
                       <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">What do you want to build?</span>
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                        {selectedPhase
+                          ? `${selectedPhase.charAt(0).toUpperCase() + selectedPhase.slice(1)} suggestions`
+                          : 'Recommended suggestions'}
+                      </span>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-2">
-                      {EXAMPLES.map((ex, i) => (
+                      {(selectedPhase ? PHASE_EXAMPLES[selectedPhase] : DEFAULT_EXAMPLES).map((ex, i) => (
                         <button
-                          key={i}
-                          onClick={() => handleSubmit(ex)}
-                          className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
+                          key={`${selectedPhase || 'all'}-${i}`}
+                          onClick={() => handleSubmit(ex.prompt, ex.phase)}
+                          className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors group"
                         >
-                          "{ex}"
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="inline-block text-[10px] font-mono font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                              {ex.phase}
+                            </span>
+                          </div>
+                          <div className="leading-snug">"{ex.prompt}"</div>
                         </button>
                       ))}
                     </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              </div>
+            )}
 
             {/* Chat messages */}
             {!isEmpty && (
@@ -586,8 +629,9 @@ const HomePage = () => {
               </div>
             )}
 
-            {/* Chat input (sticky bottom). Hidden in split-hero mode — the compact input lives in the right column there. */}
-            <div className={`sticky bottom-4 mt-auto ${showSplitHero ? 'hidden' : ''}`}>
+            {/* Chat input (sticky bottom) — only when a chat is active. When empty, the
+                bumped-up inline prompt above handles input instead. Hidden in split-hero mode. */}
+            <div className={`sticky bottom-4 mt-auto ${(showSplitHero || isEmpty) ? 'hidden' : ''}`}>
               <div className="flex items-end gap-2 bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
                 <textarea
                   ref={inputRef}
@@ -628,29 +672,37 @@ const HomePage = () => {
         </section>
 
         {/* ── Stats ── */}
+        {/* Labels switch to shorter copy on mobile so 3-col grid doesn't truncate
+            ("Leaderboard Entries" → "Leaderboard"; "Skills Shared" → "Skills"). */}
         <section className="py-12 bg-muted/20 border-y">
           <div className="max-w-4xl mx-auto px-4 sm:px-6">
-            <div className="grid grid-cols-3 gap-8 text-center">
+            <div className="grid grid-cols-3 gap-3 sm:gap-8 text-center">
               <div>
                 <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
                   <Users className="w-5 h-5 text-primary" />
                 </div>
-                <div className="text-3xl font-bold mb-1">{stats.users}</div>
-                <p className="text-sm text-muted-foreground">Members</p>
+                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.users}</div>
+                <p className="text-xs sm:text-sm text-muted-foreground">Members</p>
               </div>
               <div>
                 <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-3">
                   <Code className="w-5 h-5 text-accent" />
                 </div>
-                <div className="text-3xl font-bold mb-1">{stats.skills}</div>
-                <p className="text-sm text-muted-foreground">Skills Shared</p>
+                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.skills}</div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  <span className="sm:hidden">Skills</span>
+                  <span className="hidden sm:inline">Skills Shared</span>
+                </p>
               </div>
               <div>
                 <div className="w-10 h-10 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
                   <Trophy className="w-5 h-5 text-secondary" />
                 </div>
-                <div className="text-3xl font-bold mb-1">{stats.leaderboard}</div>
-                <p className="text-sm text-muted-foreground">Leaderboard Entries</p>
+                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.leaderboard}</div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  <span className="sm:hidden">Leaderboard</span>
+                  <span className="hidden sm:inline">Leaderboard Entries</span>
+                </p>
               </div>
             </div>
           </div>
