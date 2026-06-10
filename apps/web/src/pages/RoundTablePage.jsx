@@ -25,34 +25,31 @@ const PALETTE = [
   '#5cc28a', '#f7c948', '#38b6ff', '#ff8a3d',
 ];
 const TEAM_SIZE_MAX = 10;
-const OUTER_RING_SIZE = 6;  // first 6 agents sit on the outer hex; 7–10 fill an inner ring
 const FREE_LIMIT = 10;
 
-// Outer hexagon (radius ~100 from CENTER). Order: top, upper-right,
-// lower-right, bottom, lower-left, upper-left.
-const POSITIONS = [
-  { x: 130, y: 60  },
-  { x: 217, y: 110 },
-  { x: 217, y: 210 },
-  { x: 130, y: 260 },
-  { x: 43,  y: 210 },
-  { x: 43,  y: 110 },
-];
-
-const CENTER = { x: 130, y: 160 };
-
-// Oval conference-table layout used when team size > 6. 5 chair columns at
-// x = 22, 76, 130, 184, 238; top row at y = 36, bottom at y = 224. Seats
-// alternate top/bottom as the team grows so the arrangement stays balanced
-// (7 = 4 top + 3 bottom; 8 = 4+4; 9 = 5+4; 10 = 5+5).
-const OVAL_COLUMNS = [22, 76, 130, 184, 238];
-const OVAL_POSITIONS = OVAL_COLUMNS.flatMap(x => [
-    { x, y: 36 },   // top-row seat for this column
-    { x, y: 224 },  // bottom-row seat for this column
-]);
-// The capsule "table" between the rows
+// Oval boardroom layout for the round-table viz. Column count scales with
+// team size so chairs always look packed against the table (no empty seats
+// shown on this page — that's the homepage picker's job):
+//   size 6  → 3 columns × 2 rows
+//   size 7  → 4 cols (top 4 + bottom 3)
+//   size 8  → 4 cols (top 4 + bottom 4)
+//   size 9  → 5 cols (top 5 + bottom 4)
+//   size 10 → 5 cols (top 5 + bottom 5)
+// Seats alternate top→bottom as team index grows so the table fills evenly.
 const OVAL_TABLE = { x: 18, y: 100, width: 224, height: 60, rx: 30 };
 const OVAL_CENTER = { x: 130, y: 130 };
+function getOvalPositions(count) {
+    const numCols = Math.ceil(count / 2);
+    const positions = [];
+    for (let i = 0; i < count; i++) {
+        const col = Math.floor(i / 2);
+        const row = i % 2; // 0 = top, 1 = bottom
+        const x = OVAL_TABLE.x + ((col + 0.5) * OVAL_TABLE.width) / numCols;
+        const y = row === 0 ? 36 : 224;
+        positions.push({ x, y });
+    }
+    return positions;
+}
 
 function TypingDots({ color }) {
   return (
@@ -328,9 +325,7 @@ export default function RoundTablePage() {
   // Agents shown in the round table viz: from active chat if one is loaded, else from the draft team
   const visTeam = activeChat?.team || draftTeam;
   const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
-  // ≤6 agents: hexagon (existing layout). >6: oval boardroom table with
-  // 5 chairs on each long edge, filled in alternating top/bottom order.
-  const useOvalViz = agents.length > OUTER_RING_SIZE;
+  const ovalPositions = getOvalPositions(agents.length);
 
   // Load history + usage on mount
   useEffect(() => {
@@ -551,168 +546,79 @@ export default function RoundTablePage() {
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
             className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
 
-            {useOvalViz ? (
-              // Oval boardroom layout — 5 chairs above, 5 below an elongated
-              // capsule table. Same metaphor as the homepage seat picker.
-              <div className="relative" style={{ width: 260, height: 280 }}>
-                <svg width="260" height="280" viewBox="0 0 260 280" className="absolute top-0 left-0">
-                  {/* Conference table — soft capsule */}
-                  <rect
-                    x={OVAL_TABLE.x} y={OVAL_TABLE.y}
-                    width={OVAL_TABLE.width} height={OVAL_TABLE.height}
-                    rx={OVAL_TABLE.rx} ry={OVAL_TABLE.rx}
-                    fill="#0f1118" stroke="#1e2130" strokeWidth="1"
-                  />
-                </svg>
-
-                {/* Avatars — top + bottom rows, alternating fill order */}
-                {agents.map((a, i) => {
-                  const pos = OVAL_POSITIONS[i];
-                  if (!pos) return null;
-                  return (
-                    <button key={`oval-${i}`} className="absolute flex flex-col items-center"
-                      style={{
-                        left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)',
-                        zIndex: 2, gap: 3, background: 'none', border: 'none',
-                        cursor: responses.length > 0 ? 'pointer' : 'default',
-                      }}
-                      onClick={() => {
-                        const rIdx = responses.findIndex(r => r.agentIdx === i);
-                        if (rIdx >= 0) setFocusedIdx(rIdx);
-                      }}
-                    >
-                      <motion.div
-                        animate={
-                          activeIdx === i ? {
-                            boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
-                            scale: 1.12, borderColor: `${a.color}99`,
-                          } : focusedResponse?.agentIdx === i ? {
-                            boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
-                          } : {
-                            boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
-                          }
-                        }
-                        transition={{ duration: 0.3 }}
-                        style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
-                      >
-                        <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      </motion.div>
-                      <div style={{ textAlign: 'center', maxWidth: 50 }}>
-                        <div style={{
-                          fontSize: 8, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.1,
-                          color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
-                          transition: 'color 0.3s',
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        }}>
-                          {a.agent_name}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {/* "Thinking" pill at the center of the table */}
-                <motion.div
-                  style={{
-                    position: 'absolute', left: OVAL_CENTER.x, top: OVAL_CENTER.y,
-                    transform: 'translate(-50%, -50%)',
-                    background: '#0a0c12', borderRadius: 999,
-                    padding: '6px 12px', zIndex: 3,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                  animate={{
-                    borderColor: activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130',
-                    boxShadow: activeIdx >= 0 ? `0 0 16px ${PALETTE[activeIdx]}25` : 'none',
-                    border: `1px solid ${activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130'}`,
-                  }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {activeIdx >= 0 ? (
-                    <>
-                      <TypingDots color={PALETTE[activeIdx]} />
-                      <motion.span
-                        style={{ fontSize: 9, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
-                        animate={{ opacity: [0.5, 1, 0.5] }}
-                        transition={{ duration: 1.2, repeat: Infinity }}
-                      >
-                        {agents[activeIdx].agent_name}
-                      </motion.span>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#3a3f52', letterSpacing: '0.05em' }}>
-                      💬 round table
-                    </span>
-                  )}
-                </motion.div>
-              </div>
-            ) : (
-            <div className="relative" style={{ width: 260, height: 300 }}>
-              <svg width="260" height="300" viewBox="0 0 260 300" className="absolute top-0 left-0">
-                <circle cx={CENTER.x} cy={CENTER.y} r="110" fill="none" stroke="#14172090" strokeWidth="1" strokeDasharray="3 6" />
-                {agents.map((a, i) => (
-                  <motion.line key={i}
-                    x1={POSITIONS[i].x} y1={POSITIONS[i].y}
-                    x2={CENTER.x} y2={CENTER.y}
-                    strokeWidth="1.5" strokeDasharray="3 6"
-                    animate={{
-                      stroke: activeIdx === i || focusedResponse?.agentIdx === i ? a.color : '#1a1d28',
-                      opacity: activeIdx === i || focusedResponse?.agentIdx === i ? 0.7 : 0.3,
-                    }}
-                    transition={{ duration: 0.3 }}
-                  />
-                ))}
+            {/* Oval boardroom layout — column count adapts to team size so the
+                table always looks packed (no empty seats shown here). Seats
+                alternate top→bottom in fill order. */}
+            <div className="relative" style={{ width: 260, height: 280 }}>
+              <svg width="260" height="280" viewBox="0 0 260 280" className="absolute top-0 left-0">
+                {/* Conference table — soft capsule */}
+                <rect
+                  x={OVAL_TABLE.x} y={OVAL_TABLE.y}
+                  width={OVAL_TABLE.width} height={OVAL_TABLE.height}
+                  rx={OVAL_TABLE.rx} ry={OVAL_TABLE.rx}
+                  fill="#0f1118" stroke="#1e2130" strokeWidth="1"
+                />
               </svg>
 
-              {agents.map((a, i) => (
-                <button key={i} className="absolute flex flex-col items-center"
-                  style={{
-                    left: POSITIONS[i].x, top: POSITIONS[i].y, transform: 'translate(-50%, -50%)',
-                    zIndex: 2, gap: 4, background: 'none', border: 'none',
-                    cursor: responses.length > 0 ? 'pointer' : 'default',
-                  }}
-                  onClick={() => {
-                    const rIdx = responses.findIndex(r => r.agentIdx === i);
-                    if (rIdx >= 0) setFocusedIdx(rIdx);
-                  }}
-                >
-                  <motion.div
-                    animate={
-                      activeIdx === i ? {
-                        boxShadow: [`0 0 0 3px ${a.color}50, 0 0 18px ${a.color}30`, `0 0 0 5px ${a.color}20, 0 0 28px ${a.color}20`],
-                        scale: 1.15, borderColor: `${a.color}99`,
-                      } : focusedResponse?.agentIdx === i ? {
-                        boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.08, borderColor: `${a.color}88`,
-                      } : {
-                        boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
-                      }
-                    }
-                    transition={{ duration: 0.3 }}
-                    style={{ width: 44, height: 44, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
+              {/* Avatars positioned around the table */}
+              {agents.map((a, i) => {
+                const pos = ovalPositions[i];
+                if (!pos) return null;
+                return (
+                  <button key={`oval-${i}`} className="absolute flex flex-col items-center"
+                    style={{
+                      left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)',
+                      zIndex: 2, gap: 3, background: 'none', border: 'none',
+                      cursor: responses.length > 0 ? 'pointer' : 'default',
+                    }}
+                    onClick={() => {
+                      const rIdx = responses.findIndex(r => r.agentIdx === i);
+                      if (rIdx >= 0) setFocusedIdx(rIdx);
+                    }}
                   >
-                    <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </motion.div>
-                  <div style={{ textAlign: 'center', maxWidth: 64 }}>
-                    <div style={{
-                      fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1.2,
-                      color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
-                      transition: 'color 0.3s',
-                    }}>
-                      {a.agent_name}
+                    <motion.div
+                      animate={
+                        activeIdx === i ? {
+                          boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
+                          scale: 1.12, borderColor: `${a.color}99`,
+                        } : focusedResponse?.agentIdx === i ? {
+                          boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
+                        } : {
+                          boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                        }
+                      }
+                      transition={{ duration: 0.3 }}
+                      style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
+                    >
+                      <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </motion.div>
+                    <div style={{ textAlign: 'center', maxWidth: 56 }}>
+                      <div style={{
+                        fontSize: 8, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.1,
+                        color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
+                        transition: 'color 0.3s',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {a.agent_name}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
 
+              {/* "Thinking" pill at the centre of the table */}
               <motion.div
                 style={{
-                  position: 'absolute', left: CENTER.x, top: CENTER.y, transform: 'translate(-50%, -50%)',
-                  width: 44, height: 44, background: '#0f1118', border: '1px solid #1e2130',
-                  borderRadius: '50%', display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', zIndex: 3, gap: 2,
+                  position: 'absolute', left: OVAL_CENTER.x, top: OVAL_CENTER.y,
+                  transform: 'translate(-50%, -50%)',
+                  background: '#0a0c12', borderRadius: 999,
+                  padding: '6px 12px', zIndex: 3,
+                  display: 'flex', alignItems: 'center', gap: 6,
                 }}
                 animate={{
                   borderColor: activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130',
-                  boxShadow: activeIdx >= 0 ? `0 0 16px ${PALETTE[activeIdx]}20` : 'none',
+                  boxShadow: activeIdx >= 0 ? `0 0 16px ${PALETTE[activeIdx]}25` : 'none',
+                  border: `1px solid ${activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130'}`,
                 }}
                 transition={{ duration: 0.3 }}
               >
@@ -720,19 +626,20 @@ export default function RoundTablePage() {
                   <>
                     <TypingDots color={PALETTE[activeIdx]} />
                     <motion.span
-                      style={{ fontSize: 7, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.04em' }}
-                      animate={{ opacity: [0.4, 1, 0.4] }}
-                      transition={{ duration: 1.4, repeat: Infinity }}
+                      style={{ fontSize: 9, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
                     >
-                      thinking
+                      {agents[activeIdx].agent_name}
                     </motion.span>
                   </>
                 ) : (
-                  <div style={{ fontSize: 16 }}>💬</div>
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#3a3f52', letterSpacing: '0.05em' }}>
+                    💬 round table
+                  </span>
                 )}
               </motion.div>
             </div>
-            )}
 
             <div className="w-full px-4 space-y-1 mt-2">
               {agents.map((a, i) => {
