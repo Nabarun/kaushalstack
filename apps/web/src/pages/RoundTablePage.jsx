@@ -27,25 +27,30 @@ const PALETTE = [
 const TEAM_SIZE_MAX = 10;
 const FREE_LIMIT = 10;
 
-// Oval boardroom layout for the round-table viz. Column count scales with
-// team size so chairs always look packed against the table (no empty seats
-// shown on this page — that's the homepage picker's job):
-//   size 6  → 3 columns × 2 rows
-//   size 7  → 4 cols (top 4 + bottom 3)
-//   size 8  → 4 cols (top 4 + bottom 4)
-//   size 9  → 5 cols (top 5 + bottom 4)
-//   size 10 → 5 cols (top 5 + bottom 5)
-// Seats alternate top→bottom as team index grows so the table fills evenly.
-const OVAL_TABLE = { x: 18, y: 100, width: 224, height: 60, rx: 30 };
-const OVAL_CENTER = { x: 130, y: 130 };
+// Vertical oval boardroom — capsule runs top-to-bottom with chair rows on
+// the LEFT and RIGHT edges of the table. Row count scales with team size
+// so the table always looks packed:
+//   size 6  → 3 rows × 2 cols (left + right) = 3 left + 3 right
+//   size 7  → 4 rows (4 left + 3 right)
+//   size 8  → 4 rows (4 + 4)
+//   size 9  → 5 rows (5 + 4)
+//   size 10 → 5 rows (5 + 5)
+// Seats alternate left→right as team index grows so each row fills evenly.
+const OVAL_TABLE = { x: 80, y: 24, width: 120, height: 272, rx: 40 };
+const OVAL_CENTER = { x: 140, y: 160 };
+const OVAL_VIEW = { width: 280, height: 320 };
 function getOvalPositions(count) {
-    const numCols = Math.ceil(count / 2);
+    const numRows = Math.ceil(count / 2);
+    const yTop = 36;
+    const yBottom = 284;
     const positions = [];
     for (let i = 0; i < count; i++) {
-        const col = Math.floor(i / 2);
-        const row = i % 2; // 0 = top, 1 = bottom
-        const x = OVAL_TABLE.x + ((col + 0.5) * OVAL_TABLE.width) / numCols;
-        const y = row === 0 ? 36 : 224;
+        const row = Math.floor(i / 2);
+        const col = i % 2; // 0 = left, 1 = right
+        const y = numRows === 1
+            ? (yTop + yBottom) / 2
+            : yTop + ((yBottom - yTop) * row) / (numRows - 1);
+        const x = col === 0 ? 40 : 240;
         positions.push({ x, y });
     }
     return positions;
@@ -546,11 +551,11 @@ export default function RoundTablePage() {
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
             className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
 
-            {/* Oval boardroom layout — column count adapts to team size so the
-                table always looks packed (no empty seats shown here). Seats
-                alternate top→bottom in fill order. */}
-            <div className="relative" style={{ width: 260, height: 280 }}>
-              <svg width="260" height="280" viewBox="0 0 260 280" className="absolute top-0 left-0">
+            {/* Vertical oval boardroom — row count adapts to team size so the
+                table always looks packed. Seats alternate left→right in fill
+                order. */}
+            <div className="relative" style={{ width: OVAL_VIEW.width, height: OVAL_VIEW.height }}>
+              <svg width={OVAL_VIEW.width} height={OVAL_VIEW.height} viewBox={`0 0 ${OVAL_VIEW.width} ${OVAL_VIEW.height}`} className="absolute top-0 left-0">
                 {/* Conference table — soft capsule */}
                 <rect
                   x={OVAL_TABLE.x} y={OVAL_TABLE.y}
@@ -626,7 +631,11 @@ export default function RoundTablePage() {
                   <>
                     <TypingDots color={PALETTE[activeIdx]} />
                     <motion.span
-                      style={{ fontSize: 9, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
+                      style={{
+                        fontSize: 9, fontFamily: 'monospace', color: PALETTE[activeIdx],
+                        letterSpacing: '0.05em', whiteSpace: 'nowrap',
+                        maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}
                       animate={{ opacity: [0.5, 1, 0.5] }}
                       transition={{ duration: 1.2, repeat: Infinity }}
                     >
