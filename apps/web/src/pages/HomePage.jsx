@@ -155,34 +155,83 @@ async function recommendTeam(query, phase = null, size = 6) {
 
 // Team-size selector used on the homepage prompt area. Backend clamps to
 // 6–10; default 6 (matches the round-table hex viz). Beyond 6 the round
-// table page switches to a 2-column avatar grid.
+// table page nests a 1–4 agent inner ring inside the hex.
 const TEAM_SIZE_MIN = 6;
 const TEAM_SIZE_MAX = 10;
-const TEAM_SIZE_OPTIONS = [6, 7, 8, 9, 10];
 
-function TeamSizeSelector({ value, onChange, compact = false }) {
+// Compute the 10 chair positions evenly around a circular table.
+// Coordinates are in a 100×100 viewBox; seat 0 sits at top (north) and seats
+// rotate clockwise so reading order matches the round-table metaphor.
+const SEAT_POSITIONS = Array.from({ length: TEAM_SIZE_MAX }, (_, i) => {
+  const angleDeg = (i * 360) / TEAM_SIZE_MAX - 90;
+  const rad = (angleDeg * Math.PI) / 180;
+  const radius = 38;
+  return { cx: 50 + radius * Math.cos(rad), cy: 50 + radius * Math.sin(rad) };
+});
+
+function TableSeatsSelector({ value, onChange }) {
   return (
-    <div className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-xs'}`}>
-      <span className="text-muted-foreground font-medium whitespace-nowrap">Team size</span>
-      <div className="flex items-center gap-1 rounded-full bg-muted/40 p-0.5">
-        {TEAM_SIZE_OPTIONS.map(n => {
-          const active = n === value;
+    <div className="flex items-center gap-3">
+      <div className="flex flex-col items-start">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Round table</span>
+        <span className="text-xs font-mono text-foreground">
+          <span className="text-primary font-bold">{value}</span>
+          <span className="text-muted-foreground"> / {TEAM_SIZE_MAX} seats</span>
+        </span>
+      </div>
+      <svg width="70" height="70" viewBox="0 0 100 100" aria-label="round table seat picker" role="group">
+        {/* Spokes from each seat to the table */}
+        {SEAT_POSITIONS.map((s, i) => {
+          const filled = i + 1 <= value;
           return (
-            <button
-              key={n}
-              type="button"
-              onClick={() => onChange(n)}
-              className={`min-w-[26px] h-6 px-2 rounded-full text-xs font-semibold transition-colors ${
-                active
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {n}
-            </button>
+            <line key={`spoke-${i}`}
+              x1={s.cx} y1={s.cy} x2="50" y2="50"
+              stroke={filled ? 'hsl(var(--primary) / 0.35)' : 'hsl(var(--muted-foreground) / 0.12)'}
+              strokeWidth="0.6"
+              strokeDasharray={filled ? '0' : '1.5 1.5'}
+            />
           );
         })}
-      </div>
+        {/* The "table" — soft inner circle */}
+        <circle cx="50" cy="50" r="14"
+          fill="hsl(var(--muted) / 0.4)"
+          stroke="hsl(var(--muted-foreground) / 0.3)"
+          strokeWidth="1" />
+        {/* Seats — clickable chair circles */}
+        {SEAT_POSITIONS.map((s, i) => {
+          const n = i + 1;
+          const filled = n <= value;
+          const isMinimum = n <= TEAM_SIZE_MIN;
+          return (
+            <circle key={`seat-${i}`}
+              cx={s.cx} cy={s.cy} r="6.5"
+              fill={filled ? 'hsl(var(--primary))' : 'transparent'}
+              stroke={filled ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground) / 0.45)'}
+              strokeWidth="1.5"
+              strokeDasharray={filled ? '0' : '2 1.5'}
+              style={{
+                cursor: isMinimum ? 'not-allowed' : 'pointer',
+                transition: 'fill 0.18s, stroke 0.18s, r 0.18s',
+              }}
+              onClick={() => {
+                // Clicking a minimum-required seat (≤6) is a no-op.
+                if (n <= TEAM_SIZE_MIN) return;
+                // Clicking a filled extra seat empties it (and all higher seats).
+                // Clicking an empty seat fills up to that position.
+                onChange(filled ? n - 1 : n);
+              }}
+            >
+              <title>
+                {isMinimum
+                  ? `Seat ${n} — always present`
+                  : filled
+                    ? `Click to free seat ${n}`
+                    : `Click to seat agent ${n}`}
+              </title>
+            </circle>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -358,7 +407,7 @@ const HomePage = () => {
                       </button>
                     </div>
                     <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
-                      <TeamSizeSelector value={teamSize} onChange={setTeamSize} compact />
+                      <TableSeatsSelector value={teamSize} onChange={setTeamSize} />
                     </div>
                   </div>
 
@@ -473,7 +522,7 @@ const HomePage = () => {
                     </button>
                   </div>
                   <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
-                    <TeamSizeSelector value={teamSize} onChange={setTeamSize} />
+                    <TableSeatsSelector value={teamSize} onChange={setTeamSize} />
                   </div>
                 </div>
               </div>
