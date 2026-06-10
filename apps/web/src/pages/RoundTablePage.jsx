@@ -39,16 +39,20 @@ const POSITIONS = [
   { x: 43,  y: 110 },
 ];
 
-// Inner ring positions (radius ~50 from CENTER) — used when team size > 6.
-// Indexed by how many inner agents there are (1–4). All shapes start at the
-// top and rotate clockwise so they read naturally alongside the outer hex.
-const INNER_POSITIONS_BY_COUNT = {
-  1: [{ x: 130, y: 110 }],
-  2: [{ x: 130, y: 110 }, { x: 130, y: 210 }],
-  3: [{ x: 130, y: 110 }, { x: 173, y: 185 }, { x: 87, y: 185 }],
-  4: [{ x: 130, y: 110 }, { x: 180, y: 160 }, { x: 130, y: 210 }, { x: 80, y: 160 }],
-};
 const CENTER = { x: 130, y: 160 };
+
+// Oval conference-table layout used when team size > 6. 5 chair columns at
+// x = 22, 76, 130, 184, 238; top row at y = 36, bottom at y = 224. Seats
+// alternate top/bottom as the team grows so the arrangement stays balanced
+// (7 = 4 top + 3 bottom; 8 = 4+4; 9 = 5+4; 10 = 5+5).
+const OVAL_COLUMNS = [22, 76, 130, 184, 238];
+const OVAL_POSITIONS = OVAL_COLUMNS.flatMap(x => [
+    { x, y: 36 },   // top-row seat for this column
+    { x, y: 224 },  // bottom-row seat for this column
+]);
+// The capsule "table" between the rows
+const OVAL_TABLE = { x: 18, y: 100, width: 224, height: 60, rx: 30 };
+const OVAL_CENTER = { x: 130, y: 130 };
 
 function TypingDots({ color }) {
   return (
@@ -324,11 +328,9 @@ export default function RoundTablePage() {
   // Agents shown in the round table viz: from active chat if one is loaded, else from the draft team
   const visTeam = activeChat?.team || draftTeam;
   const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
-  // Outer hex always holds the first 6 agents; any beyond that go onto the
-  // inner ring (1–4 slots arranged around the center).
-  const outerAgents = agents.slice(0, OUTER_RING_SIZE);
-  const innerAgents = agents.slice(OUTER_RING_SIZE);
-  const innerPositions = INNER_POSITIONS_BY_COUNT[innerAgents.length] || [];
+  // ≤6 agents: hexagon (existing layout). >6: oval boardroom table with
+  // 5 chairs on each long edge, filled in alternating top/bottom order.
+  const useOvalViz = agents.length > OUTER_RING_SIZE;
 
   // Load history + usage on mount
   useEffect(() => {
@@ -549,17 +551,106 @@ export default function RoundTablePage() {
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
             className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
 
+            {useOvalViz ? (
+              // Oval boardroom layout — 5 chairs above, 5 below an elongated
+              // capsule table. Same metaphor as the homepage seat picker.
+              <div className="relative" style={{ width: 260, height: 280 }}>
+                <svg width="260" height="280" viewBox="0 0 260 280" className="absolute top-0 left-0">
+                  {/* Conference table — soft capsule */}
+                  <rect
+                    x={OVAL_TABLE.x} y={OVAL_TABLE.y}
+                    width={OVAL_TABLE.width} height={OVAL_TABLE.height}
+                    rx={OVAL_TABLE.rx} ry={OVAL_TABLE.rx}
+                    fill="#0f1118" stroke="#1e2130" strokeWidth="1"
+                  />
+                </svg>
+
+                {/* Avatars — top + bottom rows, alternating fill order */}
+                {agents.map((a, i) => {
+                  const pos = OVAL_POSITIONS[i];
+                  if (!pos) return null;
+                  return (
+                    <button key={`oval-${i}`} className="absolute flex flex-col items-center"
+                      style={{
+                        left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)',
+                        zIndex: 2, gap: 3, background: 'none', border: 'none',
+                        cursor: responses.length > 0 ? 'pointer' : 'default',
+                      }}
+                      onClick={() => {
+                        const rIdx = responses.findIndex(r => r.agentIdx === i);
+                        if (rIdx >= 0) setFocusedIdx(rIdx);
+                      }}
+                    >
+                      <motion.div
+                        animate={
+                          activeIdx === i ? {
+                            boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
+                            scale: 1.12, borderColor: `${a.color}99`,
+                          } : focusedResponse?.agentIdx === i ? {
+                            boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
+                          } : {
+                            boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                          }
+                        }
+                        transition={{ duration: 0.3 }}
+                        style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
+                      >
+                        <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </motion.div>
+                      <div style={{ textAlign: 'center', maxWidth: 50 }}>
+                        <div style={{
+                          fontSize: 8, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.1,
+                          color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
+                          transition: 'color 0.3s',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {a.agent_name}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {/* "Thinking" pill at the center of the table */}
+                <motion.div
+                  style={{
+                    position: 'absolute', left: OVAL_CENTER.x, top: OVAL_CENTER.y,
+                    transform: 'translate(-50%, -50%)',
+                    background: '#0a0c12', borderRadius: 999,
+                    padding: '6px 12px', zIndex: 3,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                  animate={{
+                    borderColor: activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130',
+                    boxShadow: activeIdx >= 0 ? `0 0 16px ${PALETTE[activeIdx]}25` : 'none',
+                    border: `1px solid ${activeIdx >= 0 ? `${PALETTE[activeIdx]}55` : '#1e2130'}`,
+                  }}
+                  transition={{ duration: 0.3 }}
+                >
+                  {activeIdx >= 0 ? (
+                    <>
+                      <TypingDots color={PALETTE[activeIdx]} />
+                      <motion.span
+                        style={{ fontSize: 9, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
+                        animate={{ opacity: [0.5, 1, 0.5] }}
+                        transition={{ duration: 1.2, repeat: Infinity }}
+                      >
+                        {agents[activeIdx].agent_name}
+                      </motion.span>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#3a3f52', letterSpacing: '0.05em' }}>
+                      💬 round table
+                    </span>
+                  )}
+                </motion.div>
+              </div>
+            ) : (
             <div className="relative" style={{ width: 260, height: 300 }}>
               <svg width="260" height="300" viewBox="0 0 260 300" className="absolute top-0 left-0">
-                {/* Outer hex perimeter */}
                 <circle cx={CENTER.x} cy={CENTER.y} r="110" fill="none" stroke="#14172090" strokeWidth="1" strokeDasharray="3 6" />
-                {/* Inner ring perimeter (only when there are inner agents) */}
-                {innerAgents.length > 0 && (
-                  <circle cx={CENTER.x} cy={CENTER.y} r="50" fill="none" stroke="#14172060" strokeWidth="1" strokeDasharray="2 4" />
-                )}
-                {/* Outer ring connecting lines */}
-                {outerAgents.map((a, i) => (
-                  <motion.line key={`outer-line-${i}`}
+                {agents.map((a, i) => (
+                  <motion.line key={i}
                     x1={POSITIONS[i].x} y1={POSITIONS[i].y}
                     x2={CENTER.x} y2={CENTER.y}
                     strokeWidth="1.5" strokeDasharray="3 6"
@@ -570,28 +661,10 @@ export default function RoundTablePage() {
                     transition={{ duration: 0.3 }}
                   />
                 ))}
-                {/* Inner ring connecting lines (solid, not dashed, for contrast) */}
-                {innerAgents.map((a, j) => {
-                  const i = OUTER_RING_SIZE + j;
-                  const pos = innerPositions[j];
-                  return (
-                    <motion.line key={`inner-line-${j}`}
-                      x1={pos.x} y1={pos.y}
-                      x2={CENTER.x} y2={CENTER.y}
-                      strokeWidth="1.5"
-                      animate={{
-                        stroke: activeIdx === i || focusedResponse?.agentIdx === i ? a.color : '#1a1d28',
-                        opacity: activeIdx === i || focusedResponse?.agentIdx === i ? 0.7 : 0.3,
-                      }}
-                      transition={{ duration: 0.3 }}
-                    />
-                  );
-                })}
               </svg>
 
-              {/* Outer ring avatars (44px) */}
-              {outerAgents.map((a, i) => (
-                <button key={`outer-${i}`} className="absolute flex flex-col items-center"
+              {agents.map((a, i) => (
+                <button key={i} className="absolute flex flex-col items-center"
                   style={{
                     left: POSITIONS[i].x, top: POSITIONS[i].y, transform: 'translate(-50%, -50%)',
                     zIndex: 2, gap: 4, background: 'none', border: 'none',
@@ -630,52 +703,10 @@ export default function RoundTablePage() {
                 </button>
               ))}
 
-              {/* Inner ring avatars (32px — smaller so they nest visually inside the
-                  outer hex without crowding either ring or the center node) */}
-              {innerAgents.map((a, j) => {
-                const i = OUTER_RING_SIZE + j;
-                const pos = innerPositions[j];
-                return (
-                  <button key={`inner-${j}`} className="absolute flex items-center justify-center"
-                    style={{
-                      left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)',
-                      zIndex: 2, background: 'none', border: 'none',
-                      cursor: responses.length > 0 ? 'pointer' : 'default',
-                    }}
-                    onClick={() => {
-                      const rIdx = responses.findIndex(r => r.agentIdx === i);
-                      if (rIdx >= 0) setFocusedIdx(rIdx);
-                    }}
-                    title={a.agent_name}
-                  >
-                    <motion.div
-                      animate={
-                        activeIdx === i ? {
-                          boxShadow: [`0 0 0 2px ${a.color}50, 0 0 14px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 22px ${a.color}20`],
-                          scale: 1.18, borderColor: `${a.color}99`,
-                        } : focusedResponse?.agentIdx === i ? {
-                          boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.1, borderColor: `${a.color}88`,
-                        } : {
-                          boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
-                        }
-                      }
-                      transition={{ duration: 0.3 }}
-                      style={{ width: 32, height: 32, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
-                    >
-                      <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </motion.div>
-                  </button>
-                );
-              })}
-
-              {/* Center node — slightly smaller (36px) when there are inner-ring
-                  agents to give them visual breathing room, otherwise the
-                  original 44px. */}
               <motion.div
                 style={{
                   position: 'absolute', left: CENTER.x, top: CENTER.y, transform: 'translate(-50%, -50%)',
-                  width: innerAgents.length > 0 ? 36 : 44, height: innerAgents.length > 0 ? 36 : 44,
-                  background: '#0f1118', border: '1px solid #1e2130',
+                  width: 44, height: 44, background: '#0f1118', border: '1px solid #1e2130',
                   borderRadius: '50%', display: 'flex', flexDirection: 'column',
                   alignItems: 'center', justifyContent: 'center', zIndex: 3, gap: 2,
                 }}
@@ -688,21 +719,20 @@ export default function RoundTablePage() {
                 {activeIdx >= 0 ? (
                   <>
                     <TypingDots color={PALETTE[activeIdx]} />
-                    {innerAgents.length === 0 && (
-                      <motion.span
-                        style={{ fontSize: 7, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.04em' }}
-                        animate={{ opacity: [0.4, 1, 0.4] }}
-                        transition={{ duration: 1.4, repeat: Infinity }}
-                      >
-                        thinking
-                      </motion.span>
-                    )}
+                    <motion.span
+                      style={{ fontSize: 7, fontFamily: 'monospace', color: PALETTE[activeIdx], letterSpacing: '0.04em' }}
+                      animate={{ opacity: [0.4, 1, 0.4] }}
+                      transition={{ duration: 1.4, repeat: Infinity }}
+                    >
+                      thinking
+                    </motion.span>
                   </>
                 ) : (
-                  <div style={{ fontSize: innerAgents.length > 0 ? 13 : 16 }}>💬</div>
+                  <div style={{ fontSize: 16 }}>💬</div>
                 )}
               </motion.div>
             </div>
+            )}
 
             <div className="w-full px-4 space-y-1 mt-2">
               {agents.map((a, i) => {
