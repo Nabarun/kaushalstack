@@ -159,15 +159,19 @@ async function recommendTeam(query, phase = null, size = 6) {
 const TEAM_SIZE_MIN = 6;
 const TEAM_SIZE_MAX = 10;
 
-// Compute the 10 chair positions evenly around a circular table.
-// Coordinates are in a 100×100 viewBox; seat 0 sits at top (north) and seats
-// rotate clockwise so reading order matches the round-table metaphor.
-const SEAT_POSITIONS = Array.from({ length: TEAM_SIZE_MAX }, (_, i) => {
-  const angleDeg = (i * 360) / TEAM_SIZE_MAX - 90;
-  const rad = (angleDeg * Math.PI) / 180;
-  const radius = 38;
-  return { cx: 50 + radius * Math.cos(rad), cy: 50 + radius * Math.sin(rad) };
-});
+// Conference-table seat layout: an oval table with 5 chairs on the top edge
+// and 5 on the bottom. Seats alternate top→bottom→top→bottom… as they fill
+// so the table stays symmetric at every size (e.g. 6 = 3 top + 3 bottom).
+// Coordinates are in a 120×80 viewBox.
+const SEAT_POSITIONS = (() => {
+  const xs = [14, 37, 60, 83, 106]; // 5 evenly-spaced columns
+  const out = [];
+  for (let col = 0; col < xs.length; col++) {
+    out.push({ cx: xs[col], cy: 12 }); // top-row seat for this column
+    out.push({ cx: xs[col], cy: 68 }); // bottom-row seat for this column
+  }
+  return out; // length 10: [top0, bot0, top1, bot1, top2, bot2, …]
+})();
 
 function TableSeatsSelector({ value, onChange }) {
   return (
@@ -179,21 +183,9 @@ function TableSeatsSelector({ value, onChange }) {
           <span className="text-muted-foreground"> / {TEAM_SIZE_MAX} seats</span>
         </span>
       </div>
-      <svg width="70" height="70" viewBox="0 0 100 100" aria-label="round table seat picker" role="group">
-        {/* Spokes from each seat to the table */}
-        {SEAT_POSITIONS.map((s, i) => {
-          const filled = i + 1 <= value;
-          return (
-            <line key={`spoke-${i}`}
-              x1={s.cx} y1={s.cy} x2="50" y2="50"
-              stroke={filled ? 'hsl(var(--primary) / 0.35)' : 'hsl(var(--muted-foreground) / 0.12)'}
-              strokeWidth="0.6"
-              strokeDasharray={filled ? '0' : '1.5 1.5'}
-            />
-          );
-        })}
-        {/* The "table" — soft inner circle */}
-        <circle cx="50" cy="50" r="14"
+      <svg width="120" height="80" viewBox="0 0 120 80" aria-label="round table seat picker" role="group">
+        {/* The conference table — rounded capsule, soft fill */}
+        <rect x="10" y="28" width="100" height="24" rx="12" ry="12"
           fill="hsl(var(--muted) / 0.4)"
           stroke="hsl(var(--muted-foreground) / 0.3)"
           strokeWidth="1" />
@@ -204,20 +196,17 @@ function TableSeatsSelector({ value, onChange }) {
           const isMinimum = n <= TEAM_SIZE_MIN;
           return (
             <circle key={`seat-${i}`}
-              cx={s.cx} cy={s.cy} r="6.5"
+              cx={s.cx} cy={s.cy} r="7"
               fill={filled ? 'hsl(var(--primary))' : 'transparent'}
               stroke={filled ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground) / 0.45)'}
               strokeWidth="1.5"
               strokeDasharray={filled ? '0' : '2 1.5'}
               style={{
                 cursor: isMinimum ? 'not-allowed' : 'pointer',
-                transition: 'fill 0.18s, stroke 0.18s, r 0.18s',
+                transition: 'fill 0.18s, stroke 0.18s',
               }}
               onClick={() => {
-                // Clicking a minimum-required seat (≤6) is a no-op.
                 if (n <= TEAM_SIZE_MIN) return;
-                // Clicking a filled extra seat empties it (and all higher seats).
-                // Clicking an empty seat fills up to that position.
                 onChange(filled ? n - 1 : n);
               }}
             >
