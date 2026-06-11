@@ -742,10 +742,46 @@ const HomePage = () => {
           </div>
         </section>
 
-        {/* ── Stats ── */}
-        {/* Labels switch to shorter copy on mobile so 3-col grid doesn't truncate
-            ("Leaderboard Entries" → "Leaderboard"; "Skills Shared" → "Skills"). */}
-        <section className="py-12 bg-muted/20 border-y">
+        {/* ── Recently added skills ── 5 most-recently created agents, fetched
+            on mount. Sits ABOVE the stats row because "what's new on the
+            platform" lands harder for first-time visitors than headcount.
+            Hidden gracefully if PocketBase returns nothing. */}
+        {recentSkills.length > 0 && (
+          <section className="py-16 sm:py-20 bg-background border-y">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="text-center mb-10">
+                <div className="inline-flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold text-primary tracking-wide uppercase">Just added</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">Recently added skills</h2>
+                <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto">
+                  New AI specialist agents just joined the round table.
+                </p>
+              </div>
+
+              {/* Grid scales from 1 → 2 → 3 → 5 cols. 5-across at xl puts every
+                  card on one row for a clean shelf look on wide screens. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto">
+                {recentSkills.map((skill, i) => (
+                  <AgentCard key={skill.id} skill={skill} index={i} onViewDetails={handleViewDetails} />
+                ))}
+              </div>
+
+              <div className="text-center mt-8">
+                <Link to="/skills" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline font-semibold">
+                  Browse all {stats.skills > 0 ? stats.skills.toLocaleString() : ''} skills
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Stats ── tucked below the Recently-added shelf since "what's new"
+            matters more to first-time visitors than headcount. Labels switch
+            to shorter copy on mobile so the 3-col grid doesn't truncate. */}
+        <section className="py-12 bg-muted/20 border-b">
           <div className="max-w-4xl mx-auto px-4 sm:px-6">
             <div className="grid grid-cols-3 gap-3 sm:gap-8 text-center">
               <div>
@@ -778,41 +814,6 @@ const HomePage = () => {
             </div>
           </div>
         </section>
-
-        {/* ── Recently added skills ── 5 most-recently created agents, fetched
-            on mount. Hidden gracefully if PocketBase returns nothing so the
-            page never shows an empty section. */}
-        {recentSkills.length > 0 && (
-          <section className="py-16 sm:py-20 bg-background border-b">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="text-center mb-10">
-                <div className="inline-flex items-center gap-2 mb-3">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold text-primary tracking-wide uppercase">Just added</span>
-                </div>
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">Recently added skills</h2>
-                <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto">
-                  New AI specialist agents just joined the round table.
-                </p>
-              </div>
-
-              {/* Grid scales from 1 → 2 → 3 → 5 cols. 5-across at xl puts every
-                  card on one row for a clean shelf look on wide screens. */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto">
-                {recentSkills.map((skill, i) => (
-                  <AgentCard key={skill.id} skill={skill} index={i} onViewDetails={handleViewDetails} />
-                ))}
-              </div>
-
-              <div className="text-center mt-8">
-                <Link to="/skills" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline font-semibold">
-                  Browse all {stats.skills > 0 ? stats.skills.toLocaleString() : ''} skills
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* ── Powered by kaushalstack ── */}
         <section className="py-20 bg-muted/20 border-t">
