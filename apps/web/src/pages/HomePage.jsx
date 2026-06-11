@@ -362,14 +362,15 @@ const HomePage = () => {
       <div className="min-h-screen">
 
         {/* ── Chat Hero with phase scope ── */}
-        {/* min-h scales with viewport: 60vh on mobile (where 90vh wastes most
-            of the screen on empty gradient) and 90vh from md up where content
-            naturally fills more. */}
-        <section className="relative min-h-[60vh] md:min-h-[90vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
+        {/* min-h sets a soft floor so the gradient looks intentional, but we
+            cap it well below 100vh so the new "Recently added" shelf below
+            isn't pushed off the fold. Inner container is no longer flex-1 so
+            content collapses to its natural height. */}
+        <section className="relative min-h-[55vh] flex flex-col overflow-hidden bg-gradient-to-br from-background via-muted/30 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
-          <div className={`relative flex-1 flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
+          <div className={`relative flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
 
             {/* ── SPLIT HERO (logged-out, empty) ── video + compact prompt ── */}
             {showSplitHero && (
