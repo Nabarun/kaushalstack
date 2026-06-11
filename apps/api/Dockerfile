@@ -12,6 +12,7 @@ RUN npm ci --workspace=apps/api --omit=dev
 WORKDIR /workspace/apps/api
 
 COPY apps/api/src ./src
+COPY apps/api/scripts ./scripts
 
 EXPOSE 3001
 

@@ -2,10 +2,9 @@ import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { encrypt, safeDecrypt } from '../utils/crypto.js';
+import { SUPPORTED_PROVIDERS, getProviderMeta, validateKey } from '../providers/index.js';
 
 const router = Router();
-
-const OPENAI_KEY_RE = /^sk-(?:proj-)?[A-Za-z0-9_\-]{20,}$/;
 
 function getUserIdFromHeader(authHeader) {
     if (!authHeader?.startsWith('Bearer ')) return null;
@@ -19,91 +18,254 @@ function getUserIdFromHeader(authHeader) {
     }
 }
 
-async function validateOpenAIKey(key) {
-    try {
-        const r = await fetch('https://api.openai.com/v1/models', {
-            headers: { 'Authorization': `Bearer ${key}` },
-        });
-        if (r.status === 200) return { ok: true };
-        if (r.status === 401) return { ok: false, reason: 'Key was rejected by OpenAI (unauthorized).' };
-        if (r.status === 429) return { ok: false, reason: 'OpenAI returned 429 — key may be out of quota or rate-limited.' };
-        return { ok: false, reason: `OpenAI returned status ${r.status}` };
-    } catch (err) {
-        return { ok: false, reason: `Could not reach OpenAI: ${err.message}` };
-    }
+function shapeStatus(user) {
+    return {
+        provider: user.provider || null,
+        has_key: !!user.byok_key_encrypted,
+        last4: user.byok_key_last4 || null,
+        model: user.preferred_model || null,
+    };
 }
 
-// GET /me/openai-key — status only, never returns plaintext
-router.get('/me/openai-key', async (req, res) => {
+// ──────────────────────────────────────────────────────────────────
+// New provider-aware endpoints
+// ──────────────────────────────────────────────────────────────────
+
+// GET /me/provider — current provider + key/model status
+router.get('/me/provider', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
-
     try {
         const user = await pb.collection('users').getOne(userId);
-        res.json({
-            has_key: !!user.openai_key_encrypted,
-            last4:   user.openai_key_last4 || null,
-        });
+        res.json(shapeStatus(user));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// POST /me/openai-key — save/update
-router.post('/me/openai-key', async (req, res) => {
+// PUT /me/provider — switch provider. Does NOT clear the key, but the caller
+// is expected to follow up with /me/byok-key since keys are provider-specific.
+router.put('/me/provider', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const provider = (req.body?.provider || '').trim();
+    if (!SUPPORTED_PROVIDERS.includes(provider)) {
+        return res.status(400).json({ error: `provider must be one of: ${SUPPORTED_PROVIDERS.join(', ')}` });
+    }
+    try {
+        await pb.collection('users').update(userId, { provider });
+        res.json({ ok: true, provider });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /me/byok-key — save key for the user's current provider (or provider passed in body)
+router.put('/me/byok-key', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const raw = (req.body?.key || '').trim();
-    if (!raw)                       return res.status(400).json({ error: 'key is required' });
-    if (!OPENAI_KEY_RE.test(raw))   return res.status(400).json({ error: 'That does not look like an OpenAI API key (must start with sk- or sk-proj-).' });
-
-    // Verify the key actually works before storing
-    const v = await validateOpenAIKey(raw);
-    if (!v.ok) return res.status(400).json({ error: v.reason });
+    const providerOverride = (req.body?.provider || '').trim();
+    if (!raw) return res.status(400).json({ error: 'key is required' });
 
     try {
-        const ciphertext = encrypt(raw);
-        const last4      = raw.slice(-4);
+        const user = await pb.collection('users').getOne(userId);
+        const provider = providerOverride || user.provider || 'openai';
+        if (!SUPPORTED_PROVIDERS.includes(provider)) {
+            return res.status(400).json({ error: `provider must be one of: ${SUPPORTED_PROVIDERS.join(', ')}` });
+        }
+        const meta = getProviderMeta(provider);
+        if (meta.keyPattern && !meta.keyPattern.test(raw)) {
+            return res.status(400).json({ error: `That doesn't look like a ${meta.label} key. ${meta.keyHint}.` });
+        }
+        const v = await validateKey(provider, raw);
+        if (!v.ok) return res.status(400).json({ error: v.reason });
 
         await pb.collection('users').update(userId, {
-            openai_key_encrypted: ciphertext,
-            openai_key_last4: last4,
+            provider,
+            byok_key_encrypted: encrypt(raw),
+            byok_key_last4: raw.slice(-4),
         });
-
-        logger.info(`openai key saved for user ${userId} (last4 ${last4})`);
-        res.json({ ok: true, has_key: true, last4 });
+        logger.info(`byok saved for user ${userId} (provider=${provider}, last4=${raw.slice(-4)})`);
+        const fresh = await pb.collection('users').getOne(userId);
+        res.json({ ok: true, ...shapeStatus(fresh) });
     } catch (err) {
-        logger.error('save openai key error:', err.message);
+        logger.error('byok save error:', err.message);
         res.status(500).json({ error: 'Failed to save key' });
     }
 });
 
-// DELETE /me/openai-key
-router.delete('/me/openai-key', async (req, res) => {
+// DELETE /me/byok-key
+router.delete('/me/byok-key', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
-
     try {
         await pb.collection('users').update(userId, {
-            openai_key_encrypted: '',
-            openai_key_last4: '',
+            byok_key_encrypted: '',
+            byok_key_last4: '',
         });
-        logger.info(`openai key removed for user ${userId}`);
         res.json({ ok: true, has_key: false });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Helper for other routes that need a user's personal key (e.g. round table).
-// Returns null if the user has no key or decryption fails.
-export async function getUserOpenAIKey(userId) {
+// PUT /me/byok-model
+router.put('/me/byok-model', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const model = (req.body?.model || '').trim();
+    if (!model) return res.status(400).json({ error: 'model is required' });
+    if (model.length > 100) return res.status(400).json({ error: 'model id too long' });
+    try {
+        await pb.collection('users').update(userId, { preferred_model: model });
+        res.json({ ok: true, model });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/me/byok-model', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        await pb.collection('users').update(userId, { preferred_model: '' });
+        res.json({ ok: true, model: null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// Legacy aliases — keep the old OpenAI-only endpoints working so any
+// cached/old client doesn't 404. New code should use /me/byok-*.
+// ──────────────────────────────────────────────────────────────────
+
+router.get('/me/openai-key', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        const user = await pb.collection('users').getOne(userId);
+        res.json({
+            has_key: !!user.byok_key_encrypted,
+            last4: user.byok_key_last4 || null,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/me/openai-key', async (req, res) => {
+    // Forward to the new endpoint with provider='openai' implied.
+    req.body = { ...(req.body || {}), provider: 'openai' };
+    req.method = 'PUT';
+    // Re-dispatch by calling the handler directly. Simpler: duplicate the minimum logic.
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const raw = (req.body?.key || '').trim();
+    if (!raw) return res.status(400).json({ error: 'key is required' });
+    try {
+        const meta = getProviderMeta('openai');
+        if (!meta.keyPattern.test(raw)) {
+            return res.status(400).json({ error: `That doesn't look like an OpenAI key. ${meta.keyHint}.` });
+        }
+        const v = await validateKey('openai', raw);
+        if (!v.ok) return res.status(400).json({ error: v.reason });
+        await pb.collection('users').update(userId, {
+            provider: 'openai',
+            byok_key_encrypted: encrypt(raw),
+            byok_key_last4: raw.slice(-4),
+        });
+        res.json({ ok: true, has_key: true, last4: raw.slice(-4) });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save key' });
+    }
+});
+
+router.delete('/me/openai-key', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        await pb.collection('users').update(userId, {
+            byok_key_encrypted: '',
+            byok_key_last4: '',
+        });
+        res.json({ ok: true, has_key: false });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/me/openai-model', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        const user = await pb.collection('users').getOne(userId);
+        res.json({ model: user.preferred_model || null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/me/openai-model', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const model = (req.body?.model || '').trim();
+    if (!model) return res.status(400).json({ error: 'model is required' });
+    try {
+        await pb.collection('users').update(userId, { preferred_model: model });
+        res.json({ ok: true, model });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/me/openai-model', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        await pb.collection('users').update(userId, { preferred_model: '' });
+        res.json({ ok: true, model: null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// Helpers consumed by other routes (round table, etc.)
+// ──────────────────────────────────────────────────────────────────
+
+// Returns { provider, key, model } or null if the user has no usable BYOK config.
+export async function getUserBYOK(userId) {
     if (!userId) return null;
     try {
         const user = await pb.collection('users').getOne(userId);
-        if (!user.openai_key_encrypted) return null;
-        return safeDecrypt(user.openai_key_encrypted);
+        if (!user.byok_key_encrypted) return null;
+        const key = safeDecrypt(user.byok_key_encrypted);
+        if (!key) return null;
+        return {
+            provider: user.provider || 'openai',
+            key,
+            model: user.preferred_model || null,
+        };
+    } catch {
+        return null;
+    }
+}
+
+// Legacy helper — kept so any caller still expecting just the OpenAI key works.
+export async function getUserOpenAIKey(userId) {
+    const byok = await getUserBYOK(userId);
+    if (!byok || byok.provider !== 'openai') return null;
+    return byok.key;
+}
+
+export async function getUserPreferredModel(userId) {
+    if (!userId) return null;
+    try {
+        const user = await pb.collection('users').getOne(userId);
+        return user.preferred_model || null;
     } catch {
         return null;
     }

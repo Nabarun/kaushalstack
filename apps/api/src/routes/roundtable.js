@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
-import { getUserOpenAIKey } from './user-keys.js';
+import { getUserBYOK } from './user-keys.js';
+import { chatComplete, getProviderMeta } from '../providers/index.js';
 
 const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -169,9 +170,19 @@ router.post('/roundtable', async (req, res) => {
     }
 
     const userId = getUserIdFromHeader(req.headers.authorization);
-    const userKey = await getUserOpenAIKey(userId);
-    const keyInUse = userKey || OPENAI_API_KEY;
-    const usingUserKey = !!userKey;
+    const userBYOK = await getUserBYOK(userId);
+    const usingUserKey = !!userBYOK;
+
+    // Server-key fallback always uses OpenAI gpt-4o-mini so the free tier is
+    // predictable. When the user is paying, honour their provider + model.
+    const SERVER_PROVIDER = 'openai';
+    const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
+
+    const providerInUse = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
+    const keyInUse = usingUserKey ? userBYOK.key : OPENAI_API_KEY;
+    const modelInUse = usingUserKey
+        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
+        : SERVER_DEFAULT_MODEL;
 
     let usesAfter = null;
     let remaining = null;
@@ -194,43 +205,36 @@ router.post('/roundtable', async (req, res) => {
         remaining = FREE_LIMIT - usesAfter;
     }
 
+    let raw;
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${keyInUse}`,
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                temperature: 0.8,
-                response_format: { type: 'json_object' },
-                messages: [{ role: 'user', content: buildPrompt(query, team) }],
-            }),
+        raw = await chatComplete(providerInUse, {
+            key: keyInUse,
+            model: modelInUse,
+            userPrompt: buildPrompt(query, team),
+            jsonMode: true,
         });
-
-        if (!response.ok) {
-            const errBody = await response.text();
-            // If the user's own key was rejected, give the frontend a clear marker
-            // so it can prompt them to update it on /profile.
-            if (usingUserKey && (response.status === 401 || response.status === 429)) {
-                return res.status(402).json({
-                    error: 'user_key_failed',
-                    detail: response.status === 401
-                        ? 'Your saved OpenAI key was rejected. Please update it on your profile.'
-                        : 'Your OpenAI account is out of quota or rate-limited. Check billing and try again.',
-                    status: response.status,
-                });
-            }
-            throw new Error(`OpenAI error ${response.status}: ${errBody}`);
+    } catch (err) {
+        // The dispatcher attaches a `status` field for upstream HTTP errors.
+        // Treat 401/429 from the user's key as a soft, actionable failure.
+        if (usingUserKey && (err.status === 401 || err.status === 429)) {
+            const providerLabel = getProviderMeta(userBYOK.provider).label;
+            return res.status(402).json({
+                error: 'user_key_failed',
+                detail: err.status === 401
+                    ? `Your saved ${providerLabel} key was rejected. Please update it on your profile.`
+                    : `Your ${providerLabel} account is out of quota or rate-limited. Check billing and try again.`,
+                status: err.status,
+            });
         }
+        logger.error('roundtable provider call failed:', err.message);
+        return res.status(500).json({ error: 'Round table call failed' });
+    }
 
-        const data   = await response.json();
-        const raw    = data.choices?.[0]?.message?.content || '{}';
-        const parsed = JSON.parse(raw);
+    try {
+        const parsed = JSON.parse(raw || '{}');
 
         if (!Array.isArray(parsed.responses)) {
-            throw new Error('Unexpected response shape from OpenAI');
+            throw new Error('Unexpected response shape from provider');
         }
 
         let chatId = null;
@@ -261,8 +265,8 @@ router.get('/roundtable/usage', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const userKey = await getUserOpenAIKey(userId);
-    if (userKey) {
+    const userBYOK = await getUserBYOK(userId);
+    if (userBYOK) {
         return res.json({ has_user_key: true, unlimited: true });
     }
 

@@ -129,8 +129,8 @@ const UserProfilePage = () => {
               {/* Profile details — name + bio */}
               <ProfileEditSection user={user} />
 
-              {/* OpenAI API key management */}
-              <OpenAIKeySection />
+              {/* AI provider key management (OpenAI, Anthropic, …) */}
+              <ProviderKeySection />
 
               {/* Email notification preferences */}
               <EmailPrefsSection user={user} />
@@ -352,11 +352,42 @@ function EmailPrefsSection({ user }) {
   );
 }
 
-function OpenAIKeySection() {
-  const [status, setStatus] = useState({ has_key: false, last4: null });
+const PROVIDERS = {
+  openai: {
+    label: 'OpenAI',
+    placeholder: 'sk-proj-…',
+    hint: 'Starts with sk- or sk-proj-',
+    keysUrl: 'https://platform.openai.com/api-keys',
+  },
+  anthropic: {
+    label: 'Anthropic',
+    placeholder: 'sk-ant-api03-…',
+    hint: 'Starts with sk-ant-',
+    keysUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  xai: {
+    label: 'xAI Grok',
+    placeholder: 'xai-…',
+    hint: 'Starts with xai-',
+    keysUrl: 'https://console.x.ai',
+  },
+  google: {
+    label: 'Google Gemini',
+    placeholder: 'AIza…',
+    hint: 'Starts with AIza',
+    keysUrl: 'https://aistudio.google.com/apikey',
+  },
+};
+const PROVIDER_IDS = Object.keys(PROVIDERS);
+
+function ProviderKeySection() {
+  const [status, setStatus] = useState({ provider: null, has_key: false, last4: null, model: null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState('');
+  // The provider currently selected in the input area. Defaults to whatever
+  // the user has saved; if nothing saved, falls back to OpenAI.
+  const [selectedProvider, setSelectedProvider] = useState('openai');
 
   function authedFetch(url, opts = {}) {
     const token = pb.authStore.token;
@@ -372,10 +403,17 @@ function OpenAIKeySection() {
 
   async function refresh() {
     try {
-      const r = await authedFetch('/api/me/openai-key');
+      const r = await authedFetch('/api/me/provider');
       if (!r.ok) throw new Error('failed');
       const d = await r.json();
-      setStatus({ has_key: !!d.has_key, last4: d.last4 || null });
+      const next = {
+        provider: d.provider || null,
+        has_key: !!d.has_key,
+        last4: d.last4 || null,
+        model: d.model || null,
+      };
+      setStatus(next);
+      if (next.provider) setSelectedProvider(next.provider);
     } catch {
       // silent
     } finally {
@@ -390,15 +428,15 @@ function OpenAIKeySection() {
     if (!key) return;
     setBusy(true);
     try {
-      const r = await authedFetch('/api/me/openai-key', {
-        method: 'POST',
-        body: JSON.stringify({ key }),
+      const r = await authedFetch('/api/me/byok-key', {
+        method: 'PUT',
+        body: JSON.stringify({ key, provider: selectedProvider }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Failed to save');
-      toast.success('API key saved and validated. Round Table now uses your key.');
+      toast.success(`${PROVIDERS[selectedProvider].label} key saved. Round Table now uses your key.`);
       setInput('');
-      setStatus({ has_key: true, last4: data.last4 });
+      setStatus({ provider: data.provider, has_key: true, last4: data.last4, model: data.model || null });
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -407,13 +445,14 @@ function OpenAIKeySection() {
   }
 
   async function remove() {
-    if (!confirm('Remove your saved OpenAI key? Future round-table sessions will use the free tier (10 lifetime requests).')) return;
+    const providerLabel = status.provider ? PROVIDERS[status.provider]?.label || status.provider : 'BYOK';
+    if (!confirm(`Remove your saved ${providerLabel} key? Future round-table sessions will use the free tier (10 lifetime requests).`)) return;
     setBusy(true);
     try {
-      const r = await authedFetch('/api/me/openai-key', { method: 'DELETE' });
+      const r = await authedFetch('/api/me/byok-key', { method: 'DELETE' });
       if (!r.ok) throw new Error('Failed to remove');
       toast.success('Key removed.');
-      setStatus({ has_key: false, last4: null });
+      setStatus({ provider: status.provider, has_key: false, last4: null, model: null });
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -421,20 +460,22 @@ function OpenAIKeySection() {
     }
   }
 
+  const meta = PROVIDERS[selectedProvider];
+
   return (
     <Card>
       <CardHeader className="border-b">
         <div className="flex items-center gap-2">
           <Key className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold">OpenAI API Key</h2>
-          {status.has_key && (
+          <h2 className="text-xl font-bold">AI Provider Key</h2>
+          {status.has_key && status.provider && (
             <span className="inline-flex items-center gap-1 text-xs font-mono bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 rounded-full px-2 py-0.5">
-              <ShieldCheck className="w-3 h-3" /> connected
+              <ShieldCheck className="w-3 h-3" /> {PROVIDERS[status.provider]?.label || status.provider} connected
             </span>
           )}
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Bring your own OpenAI key to remove the free-tier limit. Billed to your OpenAI account, not ours.
+          Bring your own OpenAI or Anthropic key to remove the free-tier limit. Billed to your account, not ours.
         </p>
       </CardHeader>
       <CardContent className="pt-5 space-y-4">
@@ -444,40 +485,70 @@ function OpenAIKeySection() {
           <>
             <div className="flex items-center justify-between gap-3 bg-muted/30 border rounded-lg px-4 py-3">
               <div>
-                <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Current key</div>
-                <div className="font-mono text-sm">sk-…{status.last4}</div>
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                  Current key · {PROVIDERS[status.provider]?.label || status.provider}
+                </div>
+                <div className="font-mono text-sm">…{status.last4}</div>
               </div>
               <Button variant="outline" size="sm" onClick={remove} disabled={busy} className="gap-1.5">
                 <Trash2 className="w-3.5 h-3.5" /> Remove
               </Button>
             </div>
+
+            {/* Preferred model — fed by the saved provider */}
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} />
+
             <div className="border-t pt-4">
               <p className="text-xs text-muted-foreground mb-2">Replace with a new key:</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={selectedProvider}
+                  onChange={e => setSelectedProvider(e.target.value)}
+                  className="text-sm bg-background border border-input rounded-md px-2 py-2 outline-none focus:border-primary"
+                  disabled={busy}
+                >
+                  {PROVIDER_IDS.map(p => (
+                    <option key={p} value={p}>{PROVIDERS[p].label}</option>
+                  ))}
+                </select>
                 <Input
                   type="password"
-                  placeholder="sk-proj-…"
+                  placeholder={meta.placeholder}
                   value={input}
                   onChange={e => setInput(e.target.value)}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm flex-1"
                 />
                 <Button onClick={save} disabled={busy || !input.trim()}>
                   {busy ? 'Validating…' : 'Update'}
                 </Button>
               </div>
+              <p className="text-[11px] text-muted-foreground">{meta.hint}</p>
             </div>
           </>
         ) : (
           <>
-            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside mb-3">
-              <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">platform.openai.com/api-keys <ExternalLink className="w-3 h-3" /></a> and create a new secret key.</li>
-              <li>Paste it below. We validate it with OpenAI, encrypt it (AES-256-GCM), and store it linked to your account only.</li>
-              <li>Your Round Table calls will be billed to your OpenAI account instead of hitting our free-tier limit.</li>
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold block mb-1.5">Provider</label>
+              <select
+                value={selectedProvider}
+                onChange={e => setSelectedProvider(e.target.value)}
+                className="w-full text-sm bg-background border border-input rounded-md px-3 py-2 outline-none focus:border-primary"
+                disabled={busy}
+              >
+                {PROVIDER_IDS.map(p => (
+                  <option key={p} value={p}>{PROVIDERS[p].label}</option>
+                ))}
+              </select>
+            </div>
+            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+              <li>Go to <a href={meta.keysUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">{new URL(meta.keysUrl).hostname} <ExternalLink className="w-3 h-3" /></a> and create a new secret key.</li>
+              <li>Paste it below. We validate it with {meta.label}, encrypt it (AES-256-GCM), and store it linked to your account only.</li>
+              <li>Your Round Table calls will be billed to your {meta.label} account instead of hitting our free-tier limit.</li>
             </ol>
             <div className="flex gap-2">
               <Input
                 type="password"
-                placeholder="sk-proj-…"
+                placeholder={meta.placeholder}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 className="font-mono text-sm"
@@ -487,12 +558,135 @@ function OpenAIKeySection() {
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground italic flex items-center gap-1.5 pt-1">
-              <ShieldCheck className="w-3 h-3" /> Keys are encrypted at rest and never exposed back to the browser — only the last 4 characters are shown.
+              <ShieldCheck className="w-3 h-3" /> {meta.hint}. Keys are encrypted at rest and never exposed back to the browser — only the last 4 characters are shown.
             </p>
           </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Per-provider default models used when the user hasn't picked one yet.
+const PROVIDER_DEFAULT_MODEL = {
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-5-sonnet-latest',
+  xai: 'grok-2-latest',
+  google: 'gemini-1.5-flash-latest',
+};
+
+function PreferredModelPicker({ authedFetch, provider }) {
+  const defaultModel = PROVIDER_DEFAULT_MODEL[provider] || '';
+  const providerLabel = (PROVIDERS && PROVIDERS[provider]?.label) || provider;
+
+  const [options, setOptions] = useState([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [selected, setSelected] = useState('');
+  const [saved, setSaved] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!provider) return;
+    Promise.all([
+      fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`, {
+        headers: pb.authStore.token ? { Authorization: `Bearer ${pb.authStore.token}` } : {},
+      }).then(r => r.ok ? r.json() : { models: [] }).catch(() => ({ models: [] })),
+      authedFetch('/api/me/provider').then(r => r.ok ? r.json() : { model: null }).catch(() => ({ model: null })),
+    ]).then(([modelsRes, prefRes]) => {
+      if (cancelled) return;
+      const list = modelsRes.models || [];
+      setOptions(list);
+      setOptionsLoading(false);
+      const current = prefRes.model || defaultModel;
+      setSelected(current);
+      setSaved(current);
+    });
+    return () => { cancelled = true; };
+  }, [provider]);
+
+  const dropdownOptions = (() => {
+    const ids = new Set(options.map(o => o.id));
+    const extra = [];
+    if (selected && !ids.has(selected)) extra.push({ id: selected, created: 0, owned_by: '' });
+    if (defaultModel && !ids.has(defaultModel)) extra.push({ id: defaultModel, created: 0, owned_by: provider });
+    return [...extra, ...options];
+  })();
+
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await authedFetch('/api/me/byok-model', {
+        method: 'PUT',
+        body: JSON.stringify({ model: selected }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || 'Failed to save');
+      }
+      setSaved(selected);
+      toast.success(`Round Table will now use ${selected}.`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetToDefault() {
+    setBusy(true);
+    try {
+      const r = await authedFetch('/api/me/byok-model', { method: 'DELETE' });
+      if (!r.ok) throw new Error('Failed to reset');
+      setSelected(defaultModel);
+      setSaved(defaultModel);
+      toast.success(`Reverted to default model (${defaultModel}).`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const dirty = selected !== saved;
+
+  return (
+    <div className="bg-muted/30 border rounded-lg px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+          Preferred model for Round Table
+        </div>
+        {saved && saved !== defaultModel && (
+          <button onClick={resetToDefault} disabled={busy} className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted">
+            reset to default
+          </button>
+        )}
+      </div>
+      {optionsLoading ? (
+        <div className="h-9 bg-muted/40 rounded animate-pulse" />
+      ) : (
+        <div className="flex gap-2">
+          <select
+            value={selected}
+            onChange={e => setSelected(e.target.value)}
+            disabled={busy}
+            className="flex-1 font-mono text-sm bg-background border border-input rounded-md px-3 py-2 outline-none focus:border-primary"
+          >
+            {dropdownOptions.map(m => (
+              <option key={m.id} value={m.id}>
+                {m.id}{m.id === defaultModel ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" onClick={save} disabled={busy || !dirty}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Only chat-completion models are listed. Calls billed to your {providerLabel} account.
+      </p>
+    </div>
   );
 }
 

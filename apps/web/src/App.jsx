@@ -16,6 +16,7 @@ import LeaderboardPage from '@/pages/LeaderboardPage.jsx';
 import MembersPage from '@/pages/MembersPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
 import RoundTablePage from '@/pages/RoundTablePage.jsx';
+import BuildPage from '@/pages/BuildPage.jsx';
 import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
@@ -47,6 +48,7 @@ function App() {
               <Route path="/contributors" element={<MembersPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/build" element={<BuildPage />} />
               <Route
                 path="/roundtable"
                 element={

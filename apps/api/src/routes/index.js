@@ -10,6 +10,7 @@ import userKeysRouter from './user-keys.js';
 import contactRouter from './contact.js';
 import socialRouter from './social.js';
 import notificationsRouter from './notifications.js';
+import openaiModelsRouter from './openai-models.js';
 import buildRouter from './build.js';
 import mockupRouter from './mockup.js';
 import creativeRouter from './creative.js';
@@ -32,6 +33,7 @@ export default () => {
     router.use('/', contactRouter);
     router.use('/', socialRouter);
     router.use('/', notificationsRouter);
+    router.use('/', openaiModelsRouter);
     router.use('/', buildRouter);
     router.use('/', mockupRouter);
     router.use('/', creativeRouter);

@@ -28,7 +28,7 @@ async function loadCache() {
         const items = [];
         while (true) {
             const result = await pb.collection('skills').getList(page, page_size, {
-                fields: 'id,name,description,category,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,embedding',
+                fields: 'id,name,description,category,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,phase,embedding',
             });
             for (const s of result.items) {
                 if (Array.isArray(s.embedding) && s.embedding.length > 0) {
@@ -60,9 +60,18 @@ export async function ensureCache() {
 
 // Returns top-K skills sorted by descending cosine similarity.
 // Each skill carries its `_score` so callers can apply relevance thresholds.
-export function search(queryVector, topK = 50) {
+// If `phase` is provided, only skills in that phase are considered. Skills with
+// an empty `phase` field are treated as 'ideation' to match the homepage
+// default-bucket rule.
+export function search(queryVector, topK = 50, phase = null) {
     const qv = new Float32Array(queryVector);
-    return cache
+    const pool = phase
+        ? cache.filter(e => {
+            const p = e.skill.phase || 'ideation';
+            return p === phase;
+        })
+        : cache;
+    return pool
         .map(entry => ({ skill: entry.skill, score: cosine(qv, entry.vector) }))
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
@@ -71,6 +80,15 @@ export function search(queryVector, topK = 50) {
 
 export function cacheSize() {
     return cache.length;
+}
+
+// Look up a single skill by id, bypassing the phase filter that search()
+// applies. Used by recommend.js for cross-phase pins (e.g. Maya, who is
+// formally phase=execution but should also appear in ideation teams for
+// design-shaped queries).
+export function getSkillById(id) {
+    const entry = cache.find(e => e.skill.id === id);
+    return entry ? entry.skill : null;
 }
 
 // Warm cache on startup (non-blocking)
