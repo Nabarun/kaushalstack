@@ -77,6 +77,19 @@ function TypingDots() {
   );
 }
 
+// Strip the leading markdown `# Title (Agent)` and any other markdown
+// markers so the card preview reads as plain prose. Newer skills use
+// rich markdown descriptions; older ones are plain text — both work.
+function previewFromDescription(desc) {
+  if (!desc) return '';
+  let s = desc.replace(/^\s*#[^\n]*\n+/, '');         // drop the H1 title line
+  s = s.replace(/^\s*##[^\n]*\n+/, '');                // and any H2 immediately after
+  s = s.replace(/\*\*([^*]+)\*\*/g, '$1');             // bold
+  s = s.replace(/\*([^*]+)\*/g, '$1');                 // italics
+  s = s.replace(/`([^`]+)`/g, '$1');                   // inline code
+  return s.trim();
+}
+
 function AgentCard({ skill, index, onViewDetails }) {
   return (
     <motion.div
@@ -116,7 +129,7 @@ function AgentCard({ skill, index, onViewDetails }) {
             {skill.name}
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3 text-center mb-3">
-            {skill.description}
+            {previewFromDescription(skill.description)}
           </p>
           {skill.associated_tech_skills && (
             <div className="flex flex-wrap gap-1 justify-center mt-auto">
@@ -239,6 +252,9 @@ const HomePage = () => {
   const { isAuthenticated, loading: authLoading } = useAuth();
 
   const [stats, setStats] = useState({ users: 0, skills: 0, leaderboard: 0 });
+  // 5 most-recently-created skills, shown as a card row below the stats. Auto-refreshes
+  // on every homepage load so the auto-extract pipeline's drops show up immediately.
+  const [recentSkills, setRecentSkills] = useState([]);
   // null = search across all phases. Otherwise: 'ideation' | 'execution' | 'marketing'.
   const [selectedPhase, setSelectedPhase] = useState(null);
 
@@ -261,6 +277,14 @@ const HomePage = () => {
       .then(r => r.ok ? r.json() : null)
       .then(s => { if (s) setStats({ users: s.members, skills: s.skills, leaderboard: s.leaderboard }); })
       .catch(err => console.error('Failed to fetch stats:', err));
+
+    // PocketBase direct read — `created` is the autodate field on the skills
+    // collection. Fields list trims payload to what AgentCard actually renders.
+    const recentFields = 'id,name,description,category,phase,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,created';
+    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=5&fields=${recentFields}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.items) setRecentSkills(d.items); })
+      .catch(err => console.error('Failed to fetch recent skills:', err));
   }, []);
 
   useEffect(() => {
@@ -754,6 +778,41 @@ const HomePage = () => {
             </div>
           </div>
         </section>
+
+        {/* ── Recently added skills ── 5 most-recently created agents, fetched
+            on mount. Hidden gracefully if PocketBase returns nothing so the
+            page never shows an empty section. */}
+        {recentSkills.length > 0 && (
+          <section className="py-16 sm:py-20 bg-background border-b">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="text-center mb-10">
+                <div className="inline-flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold text-primary tracking-wide uppercase">Just added</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">Recently added skills</h2>
+                <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto">
+                  New AI specialist agents just joined the round table.
+                </p>
+              </div>
+
+              {/* Grid scales from 1 → 2 → 3 → 5 cols. 5-across at xl puts every
+                  card on one row for a clean shelf look on wide screens. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto">
+                {recentSkills.map((skill, i) => (
+                  <AgentCard key={skill.id} skill={skill} index={i} onViewDetails={handleViewDetails} />
+                ))}
+              </div>
+
+              <div className="text-center mt-8">
+                <Link to="/skills" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline font-semibold">
+                  Browse all {stats.skills > 0 ? stats.skills.toLocaleString() : ''} skills
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ── Powered by kaushalstack ── */}
         <section className="py-20 bg-muted/20 border-t">
