@@ -83,6 +83,20 @@ function isSocialMediaQuery(q) {
     return SOCIAL_MEDIA_KEYWORDS.test(q);
 }
 
+// Hostinger is the Deployment Specialist — the hosting half of the
+// Maya (design) → Ananya (build) → Hostinger (deploy) pipeline. Pinned for
+// execution-phase queries that are clearly about getting a site live, and
+// also travels with Ananya (see ensurePartner below) so every build team
+// includes the agent who can answer "how do I put this online?".
+// The record id is fixed at creation time (scripts/extract-topic-skills.js
+// --record-id hostingerdeploy) so it's identical across local and prod.
+const HOSTINGER_SKILL_ID = 'hostingerdeploy';
+const DEPLOY_KEYWORDS = /\b(deploy|deployment|hosting|host\s+(?:my|the|a|this|it)|publish|go\s+live|put\s+(?:my|the|it|this)[^.!?]{0,30}\bonline|hostinger|domain|dns|nameserver|ssl\s+certificate|public_html|ftp)\b/i;
+
+function isDeployQuery(q) {
+    return DEPLOY_KEYWORDS.test(q);
+}
+
 // Zach is the Tech-to-B2B Founder Strategist — for senior tech operators
 // (Salesforce / Stripe / Shopify / Atlassian alumni) thinking about leaving
 // to start a B2B SaaS. He competes for the single career-ideation slot with
@@ -154,6 +168,12 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
         const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
         if (tara) pins.push(tara);
     }
+    // Hostinger pins for execution-phase deploy/hosting-shaped queries —
+    // "deploy my site", "put this online", "connect my domain", "hostinger".
+    if (phase === 'execution' && isDeployQuery(query)) {
+        const hostinger = scored.find(s => s.id === HOSTINGER_SKILL_ID) || getSkillById(HOSTINGER_SKILL_ID);
+        if (hostinger) pins.push(hostinger);
+    }
     // Zach pins for ideation-phase B2B-SaaS-founder queries. The career
     // category only has one slot per recommendation team, and Fabrice (D2C)
     // wins most natural-cosine matches; this pin guarantees Zach surfaces on
@@ -205,6 +225,11 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     };
     ensurePartner(ANANYA_SKILL_ID, MAYA_SKILL_ID);
     ensurePartner(MAYA_SKILL_ID, ANANYA_SKILL_ID);
+    // Hostinger rides along whenever Ananya is on the team — anything Ananya
+    // builds will eventually need hosting, and she consults Hostinger for the
+    // deployment guide during the build. One-directional: a pure hosting
+    // question shouldn't drag the whole build pair in.
+    ensurePartner(ANANYA_SKILL_ID, HOSTINGER_SKILL_ID);
 
     return team.slice(0, size);
 }

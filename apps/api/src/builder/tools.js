@@ -1,8 +1,52 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { listDir, readFile, writeFile, safeResolve } from './workspace.js';
+import { ensureCache, refreshCache, getSkillByAgentName } from '../embeddings/cache.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
+
+// Ask another KaushalStack agent for guidance. The consulted agent's skill
+// description (its playbook, distilled from real tutorials) becomes the
+// system prompt of a one-shot LLM call. This is how Ananya asks Hostinger
+// "how do I deploy this site" while building.
+async function consultAgent(agentName, question) {
+    const q = String(question || '').trim();
+    if (!q) return { error: 'question is required' };
+    await ensureCache();
+    let skill = getSkillByAgentName(agentName);
+    if (!skill) {
+        // The agent may have been added since the cache last loaded.
+        await refreshCache();
+        skill = getSkillByAgentName(agentName);
+    }
+    if (!skill) {
+        return { error: `No agent named "${agentName}" on KaushalStack. Check the spelling of agent_name.` };
+    }
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            temperature: 0.3,
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are ${skill.agent_name}, the "${skill.name}" specialist agent on KaushalStack. Your playbook:\n\n${skill.description}\n\nA teammate agent is consulting you mid-build. Answer their question with concrete, actionable guidance drawn from your playbook — exact steps, panel/menu names, file paths, settings. No fluff, under 450 words.`,
+                },
+                { role: 'user', content: q.slice(0, 2000) },
+            ],
+        }),
+    });
+    if (!r.ok) {
+        return { error: `consult failed: openai ${r.status}` };
+    }
+    const data = await r.json();
+    const answer = data.choices?.[0]?.message?.content || '';
+    return { agent: skill.agent_name, skill: skill.name, answer };
+}
 
 // Search Unsplash, download up to N hits into the session workspace under
 // assets/, and return their local paths so the agent can drop them into
@@ -123,6 +167,24 @@ export const TOOL_DEFINITIONS = [
     },
 ];
 
+// Not in TOOL_DEFINITIONS — only agents whose registry row opts in (currently
+// Ananya) get this one, so Maya/Kavya/Tara don't burn turns consulting.
+export const CONSULT_AGENT_TOOL = {
+    type: 'function',
+    function: {
+        name: 'consult_agent',
+        description: 'Ask another KaushalStack specialist agent a question and get their expert guidance back as text. Use this to consult the Hostinger agent (agent_name "Hostinger") for deployment/hosting instructions once a site is built.',
+        parameters: {
+            type: 'object',
+            properties: {
+                agent_name: { type: 'string', description: 'The agent to consult, e.g. "Hostinger".' },
+                question:   { type: 'string', description: 'A specific question, including relevant context about what you built (file structure, static vs dynamic, assets).' },
+            },
+            required: ['agent_name', 'question'],
+        },
+    },
+};
+
 // Dispatch a tool call to the workspace. Returns the string result to feed
 // back into the LLM. Errors are stringified, never thrown — the agent loop
 // can keep going and the LLM can adapt.
@@ -149,6 +211,10 @@ export async function executeTool(sessionId, name, args) {
         }
         if (name === 'search_images') {
             const r = await searchAndSaveImages(sessionId, args.query, args.count);
+            return JSON.stringify(r);
+        }
+        if (name === 'consult_agent') {
+            const r = await consultAgent(args.agent_name, args.question);
             return JSON.stringify(r);
         }
         return JSON.stringify({ error: `unknown tool: ${name}` });

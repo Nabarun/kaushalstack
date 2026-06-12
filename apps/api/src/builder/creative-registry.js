@@ -9,6 +9,7 @@ import path from 'node:path';
 import logger from '../utils/logger.js';
 import { createSession, sessionDir, fileManifest, readFile, listDir } from './workspace.js';
 import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
+import { CONSULT_AGENT_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 
@@ -323,8 +324,10 @@ export const CREATIVE_AGENTS = {
         userIntro:            'Build this for me',
         openaiModel:          'gpt-4o-mini',
         anthropicModel:       null,             // Ananya stays on OpenAI for now
-        maxTurns:             20,
+        maxTurns:             24,               // +4 over baseline: consult_agent + DEPLOY.md add turns
         ingestsDesignSession: true,             // can consume Maya's session as a design brief
+        extraTools:           [CONSULT_AGENT_TOOL], // she asks Hostinger for deployment guidance
+        requireConsult:       true,             // design-brief builds must consult Hostinger before finishing
     },
     [MAYA_SKILL_ID]: {
         agentName:            'Maya',
@@ -520,6 +523,8 @@ export async function runCreativeAgent({
                 systemPrompt: config.systemPrompt,
                 maxTurns:     config.maxTurns,
                 userIntro:    config.userIntro,
+                extraTools:   config.extraTools || [],
+                requireConsult: !!config.requireConsult,
             });
 
         const { final, trace } = await agentRun;

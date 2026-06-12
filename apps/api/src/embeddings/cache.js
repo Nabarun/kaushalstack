@@ -58,6 +58,12 @@ export async function ensureCache() {
     }
 }
 
+// Force an immediate reload regardless of TTL. Used when a by-name lookup
+// misses — the record may have been created since the last load.
+export async function refreshCache() {
+    await loadCache();
+}
+
 // Returns top-K skills sorted by descending cosine similarity.
 // Each skill carries its `_score` so callers can apply relevance thresholds.
 // If `phase` is provided, only skills in that phase are considered. Skills with
@@ -88,6 +94,16 @@ export function cacheSize() {
 // design-shaped queries).
 export function getSkillById(id) {
     const entry = cache.find(e => e.skill.id === id);
+    return entry ? entry.skill : null;
+}
+
+// Look up a single skill by agent_name (case-insensitive). Used by the
+// consult_agent tool so one creative agent can ask another for guidance
+// without knowing record ids.
+export function getSkillByAgentName(agentName) {
+    const n = String(agentName || '').trim().toLowerCase();
+    if (!n) return null;
+    const entry = cache.find(e => (e.skill.agent_name || '').trim().toLowerCase() === n);
     return entry ? entry.skill : null;
 }
 

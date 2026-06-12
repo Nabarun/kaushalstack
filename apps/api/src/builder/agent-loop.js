@@ -26,7 +26,8 @@ WORKFLOW:
 2. Plan the file structure briefly in your visible response (one short paragraph), then start writing files.
 3. If the app needs hero or illustrative images, call search_images with a specific query BEFORE writing index.html so you know the actual paths to use. After search_images, the image files are already saved — you do not need to (and must not) write_file them.
 4. Always create at least an index.html. Add CSS/JS as separate files when it improves readability.
-5. After writing the text files, respond with a final 2-4 sentence summary of what you built. DO NOT call any more tools in that final message.
+5. DEPLOYMENT HANDOFF — when what you built is a website, landing page, or web app (always the case when you received a design brief from Maya): after the site files are written you MUST call the consult_agent tool with agent_name "Hostinger" BEFORE writing DEPLOY.md. Describe exactly what you built (static HTML/CSS/JS bundle, the file/folder structure, whether there's an assets/ folder) and ask how the user should deploy it on Hostinger. THEN write DEPLOY.md based on the answer the tool returned: Hostinger's guidance adapted to YOUR actual files — exact upload steps, what goes where, SSL + domain pointers, and a short go-live checklist. Writing DEPLOY.md from your own general knowledge without a consult_agent call first is a workflow violation — the deployment steps must come from the Hostinger specialist. If the consult_agent call returns an error, say so in DEPLOY.md's first line ("(generic guidance — Hostinger specialist unavailable)") and only then fall back to your own knowledge. Skip this whole step only for tiny single-purpose widgets the user clearly won't host (e.g. "a quick timer to try locally").
+6. After writing the text files (and DEPLOY.md when applicable), respond with a final 2-4 sentence summary of what you built. If you wrote DEPLOY.md, say the site is deployment-ready for Hostinger. DO NOT call any more tools in that final message.
 
 QUALITY:
 - The result should look polished — use a reasonable color palette, sensible typography, spacing.
@@ -42,6 +43,8 @@ export async function runBuildAgent({
     systemPrompt = ANANYA_SYSTEM_PROMPT,
     maxTurns     = DEFAULT_MAX_TURNS,
     userIntro    = 'Build this for me',
+    extraTools   = [],
+    requireConsult = false,   // enforce a consult_agent call before accepting the final answer (design-brief builds)
     onEvent,
 }) {
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured on server');
@@ -86,6 +89,15 @@ export async function runBuildAgent({
     const trace = [];
     let finalText = '';
 
+    // Deterministic guard: gpt-4o-mini sometimes skips the mandated
+    // consult_agent step (or fakes the fallback header without calling the
+    // tool). When a design brief came from Maya, the deployment consult is
+    // the contract — so if the model tries to finish without having
+    // consulted, we bounce it back once instead of accepting the answer.
+    const mustConsult = requireConsult && !!designBrief;
+    let consulted = false;
+    let consultNudges = 0;
+
     for (let turn = 0; turn < maxTurns; turn++) {
         const r = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -96,7 +108,7 @@ export async function runBuildAgent({
             body: JSON.stringify({
                 model,
                 messages,
-                tools: TOOL_DEFINITIONS,
+                tools: [...TOOL_DEFINITIONS, ...extraTools],
                 tool_choice: 'auto',
                 temperature: 0.7,
             }),
@@ -115,6 +127,16 @@ export async function runBuildAgent({
 
         const toolCalls = msg.tool_calls || [];
         if (toolCalls.length === 0) {
+            if (mustConsult && !consulted && consultNudges < 2) {
+                consultNudges++;
+                trace.push({ turn, kind: 'consult_nudge' });
+                if (onEvent) onEvent({ kind: 'consult_nudge' });
+                messages.push({
+                    role: 'user',
+                    content: 'STOP — you have not called the consult_agent tool yet. Maya handed you this design, so the deployment guidance must come from the Hostinger specialist, not from memory. Call consult_agent now with agent_name "Hostinger", describe the exact files you wrote, ask how to deploy them, then write (or rewrite) DEPLOY.md from the answer, and only then give your final summary.',
+                });
+                continue;
+            }
             finalText = msg.content || '';
             trace.push({ turn, kind: 'final', text: finalText });
             if (onEvent) onEvent({ kind: 'final', text: finalText });
@@ -123,6 +145,7 @@ export async function runBuildAgent({
 
         // Execute each tool call sequentially and append the result.
         for (const call of toolCalls) {
+            if (call.function.name === 'consult_agent') consulted = true;
             let parsed = {};
             try { parsed = JSON.parse(call.function.arguments || '{}'); } catch { /* ignored */ }
             const result = await executeTool(sessionId, call.function.name, parsed);
