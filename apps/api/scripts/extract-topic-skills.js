@@ -57,8 +57,9 @@ const DEFAULTS = {
     pbUrl:          process.env.POCKETBASE_URL_OVERRIDE || '',
 };
 
-const PB_EMAIL = process.env.PB_SUPERUSER_EMAIL    || 'admin@kaushalstack.com';
-const PB_PWD   = process.env.PB_SUPERUSER_PASSWORD || 'Kaushal_Prod_2025!';
+// No hardcoded credential fallbacks — pass PB_SUPERUSER_EMAIL / _PASSWORD via env.
+const PB_EMAIL = process.env.PB_SUPERUSER_EMAIL;
+const PB_PWD   = process.env.PB_SUPERUSER_PASSWORD;
 
 const OPENAI_KEY  = process.env.OPENAI_API_KEY;
 const DRAFT_MODEL = process.env.AUTO_EXTRACT_MODEL || 'gpt-4o';
@@ -322,6 +323,7 @@ async function findSkillByAgent(pbUrl, token, agentName) {
 async function main() {
     const args = parseArgs();
     if (!OPENAI_KEY && !args.fromFile) { console.error('OPENAI_API_KEY not set'); process.exit(1); }
+    if (!PB_EMAIL || !PB_PWD) { console.error('PB_SUPERUSER_EMAIL / PB_SUPERUSER_PASSWORD must be set in the environment'); process.exit(1); }
     if (!args.mode || !['update', 'create'].includes(args.mode)) { console.error('--mode update|create required'); process.exit(1); }
     if (!args.agent) { console.error('--agent required'); process.exit(1); }
     if (args.mode === 'update' && !args.skillId) { console.error('--skill-id required for mode=update'); process.exit(1); }
