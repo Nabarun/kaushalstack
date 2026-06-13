@@ -398,23 +398,37 @@ function getUserIdFromHeader(authHeader) {
 // handoff survives even when the design workspace is gone.
 // ────────────────────────────────────────────────────────────────────────
 const DESIGN_BRIEF_STYLES_CAP = 4000;
-const DESIGN_BRIEF_SCREEN_CAP = 3000;
+const DESIGN_BRIEF_SCREEN_CAP = 2400;
+const DESIGN_BRIEF_MAX_SCREENS = 8;   // Maya produces 5; cap is a bit higher in case she ever stretches
 
-// Read the text portion of a design brief (styles.css + first screen HTML)
-// out of a session workspace. Returns null when neither file is present.
+// Read the text portion of a design brief (styles.css + every screen Maya
+// produced) out of a session workspace. Returns null when nothing is present.
+//
+// Why ALL screens, not just the first: Maya hands off a multi-screen flow
+// (typically 5). If Ananya only sees screen #1 she'll build a single-page
+// site and lose the page count + the connections between screens. The brief
+// has to carry the full set so the build phase knows N pages → N files.
 export async function readDesignBriefText(sessionId) {
     if (!/^[a-f0-9]{16}$/.test(sessionId || '')) return null;
     const styles = await readFile(sessionId, 'styles.css').catch(() => null);
-    let sampleScreen = null;
-    const screens = await listDir(sessionId, 'screens').catch(() => []);
-    const firstHtml = screens.find(e => e.kind === 'file' && e.name.endsWith('.html'));
-    if (firstHtml) {
-        sampleScreen = await readFile(sessionId, `screens/${firstHtml.name}`).catch(() => null);
+
+    const entries = await listDir(sessionId, 'screens').catch(() => []);
+    const screenFiles = entries
+        .filter(e => e.kind === 'file' && e.name.endsWith('.html'))
+        .sort((a, b) => a.name.localeCompare(b.name))   // 01-… 02-… preserves flow order
+        .slice(0, DESIGN_BRIEF_MAX_SCREENS);
+
+    const screens = [];
+    for (const f of screenFiles) {
+        const html = await readFile(sessionId, `screens/${f.name}`).catch(() => null);
+        if (html) screens.push({ name: f.name, html: html.slice(0, DESIGN_BRIEF_SCREEN_CAP) });
     }
-    if (!styles && !sampleScreen) return null;
+
+    if (!styles && screens.length === 0) return null;
     return {
-        styles:        styles       ? styles.slice(0, DESIGN_BRIEF_STYLES_CAP) : null,
-        sample_screen: sampleScreen ? sampleScreen.slice(0, DESIGN_BRIEF_SCREEN_CAP) : null,
+        styles:        styles ? styles.slice(0, DESIGN_BRIEF_STYLES_CAP) : null,
+        screens,                                   // [{name, html}, …] — full flow
+        sample_screen: screens[0]?.html || null,   // back-compat for older callers
     };
 }
 
@@ -437,12 +451,19 @@ async function loadDesignBriefAndCopyAssets(sessionId, designSessionId, inlineBr
 
     // 2. Fallback: the brief text persisted on Maya's chat result. This is what
     //    keeps the handoff alive once the design workspace has expired.
-    if (!designBrief && inlineBrief && (inlineBrief.styles || inlineBrief.sample_screen)) {
+    if (!designBrief && inlineBrief && (inlineBrief.styles || inlineBrief.sample_screen || (Array.isArray(inlineBrief.screens) && inlineBrief.screens.length))) {
+        const screens = Array.isArray(inlineBrief.screens)
+            ? inlineBrief.screens.slice(0, DESIGN_BRIEF_MAX_SCREENS).map(s => ({
+                name: String(s?.name || '').slice(0, 80),
+                html: String(s?.html || '').slice(0, DESIGN_BRIEF_SCREEN_CAP),
+            })).filter(s => s.name && s.html)
+            : [];
         designBrief = {
-            styles:        inlineBrief.styles       ? String(inlineBrief.styles).slice(0, DESIGN_BRIEF_STYLES_CAP)       : null,
-            sample_screen: inlineBrief.sample_screen ? String(inlineBrief.sample_screen).slice(0, DESIGN_BRIEF_SCREEN_CAP) : null,
+            styles:        inlineBrief.styles       ? String(inlineBrief.styles).slice(0, DESIGN_BRIEF_STYLES_CAP)         : null,
+            screens,
+            sample_screen: inlineBrief.sample_screen ? String(inlineBrief.sample_screen).slice(0, DESIGN_BRIEF_SCREEN_CAP) : (screens[0]?.html || null),
         };
-        logger.info(`creative: design brief restored from inline fallback (workspace ${designSessionId || 'n/a'} gone)`);
+        logger.info(`creative: design brief restored from inline fallback (workspace ${designSessionId || 'n/a'} gone, screens=${screens.length})`);
     }
 
     // 3. Copy Maya's images into the new workspace so <img src> tags resolve.
@@ -547,7 +568,7 @@ export async function runCreativeAgent({
         }
         // Whether Ananya actually received Maya's design (vs. the UI claiming so
         // while the brief silently failed to load). Surfaced in the response.
-        const designApplied = !!(designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.available_images?.length));
+        const designApplied = !!(designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.screens?.length || designBrief.available_images?.length));
         if (config.ingestsDesignSession && (designSessionId || designBriefInline) && !designApplied) {
             logger.warn(`creative: agent=${config.agentName} session=${sessionId} expected a design brief but none could be loaded (workspace=${designSessionId || 'n/a'}, inline=${designBriefInline ? 'present' : 'none'})`);
         }

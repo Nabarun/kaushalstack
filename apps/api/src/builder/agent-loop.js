@@ -65,8 +65,9 @@ export async function runBuildAgent({
 
     // If Maya (UX Designer) produced mockups for this round-table chat first,
     // her design system gets appended as a hard brief. Ananya should inherit
-    // palette/type/layout rather than starting blank.
-    if (designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.available_images?.length)) {
+    // palette/type/layout AND page count — one HTML file per Maya screen,
+    // navigation wired in screen order.
+    if (designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.screens?.length || designBrief.available_images?.length)) {
         const briefSections = [];
         if (designBrief.available_images?.length) {
             const imgList = designBrief.available_images.map(p => `  - ${p}`).join('\n');
@@ -75,10 +76,37 @@ export async function runBuildAgent({
         if (designBrief.styles) {
             briefSections.push(`Maya's design system (styles.css — palette, type, spacing, tokens):\n\`\`\`css\n${designBrief.styles}\n\`\`\``);
         }
-        if (designBrief.sample_screen) {
+
+        // Prefer the full screens array. Build one prompt section per screen so
+        // Ananya can map each to a separate HTML page and wire connections.
+        const screens = Array.isArray(designBrief.screens) ? designBrief.screens : [];
+        if (screens.length > 0) {
+            // Derive Ananya-friendly page filenames from Maya's screen names:
+            // 01-hero.html → index.html (the entry), 02-form-step1.html → form-step1.html, etc.
+            const pages = screens.map((s, i) => {
+                const stripped = s.name.replace(/\.html?$/i, '').replace(/^\d+[-_]?/, ''); // "01-form-step1" → "form-step1"
+                const slug = stripped || `page-${i + 1}`;
+                const file = i === 0 ? 'index.html' : `${slug}.html`;
+                return { ...s, file, slug };
+            });
+            const planLines = pages.map((p, i) =>
+                `  ${i + 1}. ${p.name}  →  ${p.file}${i + 1 < pages.length ? `  (links forward to ${pages[i + 1].file})` : '  (final / end of flow)'}`
+            ).join('\n');
+            const screenSections = pages.map((p, i) => (
+                `### Screen ${i + 1} of ${pages.length} — ${p.name}  →  write as \`${p.file}\`\n\`\`\`html\n${p.html}\n\`\`\``
+            )).join('\n\n');
+            briefSections.push(
+                `Maya designed a ${pages.length}-screen flow. Build ${pages.length} HTML pages — ONE per screen — and wire them together in this order:\n\n${planLines}\n\n` +
+                `For each non-final page, the primary CTA / form-submit / "Next" button must navigate to the next page in the list (anchor href or, for forms, an action="next.html" attribute). The last page is the terminal state — no forward link. Preserve the same shared navbar / header across every page so they feel like one app.\n\n` +
+                screenSections
+            );
+        } else if (designBrief.sample_screen) {
+            // Back-compat: older briefs (or single-screen Maya runs) only carry one sample.
             briefSections.push(`Maya's primary screen layout (use the structure and visual hierarchy, NOT the device frame):\n\`\`\`html\n${designBrief.sample_screen}\n\`\`\``);
         }
-        userMessage += `\n\n────────\nDESIGN BRIEF FROM MAYA (UX Designer)\n\nYour teammate Maya already designed the mockups for this. INHERIT her visual decisions — exact palette colors, fonts, spacing scale, button/card shapes, layout patterns — AND reuse the photos she already pulled. Build the production website that embodies her design system.\n\nIMPORTANT:\n- Do NOT preserve her mockup's device frame (iPhone shell or browser-window chrome). Build the real, full-width website.\n- Pull the CSS variables / palette from her styles.css verbatim where you can. Don't invent new colors.\n- Use the same typography stack.\n- Mirror the section structure of her screen.\n- For images, USE THE FILES ALREADY IN assets/ (listed below). Only call search_images for NEW image subjects Maya didn't pull.\n\n${briefSections.join('\n\n')}`;
+
+        const multiPage = screens.length > 1;
+        userMessage += `\n\n────────\nDESIGN BRIEF FROM MAYA (UX Designer)\n\nYour teammate Maya already designed the mockups for this. INHERIT her visual decisions — exact palette colors, fonts, spacing scale, button/card shapes, layout patterns — AND reuse the photos she already pulled. ${multiPage ? `Build ${screens.length} production HTML pages that match Maya's screen flow one-to-one.` : 'Build the production website that embodies her design system.'}\n\nIMPORTANT:\n- Do NOT preserve her mockup's device frame (iPhone shell or browser-window chrome). Build the real, full-width pages.\n- Pull the CSS variables / palette from her styles.css verbatim where you can. Don't invent new colors.\n- Use the same typography stack.\n${multiPage ? `- Produce EXACTLY ${screens.length} HTML files, one per Maya screen, named per the plan below. Same number of pages as Maya, all connected in the same order.\n- Mirror the section structure of EACH screen (do not collapse multiple screens into one page).\n- Share one styles.css across every page. Same navbar/header on every page.\n` : '- Mirror the section structure of her screen.\n'}- For images, USE THE FILES ALREADY IN assets/ (listed below). Only call search_images for NEW image subjects Maya didn't pull.\n\n${briefSections.join('\n\n')}`;
     }
 
     const messages = [

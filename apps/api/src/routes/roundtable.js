@@ -325,14 +325,22 @@ router.get('/roundtable/chats', async (req, res) => {
 // preview/download from the (now persistent) workspace volume.
 function trimToolResult(r) {
     if (!r || typeof r !== 'object') return null;
-    // Persist Maya's design brief text (styles + first screen) so Ananya can
-    // inherit it on a later build even after the design workspace expires. Cap
-    // the sizes to keep the chat JSON small.
+    // Persist Maya's design brief text (styles + EVERY screen) so Ananya can
+    // inherit the full flow on a later build even after the design workspace
+    // expires. Cap the sizes per-field to keep the chat JSON small — 8 screens
+    // × 2400 chars + 4000 char styles ≈ 24KB worst case, still well below any
+    // PocketBase row limit.
     let designBrief = null;
     if (r.design_brief && typeof r.design_brief === 'object') {
+        const rawScreens = Array.isArray(r.design_brief.screens) ? r.design_brief.screens : [];
+        const screens = rawScreens.slice(0, 8).map(s => ({
+            name: typeof s?.name === 'string' ? s.name.slice(0, 80)   : '',
+            html: typeof s?.html === 'string' ? s.html.slice(0, 2400) : '',
+        })).filter(s => s.name && s.html);
         designBrief = {
             styles:        typeof r.design_brief.styles === 'string'        ? r.design_brief.styles.slice(0, 4000)        : null,
-            sample_screen: typeof r.design_brief.sample_screen === 'string' ? r.design_brief.sample_screen.slice(0, 3000) : null,
+            screens,
+            sample_screen: typeof r.design_brief.sample_screen === 'string' ? r.design_brief.sample_screen.slice(0, 2400) : (screens[0]?.html || null),
         };
     }
     return {
