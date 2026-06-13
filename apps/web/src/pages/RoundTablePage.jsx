@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Hammer, Download, CheckCircle2, AlertCircle, Eye, Palette, Lock, Sparkles, Mail, Megaphone } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -10,12 +10,14 @@ import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Hammer, Download, Ch
 //   Maya   — 5 device-framed HTML mockups
 //   Kavya  — HTML email campaign + Gmail-frame preview
 //   Tara   — platform-native social posts + per-platform chrome
-const ANANYA_SKILL_ID = '0v9syxxawznp95v';
-const MAYA_SKILL_ID   = 'uepji0o2teuf29b';
-const KAVYA_SKILL_ID  = 'ip1bvcutzgsy28p';
-const TARA_SKILL_ID   = 'eu6cweasi3d4xt8';
+const ANANYA_SKILL_ID    = '0v9syxxawznp95v';
+const MAYA_SKILL_ID      = 'uepji0o2teuf29b';
+const KAVYA_SKILL_ID     = 'ip1bvcutzgsy28p';
+const TARA_SKILL_ID      = 'eu6cweasi3d4xt8';
+const HOSTINGER_SKILL_ID = 'hostingerdeploy';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
+import CreativePipeline from '@/components/CreativePipeline';
 
 // 10-slot palette so teams of 6 (hex viz) and 7–10 (grid viz) both have
 // distinct colors per slot. Slots 0–5 are the originals so existing screens
@@ -265,6 +267,13 @@ export default function RoundTablePage() {
   const [mockup, setMockup] = useState(initToolState);
   const [email,  setEmail]  = useState(initToolState);
   const [social, setSocial] = useState(initToolState);
+  // Deploy panel (Ananya → Hostinger VPS). The persisted source of truth is
+  // `build.result.deploy`; this state drives the live run + restore.
+  const [deploy, setDeploy] = useState(initToolState);
+  // Hostinger connection ("Login to Hostinger" → stored hPanel API token).
+  const [hostinger, setHostinger]               = useState({ connected: false, last4: null, loading: true, saving: false, error: null });
+  const [showHostingerLogin, setShowHostingerLogin] = useState(false);
+  const [hostingerToken, setHostingerToken]     = useState('');
   // On chat switch, rehydrate each tool panel from the chat's persisted
   // tool_results (saved server-side when a run finishes) so previously
   // generated mockups/builds re-appear with their previews. Falls back to idle
@@ -276,6 +285,9 @@ export default function RoundTablePage() {
     setMockup(restore(saved.mockup));
     setEmail(restore(saved.email));
     setSocial(restore(saved.social));
+    // A finished deploy is persisted nested on the build result.
+    setDeploy(saved.build?.deploy ? { status: 'done', result: saved.build.deploy, error: null, progress: null } : initToolState);
+    setShowHostingerLogin(false);
   }, [activeChat?.id]);
 
   // Persist a finished tool result onto the active chat so it survives reloads.
@@ -395,22 +407,124 @@ export default function RoundTablePage() {
   }
 
   // If Maya already produced mockups in this chat, Ananya consumes them as a
-  // design brief — palette, typography, layout structure carry over.
-  const triggerBuild = () => runToolAction({
-    endpoint: '/api/build',
-    excludeAgentId: ANANYA_SKILL_ID,
-    setState: setBuild,
-    toolKey: 'build',
-    extraBody: mockup.status === 'done' && mockup.result?.session_id
-      ? { design_session_id: mockup.result.session_id }
-      : {},
-  });
+  // design brief — palette, typography, layout structure carry over. We pass
+  // BOTH her session id (so her images get copied) AND the persisted brief text
+  // (so the handoff still works after her workspace has expired — which is the
+  // common case once you come back to a saved chat).
+  const triggerBuild = () => {
+    const extraBody = {};
+    if (mockup.status === 'done' && mockup.result) {
+      if (mockup.result.session_id)  extraBody.design_session_id = mockup.result.session_id;
+      if (mockup.result.design_brief) extraBody.design_brief     = mockup.result.design_brief;
+    }
+    return runToolAction({
+      endpoint: '/api/build',
+      excludeAgentId: ANANYA_SKILL_ID,
+      setState: setBuild,
+      toolKey: 'build',
+      extraBody,
+    });
+  };
   const triggerMockup = () => runToolAction({
     endpoint: '/api/mockup',
     excludeAgentId: MAYA_SKILL_ID,
     setState: setMockup,
     toolKey: 'mockup',
   });
+
+  // Save the Hostinger hPanel API token ("Login to Hostinger").
+  async function saveHostingerToken() {
+    const tok = hostingerToken.trim();
+    if (!tok) return;
+    setHostinger(h => ({ ...h, saving: true, error: null }));
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/me/hostinger', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ token: tok }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setHostinger(h => ({ ...h, saving: false, error: data.error || 'Could not save token' })); return; }
+      setHostinger({ connected: true, last4: data.last4 || null, loading: false, saving: false, error: null });
+      setShowHostingerLogin(false);
+      setHostingerToken('');
+    } catch (err) {
+      setHostinger(h => ({ ...h, saving: false, error: err.message }));
+    }
+  }
+
+  // Deploy Ananya's finished build to the Hostinger VPS. Streams progress over
+  // SSE, then nests the deploy result on the build and persists it.
+  async function triggerDeploy() {
+    const sessionId = build.result?.session_id;
+    if (!sessionId) return;
+    setDeploy({ status: 'running', result: null, error: null, progress: null });
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/deploy?stream=1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+
+      // Not-connected (or any pre-stream failure) comes back as JSON, not SSE.
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'hostinger_not_connected') {
+          setHostinger(h => ({ ...h, connected: false }));
+          setShowHostingerLogin(true);
+          throw new Error('Connect your Hostinger account first.');
+        }
+        throw new Error(data.error || `Deploy failed (${res.status})`);
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      let finalError  = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let split;
+        while ((split = buffer.indexOf('\n\n')) >= 0) {
+          const raw = buffer.slice(0, split);
+          buffer    = buffer.slice(split + 2);
+          if (!raw || raw.startsWith(':')) continue;
+          let eventName = 'message';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+            else if (line.startsWith('data: ')) data += line.slice(6);
+          }
+          if (!data) continue;
+          let payload;
+          try { payload = JSON.parse(data); } catch { continue; }
+          if (eventName === 'done') finalResult = payload;
+          else if (eventName === 'error') finalError = payload?.error || 'Deploy failed';
+          else setDeploy(prev => ({ ...prev, progress: { ...payload, kind: eventName } }));
+        }
+      }
+
+      if (finalError) throw new Error(finalError);
+      if (!finalResult) throw new Error('Stream ended without a result');
+      setDeploy({ status: 'done', result: finalResult, error: null, progress: null });
+
+      // Nest the deploy on the build result and persist so it survives reloads.
+      const updatedBuild = { ...build.result, deploy: finalResult };
+      setBuild(prev => ({ ...prev, result: updatedBuild }));
+      persistToolResult('build', updatedBuild);
+    } catch (err) {
+      setDeploy({ status: 'error', result: null, error: err.message, progress: null });
+    }
+  }
   // Kavya + Tara both run via the generic /api/creative endpoint — the agent
   // is picked by agent_id (PocketBase skill id). See routes/creative.js.
   const triggerEmail = () => runToolAction({
@@ -429,7 +543,10 @@ export default function RoundTablePage() {
   });
 
   // Convenience flag for the UI to indicate Ananya will inherit Maya's design.
-  const buildWillInheritDesign = mockup.status === 'done' && !!mockup.result?.session_id;
+  // True when Maya finished and we have either her live session or her persisted
+  // brief text to hand over.
+  const buildWillInheritDesign = mockup.status === 'done'
+    && !!(mockup.result?.session_id || mockup.result?.design_brief);
 
   const inputRef = useRef(null);
 
@@ -463,6 +580,12 @@ export default function RoundTablePage() {
         }
       })
       .catch(() => {});
+
+    // Hostinger connection status — gates Ananya's deploy button.
+    fetch('/api/me/hostinger', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setHostinger(h => ({ ...h, connected: !!data?.connected, last4: data?.last4 || null, loading: false })))
+      .catch(() => setHostinger(h => ({ ...h, loading: false })));
   }, []);
 
   useEffect(() => {
@@ -943,266 +1066,31 @@ export default function RoundTablePage() {
                 ) : null}
               </AnimatePresence>
 
-              {/* Design Mockups — only when Maya is in the team and all responses are in */}
+              {/* Design → Build → Deploy pipeline — Maya, Ananya & Hostinger as an
+                  avatar row below the responses. Click an avatar to open its
+                  section; each downstream agent waits for the previous one. */}
               {(() => {
                 if (!activeChat) return null;
-                const teamHasMaya = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
+                const teamHasMaya      = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
+                const teamHasAnanya    = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
+                const teamHasHostinger = activeChat.team?.some(s => s.id === HOSTINGER_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasMaya || !allResponsesIn || loading) return null;
+                if ((!teamHasMaya && !teamHasAnanya) || !allResponsesIn || loading) return null;
+                const members = [
+                  teamHasMaya      && { key: 'maya',      name: 'Maya',      role: 'UX Designer',      accent: '#b07ef8', theme: 'warm' },
+                  teamHasAnanya    && { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',     accent: '#5b8dee', theme: 'warm' },
+                  teamHasHostinger && { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',  accent: '#9b6cf0', theme: 'cool' },
+                ].filter(Boolean);
                 return (
-                  <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.25 }}
-                    style={{ marginTop: 16, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
-                  >
-                    {mockup.status === 'idle' && (
-                      <>
-                        <div style={{ fontSize: 10, color: '#b07ef8', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
-                          Round table done · Maya can design this
-                        </div>
-                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-                          Generate 5 device-framed HTML mockups so you can see screens before anything ships.
-                        </div>
-                        <button onClick={triggerMockup} style={{
-                          background: '#b07ef8', color: '#fff', border: 'none', borderRadius: 8,
-                          padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: 8,
-                        }}>
-                          <Palette style={{ width: 14, height: 14 }} /> Design Mockups
-                        </button>
-                      </>
-                    )}
-                    {mockup.status === 'running' && (() => {
-                      const live = describeProgress(mockup.progress);
-                      return (
-                        <div className="flex items-center gap-3">
-                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                            <Palette style={{ width: 22, height: 22, color: '#b07ef8' }} />
-                          </motion.div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Maya is sketching…</div>
-                            <div style={{ fontSize: 11, color: live ? '#b07ef8' : '#5a607a', marginTop: 2 }}>
-                              {live || 'Picking a palette, fetching photos, drawing 5 screens. 1–2 minutes.'}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {mockup.status === 'done' && mockup.result && (
-                      <>
-                        <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
-                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
-                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Mockups ready</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{mockup.result.summary}</div>
-                        {mockup.result.files?.length > 0 && (
-                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130', maxHeight: 180, overflow: 'auto' }}>
-                            {mockup.result.files.map(f => (
-                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                                <span>{f.path}</span>
-                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {mockup.result.preview_url && (
-                            <a href={`/api${mockup.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
-                              background: '#b07ef8', color: '#fff', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                            }}>
-                              <Eye style={{ width: 14, height: 14 }} /> Preview
-                            </a>
-                          )}
-                          <a href={`/api${mockup.result.download_url.replace(/^\/api/, '')}`} download style={{
-                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
-                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                          }}>
-                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
-                          </a>
-                        </div>
-                      </>
-                    )}
-                    {mockup.status === 'error' && (
-                      <div className="flex items-start gap-3">
-                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Mockup generation failed</div>
-                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{mockup.error}</div>
-                          <button onClick={triggerMockup} style={{
-                            marginTop: 10, color: '#b07ef8', background: 'none', border: '1px solid #b07ef844',
-                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
-                          }}>
-                            Try again
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })()}
-
-              {/* Build & Download — only when Ananya is in the team and all responses are in.
-                  When Maya is ALSO in the team, this panel renders in a locked state until
-                  her mockups complete, then animates open to unlock the build action. */}
-              {(() => {
-                if (!activeChat) return null;
-                const teamHasAnanya = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
-                const teamHasMaya   = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
-                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasAnanya || !allResponsesIn || loading) return null;
-                const buildLocked = teamHasMaya && mockup.status !== 'done';
-                return (
-                  <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.2 }}
-                    style={{ marginTop: 32, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
-                  >
-                    {build.status === 'idle' && (
-                      <AnimatePresence mode="wait">
-                        {buildLocked ? (
-                          <motion.div
-                            key="locked"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.2 } }}
-                          >
-                            <div style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <Lock style={{ width: 11, height: 11 }} />
-                              Waiting for Maya
-                            </div>
-                            <div style={{ fontSize: 13, color: '#8a91a8', marginBottom: 14, lineHeight: 1.65 }}>
-                              Generate the mockups first — Ananya will build the production website using <span style={{ color: '#b07ef8', fontWeight: 600 }}>Maya's palette, typography, and layout</span>.
-                            </div>
-                            <button disabled style={{
-                              background: '#1e2130', color: '#5a607a', border: '1px solid #1e2130',
-                              borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
-                              cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8,
-                            }}>
-                              <Lock style={{ width: 14, height: 14 }} />
-                              Locked — design first
-                            </button>
-                          </motion.div>
-                        ) : (
-                          <motion.div
-                            key="unlocked"
-                            initial={{
-                              opacity: 0,
-                              scale: 0.95,
-                              boxShadow: '0 0 0 0 rgba(92, 194, 138, 0)',
-                            }}
-                            animate={{
-                              opacity: 1,
-                              scale: 1,
-                              boxShadow: [
-                                '0 0 0 0 rgba(92, 194, 138, 0)',
-                                '0 0 0 16px rgba(92, 194, 138, 0.25)',
-                                '0 0 0 32px rgba(92, 194, 138, 0)',
-                              ],
-                            }}
-                            transition={{
-                              opacity: { duration: 0.35 },
-                              scale:   { duration: 0.5, type: 'spring', stiffness: 240, damping: 18 },
-                              boxShadow: { duration: 1.2, times: [0, 0.5, 1], ease: 'easeOut' },
-                            }}
-                            style={{ borderRadius: 10, padding: 2 }}
-                          >
-                            <div style={{ fontSize: 10, color: '#5b8dee', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              {buildWillInheritDesign && <Sparkles style={{ width: 11, height: 11, color: '#5cc28a' }} />}
-                              {buildWillInheritDesign
-                                ? "Maya designed it · Ananya will build from her design"
-                                : "Round table done · Ananya can build this"}
-                            </div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-                              {buildWillInheritDesign
-                                ? <>Ananya inherits Maya's <span style={{ color: '#b07ef8', fontWeight: 600 }}>palette, typography, and layout structure</span>, then ships the production website (no mockup device frame).</>
-                                : <>The team's input becomes Ananya's brief. She'll write the files, you download the ZIP.</>}
-                            </div>
-                            <button onClick={triggerBuild} style={{
-                              background: '#5b8dee', color: '#fff', border: 'none', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8,
-                            }}>
-                              <Hammer style={{ width: 14, height: 14 }} />
-                              {buildWillInheritDesign ? "Build from Maya's design" : 'Build & Download'}
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    )}
-                    {build.status === 'running' && (() => {
-                      const live = describeProgress(build.progress);
-                      return (
-                        <div className="flex items-center gap-3">
-                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                            <Hammer style={{ width: 22, height: 22, color: '#5b8dee' }} />
-                          </motion.div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Ananya is building…</div>
-                            <div style={{ fontSize: 11, color: live ? '#5b8dee' : '#5a607a', marginTop: 2 }}>
-                              {live || 'Reading the team input, calling tools, writing files. 30–90 seconds.'}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {build.status === 'done' && build.result && (
-                      <>
-                        <div className="flex items-center gap-2 mb-2" style={{ marginBottom: 10 }}>
-                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
-                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>App ready</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{build.result.summary}</div>
-                        {build.result.files?.length > 0 && (
-                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130' }}>
-                            {build.result.files.map(f => (
-                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                                <span>{f.path}</span>
-                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {build.result.preview_url && (
-                            <a href={`/api${build.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
-                              background: '#5b8dee', color: '#fff', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                            }}>
-                              <Eye style={{ width: 14, height: 14 }} /> Preview
-                            </a>
-                          )}
-                          <a href={`/api${build.result.download_url.replace(/^\/api/, '')}`} download style={{
-                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
-                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                          }}>
-                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
-                          </a>
-                        </div>
-                      </>
-                    )}
-                    {build.status === 'error' && (
-                      <div className="flex items-start gap-3">
-                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Build failed</div>
-                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{build.error}</div>
-                          <button onClick={triggerBuild} style={{
-                            marginTop: 10, color: '#5b8dee', background: 'none', border: '1px solid #5b8dee44',
-                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
-                          }}>
-                            Try again
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
+                  <CreativePipeline
+                    members={members}
+                    mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
+                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
+                    saveHostingerToken={saveHostingerToken}
+                    showHostingerLogin={showHostingerLogin} setShowHostingerLogin={setShowHostingerLogin}
+                    hostingerToken={hostingerToken} setHostingerToken={setHostingerToken} setHostinger={setHostinger}
+                    describeProgress={describeProgress} buildWillInheritDesign={buildWillInheritDesign}
+                  />
                 );
               })()}
 

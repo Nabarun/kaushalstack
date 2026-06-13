@@ -325,16 +325,29 @@ router.get('/roundtable/chats', async (req, res) => {
 // preview/download from the (now persistent) workspace volume.
 function trimToolResult(r) {
     if (!r || typeof r !== 'object') return null;
+    // Persist Maya's design brief text (styles + first screen) so Ananya can
+    // inherit it on a later build even after the design workspace expires. Cap
+    // the sizes to keep the chat JSON small.
+    let designBrief = null;
+    if (r.design_brief && typeof r.design_brief === 'object') {
+        designBrief = {
+            styles:        typeof r.design_brief.styles === 'string'        ? r.design_brief.styles.slice(0, 4000)        : null,
+            sample_screen: typeof r.design_brief.sample_screen === 'string' ? r.design_brief.sample_screen.slice(0, 3000) : null,
+        };
+    }
     return {
-        session_id:   r.session_id,
-        agent_id:     r.agent_id,
-        agent_name:   r.agent_name,
-        summary:      typeof r.summary === 'string' ? r.summary.slice(0, 20000) : '',
-        files:        Array.isArray(r.files) ? r.files.slice(0, 200) : [],
-        engine:       r.engine || null,
-        download_url: r.download_url,
-        preview_url:  r.preview_url,
-        saved_at:     new Date().toISOString(),
+        session_id:    r.session_id,
+        agent_id:      r.agent_id,
+        agent_name:    r.agent_name,
+        summary:       typeof r.summary === 'string' ? r.summary.slice(0, 20000) : '',
+        files:         Array.isArray(r.files) ? r.files.slice(0, 200) : [],
+        engine:        r.engine || null,
+        download_url:  r.download_url,
+        preview_url:   r.preview_url,
+        design_applied: typeof r.design_applied === 'boolean' ? r.design_applied : undefined,
+        design_brief:   designBrief,
+        deploy:         r.deploy || undefined,   // VPS deploy result (Ananya → Hostinger)
+        saved_at:      new Date().toISOString(),
     };
 }
 

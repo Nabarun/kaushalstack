@@ -17,11 +17,12 @@ export function wantsStream(req) {
 // generic /creative endpoint reads it from body.agent_id.
 function readAgentInput(req, agentIdOverride) {
     return {
-        agentId:         agentIdOverride || req.body?.agent_id,
-        rawQuery:        req.body?.query,
-        rawContext:      req.body?.context,
-        designSessionId: req.body?.design_session_id,
-        authHeader:      req.headers.authorization,
+        agentId:           agentIdOverride || req.body?.agent_id,
+        rawQuery:          req.body?.query,
+        rawContext:        req.body?.context,
+        designSessionId:   req.body?.design_session_id,
+        designBriefInline: req.body?.design_brief,   // fallback brief text when the design workspace is gone
+        authHeader:        req.headers.authorization,
     };
 }
 

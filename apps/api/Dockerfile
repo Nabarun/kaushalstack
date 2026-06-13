@@ -1,5 +1,9 @@
 FROM node:20-alpine
 
+# openssh-client + rsync + sshpass power Ananya's "Deploy to Hostinger" button,
+# which pushes a built site to the VPS over SSH (see src/builder/deployer.js).
+RUN apk add --no-cache openssh-client rsync sshpass
+
 WORKDIR /workspace
 
 # Copy workspace manifests for dependency install
