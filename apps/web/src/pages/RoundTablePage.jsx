@@ -840,13 +840,16 @@ export default function RoundTablePage() {
           </div>
         </div>
 
-        {/* 3-column layout */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* 3-column layout — min-h-0 is the Flexbox overflow gotcha: without
+            it, this row's min-height: auto lets it grow to fit children,
+            defeating the overflow-hidden + the inner columns' overflow-y-auto.
+            Same min-h-0 reasoning applies to each column. */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* ── Left: Round Table Viz (hidden on mobile — compact strip lives in
                   the middle column instead) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
-            className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
+            className="hidden md:flex flex-col items-center py-6 flex-shrink-0 min-h-0 overflow-y-auto">
 
             {/* Vertical oval boardroom — row count adapts to team size so the
                 table always looks packed. Seats alternate left→right in fill
@@ -993,7 +996,7 @@ export default function RoundTablePage() {
           </div>
 
           {/* ── Middle: Active Chat (input at TOP) ── */}
-          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
 
             {/* Compact agents strip (mobile only — replaces the left viz which
                 is hidden below md). Horizontal scroll if more than ~6 fit. */}
@@ -1244,7 +1247,7 @@ export default function RoundTablePage() {
                   could go here later; for now the screen is too narrow to fit
                   three columns) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderLeft: '1px solid #1e2130' }}
-            className="hidden md:flex flex-col flex-shrink-0">
+            className="hidden md:flex flex-col flex-shrink-0 min-h-0">
 
             <div style={{ borderBottom: '1px solid #1e2130' }} className="px-4 py-3 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
