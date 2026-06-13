@@ -300,8 +300,11 @@ const HomePage = () => {
 
     // PocketBase direct read — `created` is the autodate field on the skills
     // collection. Fields list trims payload to what AgentCard actually renders.
+    // perPage=20 gives the phase-filtered suggestions enough headroom to land
+    // matches in Execution / Marketing tiles even when most recent drops are
+    // ideation-heavy; the "Just added" shelf below still slices to 5.
     const recentFields = 'id,name,description,category,phase,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,created';
-    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=5&fields=${recentFields}`)
+    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=20&fields=${recentFields}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.items) setRecentSkills(d.items); })
       .catch(err => console.error('Failed to fetch recent skills:', err));
@@ -588,9 +591,15 @@ const HomePage = () => {
               const phaseFiltered = selectedPhase
                 ? recentSuggestions.filter(e => e.phase === selectedPhase)
                 : recentSuggestions;
-              const usingRecent = phaseFiltered.length >= 2;
+              // Threshold is 1, not 2: even a single phase-matching recent
+              // agent should surface over the static fallback. The fetch
+              // window above is wide (20) so phases with sparse drops
+              // (Marketing especially) still have a shot at hitting.
+              const usingRecent = phaseFiltered.length >= 1;
+              // Cap at 6 to match the static fallback's visual density —
+              // matches the 2-col grid layout below.
               const examples = usingRecent
-                ? phaseFiltered
+                ? phaseFiltered.slice(0, 6)
                 : (selectedPhase ? PHASE_EXAMPLES[selectedPhase] : DEFAULT_EXAMPLES);
               const heading = usingRecent
                 ? (selectedPhase
@@ -815,7 +824,7 @@ const HomePage = () => {
               {/* Grid scales from 1 → 2 → 3 → 5 cols. 5-across at xl puts every
                   card on one row for a clean shelf look on wide screens. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto">
-                {recentSkills.map((skill, i) => (
+                {recentSkills.slice(0, 5).map((skill, i) => (
                   <AgentCard key={skill.id} skill={skill} index={i} onViewDetails={handleViewDetails} />
                 ))}
               </div>
