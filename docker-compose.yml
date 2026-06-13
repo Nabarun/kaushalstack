@@ -40,6 +40,15 @@ services:
       WEBSITE_ID: ${WEBSITE_ID:-}
       WEBSITE_DOMAIN: ${WEBSITE_DOMAIN:-localhost}
       PROXY_ENTRANCE_ID: ${PROXY_ENTRANCE_ID:-}
+      # Encrypts per-user secrets (BYOK keys + Hostinger token). Required.
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET}
+      # Server-side OpenAI key used by the creative agents (Maya/Ananya/…).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # VPS target for Ananya → Hostinger deploys (defaults baked into deployer.js).
+      DEPLOY_VPS_HOST: ${DEPLOY_VPS_HOST:-}
+      DEPLOY_VPS_USER: ${DEPLOY_VPS_USER:-}
+      DEPLOY_VPS_PASSWORD: ${DEPLOY_VPS_PASSWORD:-}
+      DEPLOY_HTTP_PORT: ${DEPLOY_HTTP_PORT:-}
     depends_on:
       pocketbase:
         condition: service_healthy

@@ -35,7 +35,13 @@ migrate((app) => {
 
   // Backfill from the openai_* columns so existing users don't lose their keys.
   // Anyone with an openai key becomes provider='openai'. Their model preference
-  // copies over too.
+  // copies over too. Guarded: some environments never had the legacy
+  // openai_key_encrypted column, and filtering on a non-existent field aborts
+  // the whole migration — so skip the backfill entirely when it's absent.
+  if (!collection.fields.getByName("openai_key_encrypted")) {
+    console.log("no legacy openai_key_encrypted field — skipping BYOK backfill");
+    return;
+  }
   const users = app.findRecordsByFilter("users", "openai_key_encrypted != ''");
   for (const u of users) {
     if (!u.get("provider")) {
