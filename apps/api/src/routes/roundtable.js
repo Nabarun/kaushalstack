@@ -338,7 +338,11 @@ function trimToolResult(r) {
             html: typeof s?.html === 'string' ? s.html.slice(0, 2400) : '',
         })).filter(s => s.name && s.html);
         designBrief = {
-            styles:        typeof r.design_brief.styles === 'string'        ? r.design_brief.styles.slice(0, 4000)        : null,
+            // Styles cap is matched to the API-side DESIGN_BRIEF_STYLES_CAP
+            // (24KB). Maya's stylesheets typically run 15–18KB, so the old
+            // 4KB cap truncated the bulk of her class definitions and the
+            // inline-fallback Ananya run rendered as unstyled HTML.
+            styles:        typeof r.design_brief.styles === 'string'        ? r.design_brief.styles.slice(0, 24000)       : null,
             screens,
             sample_screen: typeof r.design_brief.sample_screen === 'string' ? r.design_brief.sample_screen.slice(0, 2400) : (screens[0]?.html || null),
         };

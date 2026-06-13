@@ -397,7 +397,12 @@ function getUserIdFromHeader(authHeader) {
 // producesDesignBrief below) and passed back in as an inline fallback, so the
 // handoff survives even when the design workspace is gone.
 // ────────────────────────────────────────────────────────────────────────
-const DESIGN_BRIEF_STYLES_CAP = 4000;
+// Bigger cap on the styles snapshot than the screens because Maya's
+// styles.css runs ~16KB (5KB tokens + 11KB class definitions) and the
+// inline fallback needs the WHOLE file to recreate her design — otherwise
+// Ananya writes HTML referencing class names that the truncated CSS no
+// longer defines.
+const DESIGN_BRIEF_STYLES_CAP = 24000;
 const DESIGN_BRIEF_SCREEN_CAP = 2400;
 const DESIGN_BRIEF_MAX_SCREENS = 8;   // Maya produces 5; cap is a bit higher in case she ever stretches
 
@@ -466,8 +471,43 @@ async function loadDesignBriefAndCopyAssets(sessionId, designSessionId, inlineBr
         logger.info(`creative: design brief restored from inline fallback (workspace ${designSessionId || 'n/a'} gone, screens=${screens.length})`);
     }
 
-    // 3. Copy Maya's images into the new workspace so <img src> tags resolve.
-    //    Only possible while her workspace still exists.
+    // 3a. Pre-write Maya's styles.css into Ananya's workspace verbatim.
+    //     gpt-4o-mini can't reliably re-transcribe a 16KB stylesheet without
+    //     dropping or scrambling class definitions — the result is HTML that
+    //     references classes the CSS no longer has. Copying the file directly
+    //     guarantees pixel fidelity for the inherited design system.
+    //
+    //     Preference order:
+    //       a) copy from Maya's live workspace (verbatim, full file)
+    //       b) write from the inline brief's `styles` field (capped, but
+    //          better than asking Ananya to recreate from scratch)
+    let stylesPreloaded = false;
+    {
+        const toStyles = path.join(await sessionDir(sessionId), 'styles.css');
+        if (/^[a-f0-9]{16}$/.test(designSessionId || '')) {
+            const fromStyles = path.join(await sessionDir(designSessionId), 'styles.css');
+            try {
+                await fs.copyFile(fromStyles, toStyles);
+                stylesPreloaded = true;
+                logger.info(`creative: styles.css copied verbatim from design_session=${designSessionId}`);
+            } catch (err) {
+                if (err.code !== 'ENOENT') logger.warn(`creative: styles.css copy failed: ${err.message}`);
+            }
+        }
+        if (!stylesPreloaded && designBrief?.styles) {
+            try {
+                await fs.writeFile(toStyles, designBrief.styles, 'utf8');
+                stylesPreloaded = true;
+                logger.info(`creative: styles.css restored from inline brief (${designBrief.styles.length}B)`);
+            } catch (err) {
+                logger.warn(`creative: styles.css inline restore failed: ${err.message}`);
+            }
+        }
+    }
+    if (designBrief) designBrief.stylesPreloaded = stylesPreloaded;
+
+    // 3b. Copy Maya's images into the new workspace so <img src> tags resolve.
+    //     Only possible while her workspace still exists.
     if (/^[a-f0-9]{16}$/.test(designSessionId || '')) {
         try {
             const fromAssets = path.join(await sessionDir(designSessionId), 'assets');
