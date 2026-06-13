@@ -346,6 +346,9 @@ export default function RoundTablePage() {
       if (name === 'consult_agent') return `Consulting ${evt.args?.agent_name || 'a teammate'}`;
       return `Running ${name}`;
     }
+    // Deployer emits deploy_step events with a human-friendly message
+    // already baked in (connect → upload → configure → verify → finalize).
+    if (evt.kind === 'deploy_step') return evt.message || `Deploy step: ${evt.step || '…'}`;
     if (evt.kind === 'final')     return 'Wrapping up';
     if (evt.kind === 'truncated') return 'Hit the turn cap — finishing what made it';
     return null;

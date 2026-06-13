@@ -98,6 +98,13 @@ async function lookupHostingerPrivateIp(token) {
 // nginx static site that serves every deployed session under REMOTE_ROOT. Re-
 // written (idempotently) on each deploy; isolated in its own file so it can't
 // affect the main kaushalstack.com vhost. Only reloads if `nginx -t` passes.
+//
+// The config payload is base64-encoded so we can chain it with `&&` over SSH
+// without the heredoc-vs-shell collision. A prior version used
+// `cat > file <<'NGINXCONF' ... NGINXCONF && nginx -t && ...` — bash needs the
+// heredoc terminator alone on its line, so the trailing `&& ...` chain got
+// captured inside the file, the config became invalid, the symlink was never
+// created, and port 8088 silently never came up. base64 sidesteps all of it.
 function nginxSetupCommand() {
     const conf = [
         `server {`,
@@ -109,9 +116,10 @@ function nginxSetupCommand() {
         `    location / { try_files $uri $uri/ $uri/index.html =404; }`,
         `}`,
     ].join('\n');
+    const confB64 = Buffer.from(conf, 'utf8').toString('base64');
     return [
         `mkdir -p ${REMOTE_ROOT}`,
-        `cat > /etc/nginx/sites-available/kaushal-deploys <<'NGINXCONF'\n${conf}\nNGINXCONF`,
+        `echo ${confB64} | base64 -d > /etc/nginx/sites-available/kaushal-deploys`,
         `ln -sf /etc/nginx/sites-available/kaushal-deploys /etc/nginx/sites-enabled/kaushal-deploys`,
         `nginx -t && systemctl reload nginx`,
         `(ufw allow ${HTTP_PORT}/tcp || true)`,
@@ -152,6 +160,26 @@ export async function deploySession({ sessionId, hostingerToken, onEvent }) {
         logger.warn(`deploy: nginx setup warning for ${sessionId}: ${err.message}`);
     });
 
+    // Verify the deployed site responds with 200 before we hand the URL back.
+    // nginx reload + filesystem sync briefly race; users were getting the URL
+    // and clicking through to a 404. Poll on the VPS itself (localhost) so we
+    // bypass any external network in-between. Up to ~25s before giving up.
+    emit('deploy_step', { step: 'verify', message: 'Waiting for the deployment to come online…' });
+    let verified = false;
+    try {
+        const verifyCmd = `for i in $(seq 1 25); do `
+                        + `if curl -fs -o /dev/null "http://127.0.0.1:${HTTP_PORT}/${sessionId}/"; then echo READY; exit 0; fi; `
+                        + `sleep 1; `
+                        + `done; echo TIMEOUT; exit 1`;
+        const out = await sshExec(verifyCmd);
+        verified = /READY/.test(out);
+    } catch (err) {
+        // verify timed out — still return the URL but flag it. The user can
+        // refresh in a few seconds; the rsync and nginx config already
+        // succeeded, so it's a propagation delay, not a hard failure.
+        logger.warn(`deploy: verify timed out for ${sessionId}: ${err.message}`);
+    }
+
     emit('deploy_step', { step: 'finalize', message: 'Resolving the private address…' });
     const privateIp = (await lookupHostingerPrivateIp(hostingerToken)) || VPS_HOST;
 
@@ -164,7 +192,8 @@ export async function deploySession({ sessionId, hostingerToken, onEvent }) {
         url:         `http://${VPS_HOST}:${HTTP_PORT}/${sessionId}/`,
         private_url: `http://${privateIp}:${HTTP_PORT}/${sessionId}/`,
         deployed_at: new Date().toISOString(),
+        verified,    // true once the URL has responded 200 on the VPS itself
     };
-    logger.info(`deploy: session=${sessionId} → ${result.private_url}`);
+    logger.info(`deploy: session=${sessionId} → ${result.private_url} verified=${verified}`);
     return result;
 }
