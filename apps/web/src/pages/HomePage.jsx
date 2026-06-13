@@ -405,7 +405,7 @@ const HomePage = () => {
               >
                 {/* LEFT: Demo video */}
                 <div className="order-2 lg:order-1">
-                  <DemoVideoCard src="/demo-jun6.mp4" poster="/demo-jun6-poster.jpg" duration="3 min" />
+                  <DemoVideoCard src="/demo-jun14.mp4" poster="/demo-jun14-poster.jpg" duration="2 min" />
                   <p className="text-center text-xs text-muted-foreground mt-3">
                     🎥 Latest walkthrough — Maya designs, Ananya builds, you download.
                   </p>
