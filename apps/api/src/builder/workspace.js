@@ -84,12 +84,15 @@ export async function writeFile(sessionId, relPath, contents) {
 }
 
 // Walk the workspace and return a flat list of {path, bytes} for every file.
+// Hidden sidecar files (anything starting with `_session_`) are excluded so
+// they don't show up in the user's manifest or download zip.
 export async function fileManifest(sessionId) {
     const root = await sessionDir(sessionId);
     const out = [];
     async function walk(dir, prefix) {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         for (const e of entries) {
+            if (!prefix && e.name.startsWith('_session_')) continue; // sidecar at root
             const full = path.join(dir, e.name);
             const rel = prefix ? `${prefix}/${e.name}` : e.name;
             if (e.isDirectory()) await walk(full, rel);
@@ -101,6 +104,31 @@ export async function fileManifest(sessionId) {
     }
     try { await walk(root, ''); } catch { /* empty workspace */ }
     return out;
+}
+
+// Persist the final result of a creative-agent run alongside the session
+// workspace so a client that lost its SSE stream can recover the result later.
+// We store it as a sidecar JSON file (`_session_result.json`) at the session
+// root and bypass the user-facing manifest/preview routes for it.
+const SESSION_RESULT_FILE = '_session_result.json';
+
+export async function saveSessionResult(sessionId, resultObj) {
+    const dir = await sessionDir(sessionId);
+    const abs = path.join(dir, SESSION_RESULT_FILE);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(abs, JSON.stringify(resultObj), 'utf8');
+}
+
+export async function readSessionResult(sessionId) {
+    const dir = await sessionDir(sessionId);
+    const abs = path.join(dir, SESSION_RESULT_FILE);
+    try {
+        const raw = await fs.readFile(abs, 'utf8');
+        return JSON.parse(raw);
+    } catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
 }
 
 async function cleanupOld() {

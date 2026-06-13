@@ -125,6 +125,7 @@ function BYOKScreen({ reason }) {
 // keep it focused on the simple idle → running → done → error flow.
 function CreativeToolPanel({
   status, result, error,
+  pendingSessionId, recoveryNote, onRecover,
   color, Icon, label,
   idleHeadline, idleBlurb, idleCta,
   runningHeadline, runningBlurb,
@@ -212,6 +213,19 @@ function CreativeToolPanel({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>{label} generation failed</div>
             <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{error}</div>
+            {pendingSessionId && (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: '#0a0c12', border: '1px solid #2a3550', borderRadius: 6, fontSize: 11, color: '#a8b1c8', lineHeight: 1.55 }}>
+                The stream dropped but the run may have finished on the server.
+                <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {onRecover && (
+                    <button onClick={onRecover} style={{ color, background: 'none', border: `1px solid ${color}44`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                      Check if it finished
+                    </button>
+                  )}
+                  {recoveryNote && <span style={{ fontSize: 11, color: '#8a91a8', fontStyle: 'italic' }}>{recoveryNote}</span>}
+                </div>
+              </div>
+            )}
             <button onClick={onTrigger} style={{
               marginTop: 10, color, background: 'none', border: `1px solid ${color}44`,
               borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
@@ -262,7 +276,11 @@ export default function RoundTablePage() {
   // `social` = Tara social posts. The `progress` field holds the most recent
   // streamed event from the agent (tool call, turn count) so the UI shows
   // "Maya is fetching photos…" instead of a 2-minute opaque spinner.
-  const initToolState = { status: 'idle', result: null, error: null, progress: null };
+  // pendingSessionId tracks the workspace id once the SSE stream's
+  // `session_start` event fires. It stays populated on error so the UI can
+  // offer a "Check if it finished" recovery action — Maya/Ananya often
+  // complete server-side after the SSE stream has died on the client.
+  const initToolState = { status: 'idle', result: null, error: null, progress: null, pendingSessionId: null, recoveryNote: null };
   const [build, setBuild]   = useState(initToolState);
   const [mockup, setMockup] = useState(initToolState);
   const [email,  setEmail]  = useState(initToolState);
@@ -332,7 +350,10 @@ export default function RoundTablePage() {
 
   async function runToolAction({ endpoint, excludeAgentId, setState, toolKey, extraBody = {} }) {
     if (!activeChat) return;
-    setState({ status: 'running', result: null, error: null, progress: null });
+    setState({ status: 'running', result: null, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+    // pendingSessionId is captured outside the setState closure so the catch
+    // block can put it on the error state without racing the latest setter.
+    let pendingSessionId = null;
     try {
       const skill = activeChat.team.find(s => s.id === excludeAgentId);
       const skillAgentName = skill?.agent_name;
@@ -391,6 +412,12 @@ export default function RoundTablePage() {
           if (eventName === 'done') { finalResult = payload; }
           else if (eventName === 'error') { finalError = payload?.error || 'Action failed'; }
           else {
+            // session_start carries the workspace id so we can offer a
+            // "did it finish anyway?" recovery action if the stream dies.
+            if (eventName === 'session_start' && payload?.sessionId) {
+              pendingSessionId = payload.sessionId;
+              setState(prev => ({ ...prev, pendingSessionId }));
+            }
             // Progress event — update the visible subtitle live.
             setState(prev => ({ ...prev, progress: { ...payload, kind: eventName } }));
           }
@@ -399,11 +426,52 @@ export default function RoundTablePage() {
 
       if (finalError) throw new Error(finalError);
       if (!finalResult) throw new Error('Stream ended without a result');
-      setState({ status: 'done', result: finalResult, error: null, progress: null });
+      setState({ status: 'done', result: finalResult, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
       if (toolKey) persistToolResult(toolKey, finalResult);
     } catch (err) {
-      setState({ status: 'error', result: null, error: err.message, progress: null });
+      // Keep pendingSessionId on the error state — the recovery flow uses it
+      // to fetch the persisted result via /api/build/:id/result.
+      setState({ status: 'error', result: null, error: err.message, progress: null, pendingSessionId, recoveryNote: null });
     }
+  }
+
+  // Recovery path: the SSE stream may die mid-run (network blip, proxy
+  // timeout, browser tab throttling), but the agent keeps running server-side
+  // and writes its final result to a sidecar JSON at
+  // /api/build/:id/result. This polls that endpoint and slots the result
+  // back into the tool state as if SSE had delivered it.
+  async function recoverPending({ setState, toolKey }) {
+    return new Promise((resolve) => {
+      setState(prev => {
+        const sessionId = prev.pendingSessionId;
+        if (!sessionId) { resolve(); return prev; }
+        // Mark we're checking — UI flips the button to a spinner string.
+        (async () => {
+          try {
+            const r = await fetch(`/api/build/${sessionId}/result`);
+            if (r.status === 404) {
+              setState(p => ({ ...p, recoveryNote: 'Maya is still running — try again in ~30s' }));
+              resolve();
+              return;
+            }
+            if (!r.ok) {
+              const txt = (await r.text()).slice(0, 200);
+              setState(p => ({ ...p, recoveryNote: `Lookup failed: ${txt || r.status}` }));
+              resolve();
+              return;
+            }
+            const result = await r.json();
+            setState({ status: 'done', result, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+            if (toolKey) persistToolResult(toolKey, result);
+            resolve();
+          } catch (err) {
+            setState(p => ({ ...p, recoveryNote: `Lookup failed: ${err.message}` }));
+            resolve();
+          }
+        })();
+        return { ...prev, recoveryNote: 'Checking…' };
+      });
+    });
   }
 
   // If Maya already produced mockups in this chat, Ananya consumes them as a
@@ -1086,6 +1154,8 @@ export default function RoundTablePage() {
                     members={members}
                     mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
                     triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
+                    recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
+                    recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}
                     saveHostingerToken={saveHostingerToken}
                     showHostingerLogin={showHostingerLogin} setShowHostingerLogin={setShowHostingerLogin}
                     hostingerToken={hostingerToken} setHostingerToken={setHostingerToken} setHostinger={setHostinger}
@@ -1105,6 +1175,9 @@ export default function RoundTablePage() {
                     status={email.status}
                     result={email.result}
                     error={email.error}
+                    pendingSessionId={email.pendingSessionId}
+                    recoveryNote={email.recoveryNote}
+                    onRecover={() => recoverPending({ setState: setEmail, toolKey: 'email' })}
                     progressLabel={describeProgress(email.progress)}
                     color="#f0a04b"
                     Icon={Mail}
@@ -1131,6 +1204,9 @@ export default function RoundTablePage() {
                     status={social.status}
                     result={social.result}
                     error={social.error}
+                    pendingSessionId={social.pendingSessionId}
+                    recoveryNote={social.recoveryNote}
+                    onRecover={() => recoverPending({ setState: setSocial, toolKey: 'social' })}
                     progressLabel={describeProgress(social.progress)}
                     color="#e070c2"
                     Icon={Megaphone}

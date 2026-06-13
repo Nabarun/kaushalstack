@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import logger from '../utils/logger.js';
-import { createSession, sessionDir, fileManifest, readFile, listDir } from './workspace.js';
+import { createSession, sessionDir, fileManifest, readFile, listDir, saveSessionResult } from './workspace.js';
 import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
 import { CONSULT_AGENT_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
@@ -617,7 +617,7 @@ export async function runCreativeAgent({
 
         // /api/build's download + preview GET handlers work on any session id,
         // so every creative agent's output is served via the same URLs.
-        return {
+        const result = {
             session_id:    sessionId,
             agent_id:      agentId,
             agent_name:    config.agentName,
@@ -630,6 +630,18 @@ export async function runCreativeAgent({
             design_applied: designApplied,   // did this run actually inherit a design brief?
             design_brief:   designBriefOut,  // present on design-source agents (Maya) for later handoff
         };
+
+        // Sidecar persistence — recovery path for clients whose SSE stream
+        // dropped mid-run. /api/build/:id/result reads this file. Failures
+        // here are swallowed because the in-memory return path is the
+        // primary one; the sidecar is purely a fallback.
+        try {
+            await saveSessionResult(sessionId, result);
+        } catch (err) {
+            logger.warn(`creative: failed to persist session result for ${sessionId}: ${err.message}`);
+        }
+
+        return result;
     } catch (err) {
         logger.error(`creative error agent=${config.agentName} session=${sessionId}: ${err.message}`);
         err.sessionId = sessionId;

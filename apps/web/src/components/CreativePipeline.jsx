@@ -37,13 +37,26 @@ function FileList({ files, maxHeight }) {
   );
 }
 
-function ErrorBlock({ title, message, accent, onRetry }) {
+function ErrorBlock({ title, message, accent, onRetry, pendingSessionId, onRecover, recoveryNote }) {
   return (
     <div className="flex items-start gap-3">
       <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>{title}</div>
         <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{message}</div>
+        {pendingSessionId && (
+          <div style={{ marginTop: 8, padding: '8px 10px', background: '#0a0c12', border: '1px solid #2a3550', borderRadius: 6, fontSize: 11, color: '#a8b1c8', lineHeight: 1.55 }}>
+            The stream dropped but the run may have finished on the server.
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {onRecover && (
+                <button onClick={onRecover} style={{ color: accent, background: 'none', border: `1px solid ${accent}44`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                  Check if it finished
+                </button>
+              )}
+              {recoveryNote && <span style={{ fontSize: 11, color: '#8a91a8', fontStyle: 'italic' }}>{recoveryNote}</span>}
+            </div>
+          </div>
+        )}
         {onRetry && (
           <button onClick={onRetry} style={{ marginTop: 10, color: accent, background: 'none', border: `1px solid ${accent}44`, borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
             Try again
@@ -58,6 +71,7 @@ export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
   mockup, build, deploy, hostinger,
   triggerMockup, triggerBuild, triggerDeploy,
+  recoverMockup, recoverBuild,
   saveHostingerToken, showHostingerLogin, setShowHostingerLogin,
   hostingerToken, setHostingerToken, setHostinger,
   describeProgress, buildWillInheritDesign,
@@ -168,8 +182,8 @@ export default function CreativePipeline({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, describeProgress }} />}
-            {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
+            {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress }} />}
+            {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
               <HostingerSection {...{
                 build, deploy, hostinger, triggerDeploy, locked: lockedFor.hostinger,
@@ -185,7 +199,7 @@ export default function CreativePipeline({
 }
 
 // ── Maya — design mockups ───────────────────────────────────────────
-function MayaSection({ mockup, triggerMockup, describeProgress }) {
+function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress }) {
   const accent = '#b07ef8';
   if (mockup.status === 'running') {
     const live = describeProgress(mockup.progress);
@@ -223,7 +237,7 @@ function MayaSection({ mockup, triggerMockup, describeProgress }) {
     );
   }
   if (mockup.status === 'error') {
-    return <ErrorBlock title="Mockup generation failed" message={mockup.error} accent={accent} onRetry={triggerMockup} />;
+    return <ErrorBlock title="Mockup generation failed" message={mockup.error} accent={accent} onRetry={triggerMockup} pendingSessionId={mockup.pendingSessionId} onRecover={recoverMockup} recoveryNote={mockup.recoveryNote} />;
   }
   // idle
   return (
@@ -240,7 +254,7 @@ function MayaSection({ mockup, triggerMockup, describeProgress }) {
 }
 
 // ── Ananya — build the production site ──────────────────────────────
-function AnanyaSection({ build, triggerBuild, describeProgress, locked, buildWillInheritDesign }) {
+function AnanyaSection({ build, triggerBuild, recoverBuild, describeProgress, locked, buildWillInheritDesign }) {
   const accent = '#5b8dee';
   if (locked && build.status !== 'done') {
     return (
@@ -301,7 +315,7 @@ function AnanyaSection({ build, triggerBuild, describeProgress, locked, buildWil
     );
   }
   if (build.status === 'error') {
-    return <ErrorBlock title="Build failed" message={build.error} accent={accent} onRetry={triggerBuild} />;
+    return <ErrorBlock title="Build failed" message={build.error} accent={accent} onRetry={triggerBuild} pendingSessionId={build.pendingSessionId} onRecover={recoverBuild} recoveryNote={build.recoveryNote} />;
   }
   // idle (unlocked)
   return (
