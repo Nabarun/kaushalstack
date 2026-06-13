@@ -39,25 +39,42 @@ async function ensureUsageCollection() {
     }
 }
 
+// Fields the collection must carry. `created`/`updated` are autodate — the
+// original runtime-created collection omitted them, which silently broke the
+// history list (GET sorts by -created) AND the persistence of tool outputs.
+// This ensure step repairs both old and new deployments in place.
+const CHAT_FIELDS = [
+    { type: 'text',     name: 'user_id',      required: true },
+    { type: 'text',     name: 'query',        required: true, max: 2000 },
+    { type: 'json',     name: 'team',         maxSize: 100000 },
+    { type: 'json',     name: 'responses',    maxSize: 200000 },
+    { type: 'json',     name: 'tool_results', maxSize: 600000 },
+    { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
+    { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
+];
+
 async function ensureChatsCollection() {
     if (chatsCollectionReady) return;
     try {
-        await pb.collections.getOne('roundtable_chats');
+        const existing = await pb.collections.getOne('roundtable_chats');
+        const have = new Set((existing.fields || []).map(f => f.name));
+        const missing = CHAT_FIELDS.filter(f => !have.has(f.name));
+        if (missing.length > 0) {
+            try {
+                await pb.collections.update('roundtable_chats', {
+                    fields: [...existing.fields, ...missing],
+                });
+                logger.info(`roundtable_chats: added fields [${missing.map(f => f.name).join(', ')}]`);
+            } catch (err) {
+                logger.warn('Could not add roundtable_chats fields:', err.message);
+            }
+        }
         chatsCollectionReady = true;
     } catch {
         try {
             await pb.send('/api/collections', {
                 method: 'POST',
-                body: {
-                    name: 'roundtable_chats',
-                    type: 'base',
-                    fields: [
-                        { type: 'text', name: 'user_id', required: true },
-                        { type: 'text', name: 'query',   required: true, max: 2000 },
-                        { type: 'json', name: 'team',    maxSize: 100000 },
-                        { type: 'json', name: 'responses', maxSize: 200000 },
-                    ],
-                },
+                body: { name: 'roundtable_chats', type: 'base', fields: CHAT_FIELDS },
             });
             chatsCollectionReady = true;
             logger.info('roundtable_chats collection created');
@@ -292,12 +309,62 @@ router.get('/roundtable/chats', async (req, res) => {
                 query: c.query,
                 team: c.team,
                 responses: c.responses,
+                tool_results: c.tool_results || {},
                 created: c.created,
             })),
         });
     } catch (err) {
         logger.error('list chats error:', err.message);
         res.status(500).json({ error: err.message, chats: [] });
+    }
+});
+
+// The fields of a creative-agent result worth persisting onto a chat so it can
+// be re-opened later. We deliberately drop `trace` (only useful live) to keep
+// the JSON small — the rest is enough to rehydrate the panel and re-serve the
+// preview/download from the (now persistent) workspace volume.
+function trimToolResult(r) {
+    if (!r || typeof r !== 'object') return null;
+    return {
+        session_id:   r.session_id,
+        agent_id:     r.agent_id,
+        agent_name:   r.agent_name,
+        summary:      typeof r.summary === 'string' ? r.summary.slice(0, 20000) : '',
+        files:        Array.isArray(r.files) ? r.files.slice(0, 200) : [],
+        engine:       r.engine || null,
+        download_url: r.download_url,
+        preview_url:  r.preview_url,
+        saved_at:     new Date().toISOString(),
+    };
+}
+
+// POST /roundtable/chats/:id/tool-results — merge one creative-agent output
+// (Maya mockups, Ananya build, Kavya email, Tara social) into the chat under a
+// stable key ('mockup' | 'build' | 'email' | 'social'). Idempotent per key:
+// re-running a tool overwrites that slot.
+const VALID_TOOL_KEYS = new Set(['mockup', 'build', 'email', 'social']);
+router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { tool, result } = req.body || {};
+    if (!VALID_TOOL_KEYS.has(tool)) {
+        return res.status(400).json({ error: 'tool must be one of mockup|build|email|social' });
+    }
+    const trimmed = trimToolResult(result);
+    if (!trimmed) return res.status(400).json({ error: 'result is required' });
+
+    await ensureChatsCollection();
+    try {
+        const chat = await pb.collection('roundtable_chats').getOne(req.params.id);
+        if (chat.user_id !== userId) return res.status(403).json({ error: 'forbidden' });
+
+        const merged = { ...(chat.tool_results || {}), [tool]: trimmed };
+        await pb.collection('roundtable_chats').update(req.params.id, { tool_results: merged });
+        res.json({ ok: true, tool_results: merged });
+    } catch (err) {
+        logger.error('save tool-result error:', err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 

@@ -2,12 +2,20 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-// Per-session workspace lives under /tmp/kaushal-build/<sessionId>/.
-// /tmp gets wiped on container restart — fine for first cut. Cleanup runs
-// opportunistically (sessions older than 1h are removed on each new session).
+// Per-session workspace lives under <WORKSPACE_ROOT>/<sessionId>/.
+// In Docker we point WORKSPACE_ROOT at a named volume (see docker-compose) so
+// generated mockups/builds survive container restarts and a saved Round Table
+// chat can re-open its previews days later. Bare local dev keeps the old
+// /tmp default. Cleanup runs opportunistically on each new session: sessions
+// older than SESSION_TTL_HOURS are removed. Set SESSION_TTL_HOURS=0 to keep
+// every workspace forever (the default in prod — the chats that reference them
+// persist forever too, so their previews should as well).
 
-const ROOT = '/tmp/kaushal-build';
-const SESSION_TTL_MS = 60 * 60 * 1000;
+const ROOT = process.env.WORKSPACE_ROOT || '/tmp/kaushal-build';
+const TTL_HOURS = process.env.SESSION_TTL_HOURS !== undefined
+    ? parseFloat(process.env.SESSION_TTL_HOURS)
+    : 1;
+const SESSION_TTL_MS = TTL_HOURS > 0 ? TTL_HOURS * 60 * 60 * 1000 : 0; // 0 = never expire
 
 async function ensureRoot() {
     await fs.mkdir(ROOT, { recursive: true });
@@ -96,6 +104,7 @@ export async function fileManifest(sessionId) {
 }
 
 async function cleanupOld() {
+    if (SESSION_TTL_MS === 0) return; // persistence mode — keep everything
     try {
         const entries = await fs.readdir(ROOT, { withFileTypes: true });
         const now = Date.now();

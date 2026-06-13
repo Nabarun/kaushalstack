@@ -265,12 +265,40 @@ export default function RoundTablePage() {
   const [mockup, setMockup] = useState(initToolState);
   const [email,  setEmail]  = useState(initToolState);
   const [social, setSocial] = useState(initToolState);
+  // On chat switch, rehydrate each tool panel from the chat's persisted
+  // tool_results (saved server-side when a run finishes) so previously
+  // generated mockups/builds re-appear with their previews. Falls back to idle
+  // for tools that were never run in this chat.
   useEffect(() => {
-    setBuild(initToolState);
-    setMockup(initToolState);
-    setEmail(initToolState);
-    setSocial(initToolState);
+    const saved = activeChat?.tool_results || {};
+    const restore = r => (r ? { status: 'done', result: r, error: null, progress: null } : initToolState);
+    setBuild(restore(saved.build));
+    setMockup(restore(saved.mockup));
+    setEmail(restore(saved.email));
+    setSocial(restore(saved.social));
   }, [activeChat?.id]);
+
+  // Persist a finished tool result onto the active chat so it survives reloads.
+  // Also mirror it into the local `chats` cache so the in-memory copy matches.
+  async function persistToolResult(toolKey, result) {
+    const chatId = activeChat?.id;
+    if (!chatId || !result?.session_id) return;
+    const token = pb.authStore.token;
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/roundtable/chats/${chatId}/tool-results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: toolKey, result }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.tool_results) {
+        setChats(prev => prev.map(c => (c.id === chatId ? { ...c, tool_results: data.tool_results } : c)));
+        setActiveChat(prev => (prev?.id === chatId ? { ...prev, tool_results: data.tool_results } : prev));
+      }
+    } catch { /* best-effort — the in-memory result still shows this session */ }
+  }
 
   // Friendly label for an agent event, used in the running-state subtitle.
   function describeProgress(evt) {
@@ -290,7 +318,7 @@ export default function RoundTablePage() {
     return null;
   }
 
-  async function runToolAction({ endpoint, excludeAgentId, setState, extraBody = {} }) {
+  async function runToolAction({ endpoint, excludeAgentId, setState, toolKey, extraBody = {} }) {
     if (!activeChat) return;
     setState({ status: 'running', result: null, error: null, progress: null });
     try {
@@ -360,6 +388,7 @@ export default function RoundTablePage() {
       if (finalError) throw new Error(finalError);
       if (!finalResult) throw new Error('Stream ended without a result');
       setState({ status: 'done', result: finalResult, error: null, progress: null });
+      if (toolKey) persistToolResult(toolKey, finalResult);
     } catch (err) {
       setState({ status: 'error', result: null, error: err.message, progress: null });
     }
@@ -371,6 +400,7 @@ export default function RoundTablePage() {
     endpoint: '/api/build',
     excludeAgentId: ANANYA_SKILL_ID,
     setState: setBuild,
+    toolKey: 'build',
     extraBody: mockup.status === 'done' && mockup.result?.session_id
       ? { design_session_id: mockup.result.session_id }
       : {},
@@ -379,6 +409,7 @@ export default function RoundTablePage() {
     endpoint: '/api/mockup',
     excludeAgentId: MAYA_SKILL_ID,
     setState: setMockup,
+    toolKey: 'mockup',
   });
   // Kavya + Tara both run via the generic /api/creative endpoint — the agent
   // is picked by agent_id (PocketBase skill id). See routes/creative.js.
@@ -386,12 +417,14 @@ export default function RoundTablePage() {
     endpoint: '/api/creative',
     excludeAgentId: KAVYA_SKILL_ID,
     setState: setEmail,
+    toolKey: 'email',
     extraBody: { agent_id: KAVYA_SKILL_ID },
   });
   const triggerSocial = () => runToolAction({
     endpoint: '/api/creative',
     excludeAgentId: TARA_SKILL_ID,
     setState: setSocial,
+    toolKey: 'social',
     extraBody: { agent_id: TARA_SKILL_ID },
   });
 

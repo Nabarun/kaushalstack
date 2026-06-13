@@ -10,6 +10,8 @@ services:
   api:
     image: nabarun1/kaushalstack-api:latest
     restart: always
+    volumes:
+      - kaushal_workspaces:/data/workspaces
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3001}
@@ -17,6 +19,8 @@ services:
       PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
       PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
       CORS_ORIGIN: ${CORS_ORIGIN}
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/data/workspaces}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-0}
       INTEGRATED_AI_API_URL: ${INTEGRATED_AI_API_URL:-}
       INTEGRATED_AI_API_KEY: ${INTEGRATED_AI_API_KEY:-}
       WEBSITE_ID: ${WEBSITE_ID:-}
@@ -31,3 +35,6 @@ services:
     restart: always
     ports:
       - "127.0.0.1:8080:80"
+
+volumes:
+  kaushal_workspaces:
