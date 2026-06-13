@@ -47,25 +47,35 @@ export async function handleStream(req, res, agentIdOverride) {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
+    // Single-write event emit. Combining `event:` + `data:` into one
+    // res.write call keeps heartbeats from interleaving between the two
+    // lines (which corrupts the SSE message).
     const send = (eventName, data) => {
         try {
-            res.write(`event: ${eventName}\n`);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-            res.flush?.();
+            res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
         } catch { /* client disconnected mid-write */ }
     };
+
+    // Initial probe so we know the client is genuinely alive before the
+    // agent starts doing real work. Avoids the bug where the first event
+    // we'd emit was buried inside runCreativeAgent's async path.
+    send('connected', { ts: Date.now() });
 
     // 20-second heartbeats keep proxies from idling the connection between
     // tool calls. The comment line (`: ping`) is the standard SSE no-op.
     const heartbeat = setInterval(() => {
-        try { res.write(`: ping\n\n`); res.flush?.(); }
+        try { res.write(`: ping\n\n`); }
         catch { /* dead connection — cleared on close below */ }
     }, 20000);
 
-    // If the client tab closes we let the agent run wind down server-side
-    // but stop writing to the socket.
+    // Track whether the response socket has actually closed before we
+    // started writing. IncomingMessage's 'close' fires on socket close
+    // (NOT on body-parser finishing the read), but we listen on `res`
+    // since that's the response stream — closing of which is the
+    // unambiguous "client gave up" signal.
     let clientGone = false;
-    req.on('close', () => { clientGone = true; clearInterval(heartbeat); });
+    const onClose = () => { clientGone = true; clearInterval(heartbeat); };
+    res.on('close', onClose);
 
     try {
         const result = await runCreativeAgent({
@@ -77,6 +87,7 @@ export async function handleStream(req, res, agentIdOverride) {
         if (!clientGone) send('error', { error: err.message, session_id: err.sessionId });
     } finally {
         clearInterval(heartbeat);
+        res.off('close', onClose);
         try { res.end(); } catch { /* already closed */ }
     }
 }
