@@ -99,6 +99,7 @@ export async function runBuildAgent({
             briefSections.push(
                 `Maya designed a ${pages.length}-screen flow. Build ${pages.length} HTML pages — ONE per screen — and wire them together in this order:\n\n${planLines}\n\n` +
                 `LINK NAMING — every internal navigation \`<a href="...">\` and every \`<form action="...">\` MUST resolve to one of these exact filenames: ${allowedHrefs}. NEVER copy Maya's screen filenames (\`01-…html\`) into your hrefs — those files do not exist in your workspace. If you copy a link target from Maya's HTML, you must translate it: e.g. \`02-form.html\` in Maya's source becomes \`form.html\` in yours.\n\n` +
+                `FORM METHOD — every \`<form>\` MUST use \`method="GET"\` (or no method attribute at all, which defaults to GET). The preview is static — there is no backend. \`method="POST"\` would land the user on the destination page but with discarded form data and a broken back button. GET is the right method for "navigate to next page".\n\n` +
                 `Preserve the same shared navbar / header across every page so they feel like one app.\n\n` +
                 screenSections
             );

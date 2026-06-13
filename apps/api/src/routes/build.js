@@ -74,7 +74,14 @@ router.get('/build/:id/preview', (req, res) => {
 
 // Catch-all under /build/:id/preview/* — serves the requested file from the
 // session workspace. Defaults to index.html for the root.
-router.get(/^\/build\/([a-f0-9]{16})\/preview\/(.*)$/, async (req, res) => {
+//
+// Accepts ALL HTTP methods (GET, POST, etc.) so generated form-submit pages
+// work without a backend. Ananya often writes `<form action="next.html"
+// method="POST">` and a real user clicking submit would land on a 404 if we
+// only accepted GET. The preview is static — the form data is intentionally
+// discarded; we just serve the destination HTML so the multi-page flow is
+// navigable.
+router.all(/^\/build\/([a-f0-9]{16})\/preview\/(.*)$/, async (req, res) => {
     const id = req.params[0];
     let rel = req.params[1] || '';
     if (!rel || rel.endsWith('/')) rel = `${rel || ''}index.html`;
