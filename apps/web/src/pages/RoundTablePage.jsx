@@ -52,7 +52,10 @@ function getOvalPositions(count) {
         const y = numRows === 1
             ? (yTop + yBottom) / 2
             : yTop + ((yBottom - yTop) * row) / (numRows - 1);
-        const x = col === 0 ? 40 : 240;
+        // x=50/230 (instead of 40/240) gives the 88px-wide name labels below
+        // each avatar enough breathing room without clipping against the
+        // 280px-wide panel edges.
+        const x = col === 0 ? 50 : 230;
         positions.push({ x, y });
     }
     return positions;
@@ -897,12 +900,15 @@ export default function RoundTablePage() {
                     >
                       <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </motion.div>
-                    <div style={{ textAlign: 'center', maxWidth: 56 }}>
+                    <div style={{ textAlign: 'center', width: 88 }}>
                       <div style={{
-                        fontSize: 8, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.1,
-                        color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
+                        fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1.15,
+                        color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#5a5f72',
                         transition: 'color 0.3s',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        // 2-line clamp instead of single-line ellipsis so
+                        // "Calisthenics Coach" reads as "Calisthenics / Coach"
+                        // rather than "Calisthenic…".
+                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                       }}>
                         {a.agent_name}
                       </div>
@@ -950,49 +956,6 @@ export default function RoundTablePage() {
               </motion.div>
             </div>
 
-            <div className="w-full px-4 space-y-1 mt-2">
-              {agents.map((a, i) => {
-                const hasResponse = responses.some(r => r.agentIdx === i);
-                const isActive    = activeIdx === i;
-                const isFocused   = focusedResponse?.agentIdx === i;
-                return (
-                  <button key={i} onClick={() => {
-                    const rIdx = responses.findIndex(r => r.agentIdx === i);
-                    if (rIdx >= 0) setFocusedIdx(rIdx);
-                  }} disabled={!hasResponse}
-                    style={{
-                      width: '100%', background: isFocused ? `${a.color}12` : 'transparent',
-                      border: `1px solid ${isFocused ? `${a.color}30` : 'transparent'}`,
-                      borderRadius: 8, padding: '6px 10px',
-                      cursor: hasResponse ? 'pointer' : 'default',
-                      display: 'flex', alignItems: 'center', gap: 8,
-                    }}
-                  >
-                    <div style={{
-                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                      background: isActive ? a.color : hasResponse ? `${a.color}80` : '#1e2130',
-                      transition: 'background 0.3s',
-                    }} />
-                    <img src={avatarUrl(a.agent_name)} alt={a.agent_name}
-                      style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                    <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', color: isFocused ? a.color : '#4a4f60' }}>
-                        {a.agent_name}
-                      </div>
-                      <div style={{ fontSize: 9, color: '#2e3244', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {a.category}
-                      </div>
-                    </div>
-                    {isActive && (
-                      <motion.span style={{ fontSize: 8, fontFamily: 'monospace', color: a.color }}
-                        animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 1, repeat: Infinity }}>
-                        thinking…
-                      </motion.span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* ── Middle: Active Chat (input at TOP) ── */}
