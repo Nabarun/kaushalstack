@@ -127,6 +127,7 @@ function CreativeToolPanel({
   idleHeadline, idleBlurb, idleCta,
   runningHeadline, runningBlurb,
   doneLabel,
+  progressLabel,    // optional: live string from the SSE stream
   onTrigger,
 }) {
   return (
@@ -160,7 +161,9 @@ function CreativeToolPanel({
           </motion.div>
           <div>
             <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>{runningHeadline}</div>
-            <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>{runningBlurb}</div>
+            <div style={{ fontSize: 11, color: progressLabel ? color : '#5a607a', marginTop: 2 }}>
+              {progressLabel || runningBlurb}
+            </div>
           </div>
         </div>
       )}
@@ -254,21 +257,42 @@ export default function RoundTablePage() {
 
   // Tool-action states — scoped to the active chat, reset on chat change.
   // `build` = Ananya app, `mockup` = Maya screens, `email` = Kavya campaign,
-  // `social` = Tara social posts.
-  const [build, setBuild]   = useState({ status: 'idle', result: null, error: null });
-  const [mockup, setMockup] = useState({ status: 'idle', result: null, error: null });
-  const [email,  setEmail]  = useState({ status: 'idle', result: null, error: null });
-  const [social, setSocial] = useState({ status: 'idle', result: null, error: null });
+  // `social` = Tara social posts. The `progress` field holds the most recent
+  // streamed event from the agent (tool call, turn count) so the UI shows
+  // "Maya is fetching photos…" instead of a 2-minute opaque spinner.
+  const initToolState = { status: 'idle', result: null, error: null, progress: null };
+  const [build, setBuild]   = useState(initToolState);
+  const [mockup, setMockup] = useState(initToolState);
+  const [email,  setEmail]  = useState(initToolState);
+  const [social, setSocial] = useState(initToolState);
   useEffect(() => {
-    setBuild({ status: 'idle', result: null, error: null });
-    setMockup({ status: 'idle', result: null, error: null });
-    setEmail({ status: 'idle', result: null, error: null });
-    setSocial({ status: 'idle', result: null, error: null });
+    setBuild(initToolState);
+    setMockup(initToolState);
+    setEmail(initToolState);
+    setSocial(initToolState);
   }, [activeChat?.id]);
+
+  // Friendly label for an agent event, used in the running-state subtitle.
+  function describeProgress(evt) {
+    if (!evt) return null;
+    if (evt.kind === 'session_start') return `Spinning up · ${evt.model}`;
+    if (evt.kind === 'tool') {
+      const name = evt.name || 'tool';
+      if (name === 'write_file')    return `Writing ${evt.args?.path || 'file'}`;
+      if (name === 'read_file')     return `Reading ${evt.args?.path || 'file'}`;
+      if (name === 'list_dir')      return 'Inspecting the workspace';
+      if (name === 'search_images') return `Fetching photos for "${evt.args?.query || ''}"`;
+      if (name === 'consult_agent') return `Consulting ${evt.args?.agent_name || 'a teammate'}`;
+      return `Running ${name}`;
+    }
+    if (evt.kind === 'final')     return 'Wrapping up';
+    if (evt.kind === 'truncated') return 'Hit the turn cap — finishing what made it';
+    return null;
+  }
 
   async function runToolAction({ endpoint, excludeAgentId, setState, extraBody = {} }) {
     if (!activeChat) return;
-    setState({ status: 'running', result: null, error: null });
+    setState({ status: 'running', result: null, error: null, progress: null });
     try {
       const skill = activeChat.team.find(s => s.id === excludeAgentId);
       const skillAgentName = skill?.agent_name;
@@ -276,19 +300,68 @@ export default function RoundTablePage() {
         .filter(r => r.name && r.text && r.name !== skillAgentName)
         .map(r => ({ agent_name: r.name, perspective: r.text }));
       const token = pb.authStore.token;
-      const res = await fetch(endpoint, {
+
+      // Switch to SSE streaming via ?stream=1 so we get live progress events
+      // and avoid any proxy/browser idle-timeout on multi-minute runs.
+      const streamEndpoint = endpoint + (endpoint.includes('?') ? '&' : '?') + 'stream=1';
+      const res = await fetch(streamEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept':       'text/event-stream',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ query: activeChat.query, context, ...extraBody }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Action failed');
-      setState({ status: 'done', result: data, error: null });
+      if (!res.ok || !res.body) {
+        // Server fell back to JSON (e.g. proxy stripped the stream). Try to
+        // read it as JSON for the existing error shape.
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Action failed (${res.status})`);
+      }
+
+      // Parse SSE: events are separated by `\n\n`. Each event has an `event:`
+      // and `data:` line. Buffer partial reads across chunks.
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      let finalError  = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let split;
+        while ((split = buffer.indexOf('\n\n')) >= 0) {
+          const raw = buffer.slice(0, split);
+          buffer    = buffer.slice(split + 2);
+          if (!raw || raw.startsWith(':')) continue; // heartbeat
+          let eventName = 'message';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+            else if (line.startsWith('data: ')) data += line.slice(6);
+          }
+          if (!data) continue;
+          let payload;
+          try { payload = JSON.parse(data); }
+          catch { continue; }
+
+          if (eventName === 'done') { finalResult = payload; }
+          else if (eventName === 'error') { finalError = payload?.error || 'Action failed'; }
+          else {
+            // Progress event — update the visible subtitle live.
+            setState(prev => ({ ...prev, progress: { ...payload, kind: eventName } }));
+          }
+        }
+      }
+
+      if (finalError) throw new Error(finalError);
+      if (!finalResult) throw new Error('Stream ended without a result');
+      setState({ status: 'done', result: finalResult, error: null, progress: null });
     } catch (err) {
-      setState({ status: 'error', result: null, error: err.message });
+      setState({ status: 'error', result: null, error: err.message, progress: null });
     }
   }
 
@@ -867,17 +940,22 @@ export default function RoundTablePage() {
                         </button>
                       </>
                     )}
-                    {mockup.status === 'running' && (
-                      <div className="flex items-center gap-3">
-                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                          <Palette style={{ width: 22, height: 22, color: '#b07ef8' }} />
-                        </motion.div>
-                        <div>
-                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Maya is sketching…</div>
-                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Picking a palette, fetching photos, drawing 5 screens. 1–2 minutes.</div>
+                    {mockup.status === 'running' && (() => {
+                      const live = describeProgress(mockup.progress);
+                      return (
+                        <div className="flex items-center gap-3">
+                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                            <Palette style={{ width: 22, height: 22, color: '#b07ef8' }} />
+                          </motion.div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Maya is sketching…</div>
+                            <div style={{ fontSize: 11, color: live ? '#b07ef8' : '#5a607a', marginTop: 2 }}>
+                              {live || 'Picking a palette, fetching photos, drawing 5 screens. 1–2 minutes.'}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {mockup.status === 'done' && mockup.result && (
                       <>
                         <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
@@ -1023,17 +1101,22 @@ export default function RoundTablePage() {
                         )}
                       </AnimatePresence>
                     )}
-                    {build.status === 'running' && (
-                      <div className="flex items-center gap-3">
-                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                          <Hammer style={{ width: 22, height: 22, color: '#5b8dee' }} />
-                        </motion.div>
-                        <div>
-                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Ananya is building…</div>
-                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Reading the team input, calling tools, writing files. 30–90 seconds.</div>
+                    {build.status === 'running' && (() => {
+                      const live = describeProgress(build.progress);
+                      return (
+                        <div className="flex items-center gap-3">
+                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                            <Hammer style={{ width: 22, height: 22, color: '#5b8dee' }} />
+                          </motion.div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Ananya is building…</div>
+                            <div style={{ fontSize: 11, color: live ? '#5b8dee' : '#5a607a', marginTop: 2 }}>
+                              {live || 'Reading the team input, calling tools, writing files. 30–90 seconds.'}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {build.status === 'done' && build.result && (
                       <>
                         <div className="flex items-center gap-2 mb-2" style={{ marginBottom: 10 }}>
@@ -1101,6 +1184,7 @@ export default function RoundTablePage() {
                     status={email.status}
                     result={email.result}
                     error={email.error}
+                    progressLabel={describeProgress(email.progress)}
                     color="#f0a04b"
                     Icon={Mail}
                     label="Email"
@@ -1126,6 +1210,7 @@ export default function RoundTablePage() {
                     status={social.status}
                     result={social.result}
                     error={social.error}
+                    progressLabel={describeProgress(social.progress)}
                     color="#e070c2"
                     Icon={Megaphone}
                     label="Social"

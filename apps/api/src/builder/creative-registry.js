@@ -447,6 +447,8 @@ export async function runCreativeAgent({
     rawContext,
     designSessionId,
     authHeader,
+    onEvent,        // optional: { kind, ... } callbacks per agent step. Used by
+                    // the SSE route to stream progress as the agent works.
 }) {
     const config = getCreativeAgent(agentId);
     if (!config) {
@@ -502,6 +504,10 @@ export async function runCreativeAgent({
             designBrief = await loadDesignBriefAndCopyAssets(sessionId, designSessionId);
         }
 
+        // Emit a session_start event so the client can show "Maya is thinking…"
+        // immediately and surface the session id (useful for download/preview).
+        if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
+
         const agentRun = useAnthropic
             ? runAnthropicAgent({
                 sessionId,
@@ -513,6 +519,7 @@ export async function runCreativeAgent({
                 systemPrompt: config.systemPrompt,
                 maxTurns:     config.maxTurns,
                 userIntro:    config.userIntro,
+                onEvent,
             })
             : runBuildAgent({
                 sessionId,
@@ -525,6 +532,7 @@ export async function runCreativeAgent({
                 userIntro:    config.userIntro,
                 extraTools:   config.extraTools || [],
                 requireConsult: !!config.requireConsult,
+                onEvent,
             });
 
         const { final, trace } = await agentRun;

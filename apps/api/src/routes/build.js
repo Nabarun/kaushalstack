@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import { ZipArchive } from 'archiver';
 import logger from '../utils/logger.js';
 import { sessionDir, safeResolve } from '../builder/workspace.js';
-import { runCreativeAgent, ANANYA_SKILL_ID } from '../builder/creative-registry.js';
+import { ANANYA_SKILL_ID } from '../builder/creative-registry.js';
+import { handle } from './creative-http.js';
 
 // CSP loosened enough for previewed apps that pull libs from CDNs (unpkg /
 // jsdelivr / cdnjs). Helmet's default disallows third-party scripts; we
@@ -15,26 +16,10 @@ const PREVIEW_CSP = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob
 // previewed HTML resolve under /preview/, not the parent path).
 const router = Router({ strict: true });
 
-// POST /build — backwards-compat wrapper. The frontend posts here directly
-// for Ananya's workflow (with optional design_session_id from a Maya run).
-// All real logic now lives in runCreativeAgent.
-router.post('/build', async (req, res) => {
-    try {
-        const result = await runCreativeAgent({
-            agentId:         ANANYA_SKILL_ID,
-            rawQuery:        req.body?.query,
-            rawContext:      req.body?.context,
-            designSessionId: req.body?.design_session_id,
-            authHeader:      req.headers.authorization,
-        });
-        res.json(result);
-    } catch (err) {
-        res.status(err.status || 500).json({
-            error:      err.message,
-            session_id: err.sessionId,
-        });
-    }
-});
+// POST /build — backwards-compat wrapper for Ananya. Both JSON and SSE
+// modes via the shared `handle()` — pass `?stream=1` (or Accept:
+// text/event-stream) to get live progress.
+router.post('/build', (req, res) => handle(req, res, ANANYA_SKILL_ID));
 
 // GET /build/:id/download — streams a ZIP of the session workspace
 router.get('/build/:id/download', async (req, res) => {
