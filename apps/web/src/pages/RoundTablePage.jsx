@@ -662,23 +662,48 @@ export default function RoundTablePage() {
       .catch(() => setHostinger(h => ({ ...h, loading: false })));
   }, []);
 
+  // Reset focus to the FIRST response of the latest turn whenever the active
+  // chat changes OR a new turn lands. Picking the first response (not last)
+  // makes the carousel start from the top of the new round, matching the
+  // reading order in the prior-turns transcript above it.
   useEffect(() => {
-    if (activeChat?.responses?.length > 0) setFocusedIdx(activeChat.responses.length - 1);
-  }, [activeChat?.id]);
+    const latest = activeChat?.turns?.[activeChat.turns.length - 1];
+    const responsesLen = latest?.responses?.length || activeChat?.responses?.length || 0;
+    if (responsesLen > 0) setFocusedIdx(0);
+  }, [activeChat?.id, activeChat?.turns?.length]);
 
   async function run(q) {
     const query = (q || prompt).trim();
-    if (!query || loading || draftTeam.length === 0 || limitReached) return;
+    if (!query || loading) return;
+
+    // Multi-turn append vs new-chat decision. Legacy chats (predating the
+    // turns field) stay read-only — submitting starts a fresh chat, same as
+    // before, so the migration boundary doesn't graft new turns onto rows
+    // that the old write path can't represent. The 10-turn cap matches the
+    // backend; past it we silently fall back to a new chat.
+    const TURN_CAP = 10;
+    const isFollowUp = !!activeChat
+      && !activeChat.legacy
+      && Array.isArray(activeChat.turns)
+      && activeChat.turns.length > 0
+      && activeChat.turns.length < TURN_CAP;
+
+    // Team for follow-ups stays locked to the existing chat's team — the
+    // model can't sensibly switch personas mid-conversation.
+    const teamForRun = isFollowUp
+      ? activeChat.team.slice(0, TEAM_SIZE_MAX)
+      : draftTeam.slice(0, TEAM_SIZE_MAX);
+
+    if (teamForRun.length === 0 || limitReached) return;
 
     setPrompt('');
-    setActiveChat(null);
+    if (!isFollowUp) setActiveChat(null);
     setLoading(true);
     setActiveIdx(-1);
     setFocusedIdx(0);
 
     // animate cycling agents during wait
     let cur = 0;
-    const teamForRun = draftTeam.slice(0, TEAM_SIZE_MAX);
     const animTimer = setInterval(() => {
       setActiveIdx(cur % teamForRun.length);
       cur++;
@@ -692,7 +717,11 @@ export default function RoundTablePage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ query, team: teamForRun }),
+        body: JSON.stringify({
+          query,
+          team: teamForRun,
+          ...(isFollowUp ? { chat_id: activeChat.id, prior_turns: activeChat.turns } : {}),
+        }),
       });
 
       clearInterval(animTimer);
@@ -718,24 +747,63 @@ export default function RoundTablePage() {
         return { ...r, agentIdx: agentIdx >= 0 ? agentIdx : i };
       });
 
-      const newChat = {
-        id: data.chatId || `local-${Date.now()}`,
-        query,
-        team: teamForRun,
-        responses: [],
-        created: new Date().toISOString(),
-      };
-      setActiveChat(newChat);
+      const newTurn = { query, responses: [] };
 
-      // Reveal responses one at a time
+      if (isFollowUp) {
+        // Append a fresh turn to the existing chat. We keep mutating the
+        // last turn's responses array as the per-agent reveal animates.
+        setActiveChat(prev => prev ? { ...prev, turns: [...(prev.turns || []), newTurn] } : prev);
+      } else {
+        const newChat = {
+          id: data.chatId || `local-${Date.now()}`,
+          query,
+          team: teamForRun,
+          responses: [],
+          turns: [newTurn],
+          legacy: false,
+          created: new Date().toISOString(),
+        };
+        setActiveChat(newChat);
+      }
+
+      // Reveal responses one at a time, appending to the latest turn each time.
       for (let i = 0; i < responsesWithIdx.length; i++) {
         setActiveIdx(responsesWithIdx[i].agentIdx);
         await new Promise(resolve => setTimeout(resolve, 300));
-        setActiveChat(prev => prev ? { ...prev, responses: [...prev.responses, responsesWithIdx[i]] } : prev);
+        setActiveChat(prev => {
+          if (!prev) return prev;
+          const turns = (prev.turns || []).slice();
+          const lastIdx = turns.length - 1;
+          if (lastIdx < 0) return prev;
+          turns[lastIdx] = { ...turns[lastIdx], responses: [...turns[lastIdx].responses, responsesWithIdx[i]] };
+          // Keep top-level `responses` mirroring the latest turn so any older
+          // consumer that still reads activeChat.responses stays current.
+          return { ...prev, turns, responses: turns[lastIdx].responses };
+        });
       }
 
-      // Prepend to history
-      setChats(prev => [{ ...newChat, responses: responsesWithIdx }, ...prev]);
+      // Snapshot the final state into history. For follow-ups we update the
+      // existing entry; for fresh chats we prepend a new one.
+      const finalTurns = isFollowUp
+        ? [...(activeChat.turns || []), { query, responses: responsesWithIdx }]
+        : [{ query, responses: responsesWithIdx }];
+
+      if (isFollowUp) {
+        setChats(prev => prev.map(c => (
+          c.id === activeChat.id ? { ...c, turns: finalTurns, responses: responsesWithIdx } : c
+        )));
+      } else {
+        const newChat = {
+          id: data.chatId || `local-${Date.now()}`,
+          query,
+          team: teamForRun,
+          responses: responsesWithIdx,
+          turns: finalTurns,
+          legacy: false,
+          created: new Date().toISOString(),
+        };
+        setChats(prev => [newChat, ...prev]);
+      }
       setActiveIdx(-1);
     } catch (err) {
       clearInterval(animTimer);
@@ -782,10 +850,20 @@ export default function RoundTablePage() {
     } catch {}
   }
 
-  const responses       = activeChat?.responses || [];
+  // Multi-turn: responses always refers to the LATEST turn's responses so the
+  // focused-response carousel + agent highlighting always reflect the most
+  // recent round of answers. Prior turns are surfaced separately above.
+  const turns           = Array.isArray(activeChat?.turns) ? activeChat.turns : (activeChat ? [{ query: activeChat.query, responses: activeChat.responses || [] }] : []);
+  const latestTurn      = turns[turns.length - 1];
+  const priorTurns      = turns.slice(0, -1);
+  const responses       = latestTurn?.responses || activeChat?.responses || [];
   const focusedResponse = responses[focusedIdx];
   const focusedAgent    = focusedResponse ? agents[focusedResponse.agentIdx] || agents[0] : null;
   const focusedColor    = focusedResponse ? PALETTE[focusedResponse.agentIdx] || PALETTE[0] : null;
+  // Disabling the follow-up affordance on legacy chats keeps the
+  // pre-multi-turn schema untouched and gives users a clear nudge to start
+  // fresh if they want a conversation.
+  const canFollowUp     = !!activeChat && !activeChat.legacy && turns.length < 10;
 
   const remainingColor =
     remaining === null ? '#4a4f60'
@@ -1008,21 +1086,37 @@ export default function RoundTablePage() {
 
             {/* Input pinned to top */}
             <div style={{ background: '#0a0c12', borderBottom: '1px solid #1e2130' }} className="px-3 sm:px-5 py-3 sm:py-4 flex-shrink-0">
-              {/* Active chat query header */}
+              {/* Active chat query header — shows the most recent turn's question */}
               {activeChat && (
                 <div className="mb-3 flex items-start gap-2">
-                  <span style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>YOU:</span>
-                  <span style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1 }}>{activeChat.query}</span>
+                  <span style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>
+                    {turns.length > 1 ? `T${turns.length}:` : 'YOU:'}
+                  </span>
+                  <span style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1 }}>{latestTurn?.query || activeChat.query}</span>
                 </div>
               )}
-              <div style={{ background: '#12141c', border: `1px solid ${limitReached ? '#f06b6b33' : '#1e2130'}`, borderRadius: 12 }}
+              {/* Legacy-chat banner — predates multi-turn, can't be appended to */}
+              {activeChat?.legacy && (
+                <div className="mb-3 flex items-center gap-2" style={{
+                  background: '#1a1408', border: '1px solid #4d3811', borderRadius: 8,
+                  padding: '6px 10px', fontSize: 11, color: '#d4b27d', lineHeight: 1.5,
+                }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>READ-ONLY</span>
+                  <span>· this chat predates multi-turn. Submitting will start a fresh chat.</span>
+                </div>
+              )}
+              <div style={{ background: '#12141c', border: `1px solid ${limitReached ? '#f06b6b33' : canFollowUp ? '#5b8dee44' : '#1e2130'}`, borderRadius: 12 }}
                 className="flex items-center gap-2 px-3 py-2">
                 <input
                   ref={inputRef}
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
-                  placeholder={limitReached ? 'Free limit reached — connect your OpenAI key to continue' : 'Ask the round table anything…'}
+                  placeholder={
+                    limitReached ? 'Free limit reached — connect your OpenAI key to continue'
+                    : canFollowUp ? `Follow up… (${10 - turns.length} turn${10 - turns.length === 1 ? '' : 's'} left)`
+                    : 'Ask the round table anything…'
+                  }
                   disabled={loading || limitReached}
                   style={{
                     flex: 1, background: 'transparent', border: 'none', outline: 'none',
@@ -1046,6 +1140,31 @@ export default function RoundTablePage() {
 
             {/* Response feed */}
             <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
+              {/* Prior turns transcript — collapsed view of older turns in
+                  this chat. The focus carousel below always shows the latest
+                  turn; prior turns get a compact "T1: query — N responses"
+                  summary so the user can see how the conversation evolved
+                  without us re-rendering every old response in full. */}
+              {priorTurns.length > 0 && !loading && (
+                <div className="mb-5 pb-4" style={{ borderBottom: '1px solid #1e2130' }}>
+                  <div style={{ fontSize: 10, color: '#3a3f52', fontFamily: 'monospace', letterSpacing: '0.1em', marginBottom: 8, textTransform: 'uppercase' }}>
+                    Earlier in this chat
+                  </div>
+                  <div className="space-y-2">
+                    {priorTurns.map((t, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#6a6f82', lineHeight: 1.5, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                        <span style={{ fontFamily: 'monospace', color: '#4a4f60', fontSize: 10, flexShrink: 0 }}>T{i + 1}</span>
+                        <span style={{ flex: 1 }}>
+                          {t.query}
+                          <span style={{ color: '#3a3f52', marginLeft: 6 }}>
+                            · {(t.responses || []).length} agent{(t.responses || []).length === 1 ? '' : 's'} replied
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <AnimatePresence mode="wait">
                 {limitReached && !activeChat ? (
                   <BYOKScreen key="byok" reason={limitReason} />

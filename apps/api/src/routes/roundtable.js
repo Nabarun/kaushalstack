@@ -48,6 +48,13 @@ const CHAT_FIELDS = [
     { type: 'text',     name: 'query',        required: true, max: 2000 },
     { type: 'json',     name: 'team',         maxSize: 100000 },
     { type: 'json',     name: 'responses',    maxSize: 200000 },
+    // turns is the multi-turn conversation thread: [{ query, responses }, …]
+    // Legacy chats predate this field and rely on the top-level `query` +
+    // `responses` instead — they're surfaced read-only via a load-time
+    // adapter. New chats populate both for backwards compat: turns[0] is the
+    // initial submit, and the top-level query/responses mirror turns[0] so
+    // older readers keep working. 1 MB cap = ~10 turns × 8 agents × ~5KB.
+    { type: 'json',     name: 'turns',        maxSize: 1000000 },
     { type: 'json',     name: 'tool_results', maxSize: 600000 },
     { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
     { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
@@ -137,6 +144,9 @@ async function saveChat(userId, query, team, responses) {
             query,
             team,
             responses,
+            // turns[0] mirrors the top-level query/responses so the chat
+            // is multi-turn-ready from the start.
+            turns: [{ query, responses }],
         });
     } catch (err) {
         logger.warn('Failed to save chat for', userId, err.message);
@@ -144,16 +154,48 @@ async function saveChat(userId, query, team, responses) {
     }
 }
 
+// Append a new (query, responses) pair to an existing chat's turns array.
+// Returns the updated chat record, or null on failure / ownership mismatch.
+// Caps at 10 turns total so a runaway loop can't bloat the row.
+const MAX_TURNS_PER_CHAT = 10;
+async function appendChatTurn(chatId, userId, query, responses) {
+    try {
+        const existing = await pb.collection('roundtable_chats').getOne(chatId);
+        if (existing.user_id !== userId) return null;
+        const turns = Array.isArray(existing.turns) ? existing.turns.slice() : [];
+        // Legacy chats stored only top-level query+responses; rebuild their
+        // first turn from those so the array grows monotonically.
+        if (turns.length === 0 && existing.query) {
+            turns.push({ query: existing.query, responses: existing.responses || [] });
+        }
+        if (turns.length >= MAX_TURNS_PER_CHAT) {
+            const e = new Error('turn limit reached'); e.status = 409;
+            throw e;
+        }
+        turns.push({ query, responses });
+        return await pb.collection('roundtable_chats').update(chatId, { turns });
+    } catch (err) {
+        if (err.status === 409) throw err;
+        logger.warn('Failed to append turn to chat', chatId, err.message);
+        return null;
+    }
+}
+
 // ── Prompt builder ───────────────────────────────────────────────────────────
 
-function buildPrompt(query, agents) {
+// Splits the model prompt into a (large, stable) cached prefix and a
+// (small, per-turn) suffix so the provider's prompt-cache machinery actually
+// hits between turns of the same chat. The prefix is the team roster + the
+// base instructions; the suffix is "earlier in this round table … now answer
+// this new question". OpenAI auto-caches identical prefixes; Anthropic uses
+// the explicit cache_control marker on the prefix block.
+function buildPrompt({ query, agents, priorTurns = [] }) {
     const agentList = agents.map((a, i) =>
         `${i + 1}. ${a.agent_name} — ${a.name} (${a.category})\n   Skills: ${a.associated_tech_skills || 'general'}\n   Background: ${(a.description || '').slice(0, 120)}`
     ).join('\n\n');
 
-    return `You are moderating a strategic round table discussion where specialist agents each share their perspective in sequence.
-
-Topic: "${query}"
+    // Stable across every turn of this chat — cache target.
+    const cachedPrefix = `You are moderating a strategic round table discussion where specialist agents each share their perspective in sequence.
 
 Team:
 ${agentList}
@@ -163,6 +205,7 @@ Rules:
 - Agents speaking after the first should briefly acknowledge or build on what was said before them
 - Be practical and specific — no generic advice
 - Use natural first-person speech fitting their role
+- On a follow-up turn, treat the prior conversation as established context: don't repeat earlier points, build on them
 
 Respond with ONLY valid JSON, no markdown fences, no extra text:
 {
@@ -171,16 +214,60 @@ Respond with ONLY valid JSON, no markdown fences, no extra text:
     ...one entry per agent in the same order as the team list...
   ]
 }`;
+
+    // Per-turn body. Prior turns appear here so the agents have memory,
+    // but the bytes change between turns (good — we don't waste a cache
+    // marker on them and they're not that big).
+    let userPrompt;
+    if (priorTurns.length === 0) {
+        userPrompt = `Topic: "${query}"`;
+    } else {
+        const turnHistory = priorTurns.map((t, i) => {
+            const responses = (t.responses || [])
+                .map(r => `  ${r.name}: ${r.text}`)
+                .join('\n');
+            return `Turn ${i + 1} — user asked: "${t.query}"\n${responses}`;
+        }).join('\n\n');
+        userPrompt = `Earlier in this round table:
+
+${turnHistory}
+
+Now the user's follow-up question: "${query}"
+
+Each agent should respond to the follow-up while staying consistent with what they said in prior turns.`;
+    }
+
+    return { cachedPrefix, userPrompt };
+}
+
+// Caps prior turns sent to the model — keep the most recent N turns
+// verbatim, drop older. Each turn ≈ 4-5KB of conversation, so 3 turns ≈ 15KB,
+// which is the sweet spot between cost and useful memory.
+const PRIOR_TURNS_KEPT_VERBATIM = 3;
+
+function trimPriorTurns(turns) {
+    if (!Array.isArray(turns) || turns.length === 0) return [];
+    return turns.slice(-PRIOR_TURNS_KEPT_VERBATIM);
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 router.post('/roundtable', async (req, res) => {
-    const { query, team } = req.body || {};
+    const { query, team, chat_id: chatIdInput, prior_turns: priorTurnsInput } = req.body || {};
 
     if (!query || !Array.isArray(team) || team.length === 0) {
         return res.status(400).json({ error: 'query and team are required' });
     }
+
+    // Multi-turn mode: the client passes the existing chat's id + the prior
+    // turns it has cached locally so the model has context. We validate
+    // ownership server-side before appending. Prior turns are trimmed to the
+    // most recent N to keep prompt cost bounded.
+    const isFollowUp = typeof chatIdInput === 'string'
+        && chatIdInput.trim().length > 0
+        && Array.isArray(priorTurnsInput)
+        && priorTurnsInput.length > 0;
+    const priorTurns = isFollowUp ? trimPriorTurns(priorTurnsInput) : [];
 
     if (!OPENAI_API_KEY) {
         return res.status(500).json({ error: 'OpenAI not configured' });
@@ -222,12 +309,15 @@ router.post('/roundtable', async (req, res) => {
         remaining = FREE_LIMIT - usesAfter;
     }
 
+    const { cachedPrefix, userPrompt } = buildPrompt({ query, agents: team, priorTurns });
+
     let raw;
     try {
         raw = await chatComplete(providerInUse, {
             key: keyInUse,
             model: modelInUse,
-            userPrompt: buildPrompt(query, team),
+            userPrompt,
+            cachedPrefix,
             jsonMode: true,
         });
     } catch (err) {
@@ -255,20 +345,35 @@ router.post('/roundtable', async (req, res) => {
         }
 
         let chatId = null;
+        let turnLimitReached = false;
         if (userId) {
             // Free-tier usage only counts when the server key was used
             if (!usingUserKey && usageCollectionReady) incrementUsage(userId);
             if (chatsCollectionReady) {
-                const saved = await saveChat(userId, query, team, parsed.responses);
-                chatId = saved?.id || null;
+                if (isFollowUp) {
+                    try {
+                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses);
+                        chatId = appended?.id || null;
+                    } catch (err) {
+                        if (err.status === 409) {
+                            turnLimitReached = true;
+                            chatId = chatIdInput;
+                        } else throw err;
+                    }
+                } else {
+                    const saved = await saveChat(userId, query, team, parsed.responses);
+                    chatId = saved?.id || null;
+                }
             }
         }
 
-        logger.info(`roundtable: "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
+        logger.info(`roundtable: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
             chatId,
+            is_follow_up: isFollowUp,
+            turn_limit_reached: turnLimitReached,
             using_user_key: usingUserKey,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
@@ -304,14 +409,28 @@ router.get('/roundtable/chats', async (req, res) => {
             sort: '-created',
         });
         res.json({
-            chats: list.items.map(c => ({
-                id: c.id,
-                query: c.query,
-                team: c.team,
-                responses: c.responses,
-                tool_results: c.tool_results || {},
-                created: c.created,
-            })),
+            chats: list.items.map(c => {
+                // Adapter for legacy chats: those rows have only top-level
+                // query+responses (no turns field). Wrap them as a one-turn
+                // thread so the client treats every chat uniformly. We also
+                // flag legacy=true so the UI can show a "start a new chat to
+                // continue" banner — appending to a legacy chat would
+                // double-write into the schema migration boundary.
+                const turns = Array.isArray(c.turns) && c.turns.length > 0
+                    ? c.turns
+                    : [{ query: c.query, responses: c.responses || [] }];
+                const legacy = !(Array.isArray(c.turns) && c.turns.length > 0);
+                return {
+                    id: c.id,
+                    query: c.query,
+                    team: c.team,
+                    responses: c.responses,
+                    turns,
+                    legacy,
+                    tool_results: c.tool_results || {},
+                    created: c.created,
+                };
+            }),
         });
     } catch (err) {
         logger.error('list chats error:', err.message);

@@ -53,19 +53,30 @@ export async function listChatModels(key) {
         .slice(0, 20);
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode }) {
     // No native JSON mode — append an instruction to the user prompt when needed.
     // The roundtable prompt already asks for JSON, so this is mostly belt-and-suspenders.
     const finalUser = jsonMode
         ? `${userPrompt}\n\nRespond with valid JSON only, no prose or markdown fences.`
         : userPrompt;
 
+    // Anthropic prompt caching: send the cacheable prefix as its own content
+    // block with cache_control: { type: 'ephemeral' }. Cache reads cost ~10%
+    // of base input. The 1024-token minimum is on the prefix itself (a Round
+    // Table team roster + base instructions easily clears that).
+    const userBlocks = cachedPrefix
+        ? [
+            { type: 'text', text: cachedPrefix, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: finalUser },
+          ]
+        : finalUser;
+
     // Newer Claude models (Opus 4, Sonnet 4, etc.) reject `temperature` outright.
     // Anthropic's default (~1.0) is fine for our use case, so we just omit it.
     const body = {
         model: model || DEFAULT_CHAT_MODEL,
         max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: finalUser }],
+        messages: [{ role: 'user', content: userBlocks }],
     };
     if (systemPrompt) body.system = systemPrompt;
 
