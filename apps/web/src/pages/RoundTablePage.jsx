@@ -632,13 +632,18 @@ export default function RoundTablePage() {
   const visTeam = activeChat?.team || draftTeam;
   const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
   const ovalPositions = getOvalPositions(agents.length);
-  // The team can only be edited before the chat fires — once an activeChat is
-  // set, the team is locked so the model's persona pool stays consistent
-  // across turns. While drafting, the user can prune down to TEAM_SIZE_MIN
-  // and add up to TEAM_SIZE_MAX.
-  const canEditTeam = !activeChat && !loading;
-  const canRemove   = canEditTeam && draftTeam.length > TEAM_SIZE_MIN;
-  const canAdd      = canEditTeam && draftTeam.length < TEAM_SIZE_MAX;
+  // Team can be edited at any time the round table isn't mid-call — both
+  // before the first prompt AND between turns of an active chat. Adding mid-
+  // conversation means the new agent gets prior turns as background context
+  // and responds from the next turn forward; removing means that agent stops
+  // weighing in. Legacy chats predate multi-turn so we don't touch them.
+  const canEditTeam = !loading && !activeChat?.legacy;
+  // Source-of-truth team for the editor: the active chat's team while a chat
+  // is open, otherwise the draft. removeAgent/addAgent route writes to the
+  // matching slot.
+  const editingTeam = activeChat?.team || draftTeam;
+  const canRemove   = canEditTeam && editingTeam.length > TEAM_SIZE_MIN;
+  const canAdd      = canEditTeam && editingTeam.length < TEAM_SIZE_MAX;
 
   // Agent-add picker state. Search hits /api/recommend so results are ordered
   // by relevance to the user's typed query (not by recency). Stuck behind a
@@ -648,14 +653,24 @@ export default function RoundTablePage() {
   const [pickerResults, setPickerResults] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
 
+  function applyTeamMutation(mutator) {
+    if (activeChat) {
+      // Edit the live chat's team; also reflect into the history sidebar
+      // entry so prepended chat list stays consistent.
+      setActiveChat(prev => prev ? { ...prev, team: mutator(prev.team || []) } : prev);
+      setChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, team: mutator(c.team || []) } : c));
+    } else {
+      setDraftTeam(prev => mutator(prev));
+    }
+  }
   function removeAgent(skillId) {
     if (!canRemove) return;
-    setDraftTeam(prev => prev.filter(s => s.id !== skillId));
+    applyTeamMutation(team => team.filter(s => s.id !== skillId));
   }
   function addAgent(skill) {
     if (!canAdd) return;
-    if (draftTeam.some(s => s.id === skill.id)) return;
-    setDraftTeam(prev => [...prev, skill]);
+    if (editingTeam.some(s => s.id === skill.id)) return;
+    applyTeamMutation(team => [...team, skill]);
     setShowPicker(false);
     setPickerQuery('');
     setPickerResults([]);
@@ -672,7 +687,7 @@ export default function RoundTablePage() {
       });
       if (!r.ok) { setPickerResults([]); return; }
       const data = await r.json();
-      const selected = new Set(draftTeam.map(s => s.id));
+      const selected = new Set(editingTeam.map(s => s.id));
       setPickerResults((data.skills || []).filter(s => !selected.has(s.id)));
     } catch {
       setPickerResults([]);
@@ -686,7 +701,7 @@ export default function RoundTablePage() {
     const id = setTimeout(() => { searchAgents(pickerQuery); }, 250);
     return () => clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickerQuery, showPicker, draftTeam.length]);
+  }, [pickerQuery, showPicker, editingTeam.length]);
 
   // Load history + usage on mount
   useEffect(() => {
@@ -1129,7 +1144,7 @@ export default function RoundTablePage() {
             {canEditTeam && (
               <div className="mt-4 w-full px-4 flex flex-col items-center gap-3" style={{ position: 'relative' }}>
                 <div style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', letterSpacing: '0.08em' }}>
-                  {draftTeam.length} / {TEAM_SIZE_MAX} agents
+                  {editingTeam.length} / {TEAM_SIZE_MAX} agents
                 </div>
                 <button
                   onClick={() => { setShowPicker(s => !s); setPickerQuery(''); setPickerResults([]); }}
