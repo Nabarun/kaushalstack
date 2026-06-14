@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -628,6 +628,61 @@ export default function RoundTablePage() {
   const visTeam = activeChat?.team || draftTeam;
   const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
   const ovalPositions = getOvalPositions(agents.length);
+  // The team can only be edited before the chat fires — once an activeChat is
+  // set, the team is locked so the model's persona pool stays consistent
+  // across turns. While drafting, the user can prune down to TEAM_SIZE_MIN
+  // and add up to TEAM_SIZE_MAX.
+  const canEditTeam = !activeChat && !loading;
+  const canRemove   = canEditTeam && draftTeam.length > TEAM_SIZE_MIN;
+  const canAdd      = canEditTeam && draftTeam.length < TEAM_SIZE_MAX;
+
+  // Agent-add picker state. Search hits /api/recommend so results are ordered
+  // by relevance to the user's typed query (not by recency). Stuck behind a
+  // popover so the search field doesn't clutter the resting page.
+  const [showPicker, setShowPicker]       = useState(false);
+  const [pickerQuery, setPickerQuery]     = useState('');
+  const [pickerResults, setPickerResults] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+
+  function removeAgent(skillId) {
+    if (!canRemove) return;
+    setDraftTeam(prev => prev.filter(s => s.id !== skillId));
+  }
+  function addAgent(skill) {
+    if (!canAdd) return;
+    if (draftTeam.some(s => s.id === skill.id)) return;
+    setDraftTeam(prev => [...prev, skill]);
+    setShowPicker(false);
+    setPickerQuery('');
+    setPickerResults([]);
+  }
+  async function searchAgents(q) {
+    const text = q.trim();
+    if (!text) { setPickerResults([]); return; }
+    setPickerLoading(true);
+    try {
+      const r = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text, size: 15 }),
+      });
+      if (!r.ok) { setPickerResults([]); return; }
+      const data = await r.json();
+      const selected = new Set(draftTeam.map(s => s.id));
+      setPickerResults((data.skills || []).filter(s => !selected.has(s.id)));
+    } catch {
+      setPickerResults([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  }
+  // Debounced search — fires 250ms after the user stops typing.
+  useEffect(() => {
+    if (!showPicker) return;
+    const id = setTimeout(() => { searchAgents(pickerQuery); }, 250);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerQuery, showPicker, draftTeam.length]);
 
   // Load history + usage on mount
   useEffect(() => {
@@ -965,22 +1020,48 @@ export default function RoundTablePage() {
                       if (rIdx >= 0) setFocusedIdx(rIdx);
                     }}
                   >
-                    <motion.div
-                      animate={
-                        activeIdx === i ? {
-                          boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
-                          scale: 1.12, borderColor: `${a.color}99`,
-                        } : focusedResponse?.agentIdx === i ? {
-                          boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
-                        } : {
-                          boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                    <div style={{ position: 'relative' }}>
+                      <motion.div
+                        animate={
+                          activeIdx === i ? {
+                            boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
+                            scale: 1.12, borderColor: `${a.color}99`,
+                          } : focusedResponse?.agentIdx === i ? {
+                            boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
+                          } : {
+                            boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                          }
                         }
-                      }
-                      transition={{ duration: 0.3 }}
-                      style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
-                    >
-                      <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </motion.div>
+                        transition={{ duration: 0.3 }}
+                        style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
+                      >
+                        <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </motion.div>
+                      {/* Remove ✕ — only while drafting AND we have more than
+                          the floor team size, so the user can't accidentally
+                          drop below 6. role=button + stopPropagation keeps
+                          the click from also firing the parent focus button. */}
+                      {canRemove && (
+                        <span
+                          role="button"
+                          aria-label={`Remove ${a.agent_name}`}
+                          title={`Remove ${a.agent_name}`}
+                          onClick={(e) => { e.stopPropagation(); removeAgent(a.id); }}
+                          style={{
+                            position: 'absolute', top: -4, right: -4,
+                            width: 16, height: 16, borderRadius: '50%',
+                            background: '#1a0a0a', border: '1px solid #f06b6b88',
+                            color: '#f06b6b', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            zIndex: 4, transition: 'transform 0.15s, background 0.15s',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.18)'; e.currentTarget.style.background = '#3a0e0e'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = '#1a0a0a'; }}
+                        >
+                          <X style={{ width: 9, height: 9 }} strokeWidth={3} />
+                        </span>
+                      )}
+                    </div>
                     <div style={{ textAlign: 'center', width: 88 }}>
                       <div style={{
                         fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1.15,
@@ -1036,6 +1117,106 @@ export default function RoundTablePage() {
                 )}
               </motion.div>
             </div>
+
+            {/* Team-size pill + add-agent affordance — only while drafting.
+                The pill shows current/max so the user sees room before they
+                click; the button is a popover trigger. Hidden once a chat
+                is active because the team is locked from that point. */}
+            {canEditTeam && (
+              <div className="mt-4 w-full px-4 flex flex-col items-center gap-3" style={{ position: 'relative' }}>
+                <div style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', letterSpacing: '0.08em' }}>
+                  {draftTeam.length} / {TEAM_SIZE_MAX} agents
+                </div>
+                <button
+                  onClick={() => { setShowPicker(s => !s); setPickerQuery(''); setPickerResults([]); }}
+                  disabled={!canAdd}
+                  style={{
+                    background: canAdd ? '#12141c' : '#0d0f16',
+                    border: `1px dashed ${canAdd ? '#5b8dee55' : '#1e213055'}`,
+                    color: canAdd ? '#5b8dee' : '#3a3f52',
+                    borderRadius: 8, padding: '7px 12px',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
+                    cursor: canAdd ? 'pointer' : 'not-allowed',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <UserPlus style={{ width: 12, height: 12 }} />
+                  {canAdd ? 'Add agent' : 'Team full'}
+                </button>
+
+                <AnimatePresence>
+                  {showPicker && canAdd && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.15 }}
+                      style={{
+                        position: 'absolute', top: '100%', left: 8, right: 8,
+                        background: '#0d0f16', border: '1px solid #1e2130',
+                        borderRadius: 10, marginTop: 6, padding: 10, zIndex: 30,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#12141c', border: '1px solid #1e2130', borderRadius: 8, padding: '6px 8px', marginBottom: 8 }}>
+                        <Search style={{ width: 11, height: 11, color: '#4a4f60' }} />
+                        <input
+                          autoFocus
+                          value={pickerQuery}
+                          onChange={(e) => setPickerQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Escape') setShowPicker(false); }}
+                          placeholder="Search for an agent…"
+                          style={{
+                            flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                            color: '#e8eaf0', fontSize: 12, fontFamily: 'monospace',
+                          }}
+                        />
+                      </div>
+                      <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                        {pickerLoading && (
+                          <div style={{ fontSize: 11, color: '#4a4f60', padding: '8px 6px', fontFamily: 'monospace' }}>Searching…</div>
+                        )}
+                        {!pickerLoading && pickerQuery.trim() && pickerResults.length === 0 && (
+                          <div style={{ fontSize: 11, color: '#4a4f60', padding: '8px 6px', fontFamily: 'monospace' }}>No matching agents</div>
+                        )}
+                        {!pickerLoading && !pickerQuery.trim() && (
+                          <div style={{ fontSize: 11, color: '#3a3f52', padding: '8px 6px', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                            Type what you want help with — e.g. "kirana marketing", "GST", "logo design".
+                          </div>
+                        )}
+                        {!pickerLoading && pickerResults.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => addAgent(s)}
+                            style={{
+                              width: '100%', textAlign: 'left',
+                              background: 'transparent', border: '1px solid transparent',
+                              borderRadius: 6, padding: '6px 8px', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              marginBottom: 2, transition: 'background 0.12s, border-color 0.12s',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#12141c'; e.currentTarget.style.borderColor = '#1e2130'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                          >
+                            <img src={avatarUrl(s.agent_name)} alt={s.agent_name}
+                              style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#c8ccd8', lineHeight: 1.2 }}>
+                                {s.agent_name}
+                              </div>
+                              <div style={{ fontSize: 9, color: '#5a5f72', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {s.category} · {s.name}
+                              </div>
+                            </div>
+                            <Plus style={{ width: 12, height: 12, color: '#5b8dee', flexShrink: 0 }} />
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
 
           </div>
 
