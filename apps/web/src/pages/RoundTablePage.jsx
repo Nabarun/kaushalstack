@@ -1517,11 +1517,10 @@ export default function RoundTablePage() {
                 ) : null}
               </AnimatePresence>
 
-              {/* Spec Engineer — synthesizes the round-table conversation into
-                  an editable spec doc. Sits above the design/build pipeline
-                  because the spec drives Maya's design (Send to Maya hands
-                  the spec text in as her query). */}
-              {(() => {
+              {/* Spec Engineer (Aisha) is now the first avatar in the
+                  CreativePipeline below — generate/edit/send-to-Maya live
+                  inside her section instead of in a standalone panel. */}
+              {false && (() => {
                 if (!activeChat) return null;
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
                 if (!allResponsesIn || loading) return null;
@@ -1647,17 +1646,18 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Design → Build → Deploy pipeline — Maya, Ananya & Hostinger as an
-                  avatar row below the responses. Click an avatar to open its
-                  section; each downstream agent waits for the previous one. */}
+              {/* Aisha → Maya → Ananya → Hostinger pipeline. Aisha (Spec
+                  Engineer) is always first when responses are in; Maya gates
+                  behind Aisha so the spec drives her design brief. */}
               {(() => {
                 if (!activeChat) return null;
                 const teamHasMaya      = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
                 const teamHasAnanya    = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
                 const teamHasHostinger = activeChat.team?.some(s => s.id === HOSTINGER_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if ((!teamHasMaya && !teamHasAnanya) || !allResponsesIn || loading) return null;
+                if (!allResponsesIn || loading) return null;
                 const members = [
+                  { key: 'aisha', name: 'Aisha', role: 'Spec Engineer', accent: '#9b6cf0', theme: 'warm' },
                   teamHasMaya      && { key: 'maya',      name: 'Maya',      role: 'UX Designer',      accent: '#b07ef8', theme: 'warm' },
                   teamHasAnanya    && { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',     accent: '#5b8dee', theme: 'warm' },
                   teamHasHostinger && { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',  accent: '#9b6cf0', theme: 'cool' },
@@ -1665,7 +1665,8 @@ export default function RoundTablePage() {
                 return (
                   <CreativePipeline
                     members={members}
-                    mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
+                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
+                    generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
                     triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
                     recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
                     recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}

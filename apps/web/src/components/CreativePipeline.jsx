@@ -69,7 +69,8 @@ function ErrorBlock({ title, message, accent, onRetry, pendingSessionId, onRecov
 
 export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
-  mockup, build, deploy, hostinger,
+  spec, mockup, build, deploy, hostinger,
+  generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
   triggerMockup, triggerBuild, triggerDeploy,
   recoverMockup, recoverBuild,
   saveHostingerToken, showHostingerLogin, setShowHostingerLogin,
@@ -79,12 +80,18 @@ export default function CreativePipeline({
   const has = key => members.some(m => m.key === key);
 
   // Gating — each downstream agent waits for the previous one to finish.
+  // Aisha (Spec Engineer) is always unlocked because the round table itself
+  // is her input — by the time the pipeline shows, the responses are in.
+  // Maya is gated behind Aisha ONLY when Aisha is in the pipeline (legacy
+  // builds without specs still let users jump straight to Maya).
   const lockedFor = {
-    maya:      false,
+    aisha:     false,
+    maya:      has('aisha') && spec?.status !== 'done',
     ananya:    has('maya') && mockup.status !== 'done',
     hostinger: build.status !== 'done',
   };
   const statusFor = {
+    aisha:     spec?.status || 'idle',
     maya:      mockup.status,
     ananya:    build.status,
     hostinger: deploy.status,
@@ -182,7 +189,8 @@ export default function CreativePipeline({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress }} />}
+            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya: has('maya') }} />}
+            {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
               <HostingerSection {...{
@@ -199,8 +207,98 @@ export default function CreativePipeline({
 }
 
 // ── Maya — design mockups ───────────────────────────────────────────
-function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress }) {
+// ── Aisha — Spec Engineer ───────────────────────────────────────────
+// Synthesizes the round-table transcript into an editable spec doc and
+// hands it off to Maya as her design brief. First step in the pipeline.
+function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya }) {
+  const accent = '#9b6cf0';
+  if (spec.status === 'running') {
+    return (
+      <div className="flex items-center gap-3">
+        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+          <Sparkles style={{ width: 22, height: 22, color: accent }} />
+        </motion.div>
+        <div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Aisha is drafting the spec…</div>
+          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>
+            Synthesizing every agent's contribution into one structured doc. ~10s.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (spec.status === 'done' && spec.result) {
+    return (
+      <>
+        <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+          <Tag color="#5cc28a" icon={CheckCircle2}>Spec ready</Tag>
+          {spec.result.authors?.length > 0 && (
+            <span style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', marginLeft: 4 }}>
+              · authors: {spec.result.authors.join(', ')}
+            </span>
+          )}
+          {spec.dirty && (
+            <span style={{ fontSize: 10, color: '#f0a04b', fontFamily: 'monospace', marginLeft: 'auto' }}>● unsaved edits</span>
+          )}
+        </div>
+        <textarea
+          value={spec.editing}
+          onChange={e => setSpec(s => ({ ...s, editing: e.target.value, dirty: e.target.value !== s.result?.text }))}
+          spellCheck={false}
+          style={{
+            width: '100%', minHeight: 320,
+            background: '#0a0c12', color: '#c8ccd8',
+            border: '1px solid #1e2130', borderRadius: 8,
+            padding: 12, fontSize: 12, lineHeight: 1.55,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            resize: 'vertical', outline: 'none',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <button onClick={saveSpecEdits} disabled={!spec.dirty} style={btn(spec.dirty ? '#5cc28a' : '#1e2130', spec.dirty ? '#0a0c12' : '#5a607a')}>
+            <CheckCircle2 style={{ width: 12, height: 12 }} /> Save edits
+          </button>
+          {hasMaya && (
+            <button onClick={sendSpecToMaya} disabled={mockup.status === 'running'} style={btn('#b07ef8')}>
+              <Palette style={{ width: 12, height: 12 }} /> Send to Maya
+            </button>
+          )}
+          <button onClick={generateSpec} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer' }}>
+            Regenerate
+          </button>
+        </div>
+      </>
+    );
+  }
+  if (spec.status === 'error') {
+    return <ErrorBlock title="Spec generation failed" message={spec.error} accent={accent} onRetry={generateSpec} />;
+  }
+  // idle
+  return (
+    <>
+      <Tag color={accent} icon={Sparkles}>Aisha can synthesize this</Tag>
+      <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+        Turn the round table into a one-page spec — Problem, Goals, Requirements, Proposed approach, Rollout. Edit before {hasMaya ? 'sending to Maya' : 'using downstream'}.
+      </div>
+      <button onClick={generateSpec} style={btn(accent)}>
+        <Sparkles style={{ width: 14, height: 14 }} /> Generate Spec
+      </button>
+    </>
+  );
+}
+
+function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress, locked }) {
   const accent = '#b07ef8';
+  if (locked && mockup.status !== 'done') {
+    return (
+      <>
+        <Tag color="#5a607a" icon={Lock}>Waiting for Aisha</Tag>
+        <div style={{ fontSize: 13, color: '#8a91a8', lineHeight: 1.65 }}>
+          Maya designs from the spec. Generate (or accept) Aisha's spec first, then come back here.
+        </div>
+      </>
+    );
+  }
   if (mockup.status === 'running') {
     const live = describeProgress(mockup.progress);
     return (
