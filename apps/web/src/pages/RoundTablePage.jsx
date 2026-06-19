@@ -1232,6 +1232,78 @@ export default function RoundTablePage() {
               </motion.div>
             </div>
 
+            {/* ── System pipeline strip ─────────────────────────────────
+                Aisha → Maya → Ananya → Hostinger as a fixed row below the
+                round-table oval. These four are always present regardless
+                of the user's team selection — they're the synthesis +
+                design + build + deploy chain that turns the round-table
+                discussion into a shipped site. Visually distinct from the
+                draggable oval seats (smaller, dashed status ring) so the
+                "system agents vs. specialists" distinction reads at a
+                glance. Status badges mirror what's in CreativePipeline. */}
+            {activeChat && (() => {
+              const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+              const stages = [
+                { name: 'Aisha',     role: 'Spec',    accent: '#9b6cf0', status: spec.status,   unlocked: allResponsesIn },
+                { name: 'Maya',      role: 'Design',  accent: '#b07ef8', status: mockup.status, unlocked: allResponsesIn && spec.status === 'done' },
+                { name: 'Ananya',    role: 'Build',   accent: '#5b8dee', status: build.status,  unlocked: mockup.status === 'done' },
+                { name: 'Hostinger', role: 'Deploy',  accent: '#9b6cf0', status: deploy.status, unlocked: build.status === 'done' },
+              ];
+              return (
+                <div className="mt-4 w-full px-3" style={{ borderTop: '1px solid #1e2130', paddingTop: 14 }}>
+                  <div style={{ fontSize: 9, color: '#3a3f52', fontFamily: 'monospace', letterSpacing: '0.12em', textAlign: 'center', marginBottom: 10, textTransform: 'uppercase' }}>
+                    Pipeline
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+                    {stages.map((s, i) => (
+                      <React.Fragment key={s.name}>
+                        {i > 0 && (
+                          <div style={{ alignSelf: 'center', color: '#2a2e3f', fontSize: 11, marginTop: -10 }}>→</div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, opacity: s.unlocked ? 1 : 0.4 }}>
+                          <div style={{ position: 'relative' }}>
+                            <img
+                              src={avatarUrl(s.name)}
+                              alt={s.name}
+                              style={{
+                                width: 36, height: 36, borderRadius: '50%', objectFit: 'cover',
+                                border: `1.5px ${s.status === 'done' ? 'solid #5cc28a' : s.unlocked ? `dashed ${s.accent}80` : 'solid #1e2130'}`,
+                                background: '#0a0c12',
+                              }}
+                            />
+                            {s.status === 'running' && (
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                style={{
+                                  position: 'absolute', bottom: -2, right: -2, width: 13, height: 13, borderRadius: '50%',
+                                  border: `2px solid ${s.accent}`, borderTopColor: 'transparent', background: '#0a0c12',
+                                }}
+                              />
+                            )}
+                            {s.status === 'done' && (
+                              <div style={{
+                                position: 'absolute', bottom: -2, right: -2, width: 13, height: 13, borderRadius: '50%',
+                                background: '#0a0c12', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <CheckCircle2 style={{ width: 12, height: 12, color: '#5cc28a' }} />
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 8, fontFamily: 'monospace', color: s.unlocked ? '#8a91a8' : '#3a3f52', textAlign: 'center', lineHeight: 1.1 }}>
+                            {s.name}
+                          </div>
+                          <div style={{ fontSize: 7, fontFamily: 'monospace', color: '#3a3f52', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                            {s.role}
+                          </div>
+                        </div>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Team-size pill + add-agent affordance — only while drafting.
                 The pill shows current/max so the user sees room before they
                 click; the button is a popover trigger. Hidden once a chat
