@@ -333,7 +333,11 @@ router.post('/roundtable', async (req, res) => {
                 status: err.status,
             });
         }
-        logger.error('roundtable provider call failed:', err.message);
+        // err.message in Node 22 undici is often the unhelpful "fetch failed".
+        // Surface err.cause (the real socket / TLS / DNS error) and the
+        // provider/model so we can debug without redeploying.
+        const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
+        logger.error(`roundtable provider call failed: ${err.message} | cause=${causeMsg} | provider=${providerInUse} model=${modelInUse}`);
         return res.status(500).json({ error: 'Round table call failed' });
     }
 
