@@ -188,7 +188,8 @@ router.post('/spec', async (req, res) => {
                     : `Your ${providerLabel} account is out of quota.`,
             });
         }
-        logger.error(`spec error chat=${chatId}: ${err.message}`);
+        const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
+        logger.error(`spec error chat=${chatId}: ${err.message} | cause=${causeMsg} | provider=${provider} model=${model}`);
         res.status(500).json({ error: 'Spec generation failed' });
     }
 });

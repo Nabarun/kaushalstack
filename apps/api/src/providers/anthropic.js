@@ -80,15 +80,36 @@ export async function chatComplete({ key, model, systemPrompt, userPrompt, cache
     };
     if (systemPrompt) body.system = systemPrompt;
 
-    const r = await fetch(`${BASE_URL}/messages`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': key,
-            'anthropic-version': ANTHROPIC_VERSION,
-        },
-        body: JSON.stringify(body),
-    });
+    // Fail-fast timeout: Node's undici default body timeout is 5 min, which
+    // is too long to keep a user waiting when Anthropic stalls (we've seen
+    // /v1/messages hang silently on accounts with billing issues — they
+    // hold the socket open instead of returning a clean 4xx). 60s is enough
+    // for a normal Sonnet/Opus round-table response and surfaces the failure
+    // 5x faster.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    let r;
+    try {
+        r = await fetch(`${BASE_URL}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': key,
+                'anthropic-version': ANTHROPIC_VERSION,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            const e = new Error('anthropic messages timed out after 60s — check Anthropic account status / billing');
+            e.status = 504;
+            throw e;
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeoutId);
+    }
     if (!r.ok) {
         const errBody = (await r.text()).slice(0, 300);
         const err = new Error(`anthropic messages ${r.status}: ${errBody}`);
