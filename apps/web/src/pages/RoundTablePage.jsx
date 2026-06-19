@@ -1646,22 +1646,25 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Aisha → Maya → Ananya → Hostinger pipeline. Aisha (Spec
-                  Engineer) is always first when responses are in; Maya gates
-                  behind Aisha so the spec drives her design brief. */}
+              {/* Aisha → Maya → Ananya → Hostinger pipeline. The four are
+                  always shown as system stages once the round table is in,
+                  regardless of which specialists the user picked. Earlier
+                  code gated Maya/Ananya/Hostinger on team membership, which
+                  broke the flow for teams that didn't happen to include
+                  them — "Send to Maya" would disappear when there's no
+                  Maya in the round table. The triggers route to /api/mockup
+                  etc. by skill id, which works whether or not the agent was
+                  ever a round-table contributor. */}
               {(() => {
                 if (!activeChat) return null;
-                const teamHasMaya      = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
-                const teamHasAnanya    = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
-                const teamHasHostinger = activeChat.team?.some(s => s.id === HOSTINGER_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
                 if (!allResponsesIn || loading) return null;
                 const members = [
-                  { key: 'aisha', name: 'Aisha', role: 'Spec Engineer', accent: '#9b6cf0', theme: 'warm' },
-                  teamHasMaya      && { key: 'maya',      name: 'Maya',      role: 'UX Designer',      accent: '#b07ef8', theme: 'warm' },
-                  teamHasAnanya    && { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',     accent: '#5b8dee', theme: 'warm' },
-                  teamHasHostinger && { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',  accent: '#9b6cf0', theme: 'cool' },
-                ].filter(Boolean);
+                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',   accent: '#9b6cf0', theme: 'warm' },
+                  { key: 'maya',      name: 'Maya',      role: 'UX Designer',     accent: '#b07ef8', theme: 'warm' },
+                  { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',    accent: '#5b8dee', theme: 'warm' },
+                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer', accent: '#9b6cf0', theme: 'cool' },
+                ];
                 return (
                   <CreativePipeline
                     members={members}
