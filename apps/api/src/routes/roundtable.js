@@ -483,19 +483,36 @@ function trimToolResult(r) {
 }
 
 // POST /roundtable/chats/:id/tool-results — merge one creative-agent output
-// (Maya mockups, Ananya build, Kavya email, Tara social) into the chat under a
-// stable key ('mockup' | 'build' | 'email' | 'social'). Idempotent per key:
-// re-running a tool overwrites that slot.
-const VALID_TOOL_KEYS = new Set(['mockup', 'build', 'email', 'social']);
+// (Maya mockups, Ananya build, Kavya email, Tara social, Spec Engineer doc)
+// into the chat under a stable key. Idempotent per key: re-running a tool
+// overwrites that slot.
+const VALID_TOOL_KEYS = new Set(['mockup', 'build', 'email', 'social', 'spec']);
+
+// Spec is plain text plus a tiny envelope — much simpler shape than the
+// creative-agent results. Capped at 60KB so a runaway model can't bloat the
+// row, but Maya's 16KB stylesheet + 5×2KB screens is still a fraction of this.
+function trimSpecResult(r) {
+    if (!r || typeof r !== 'object') return null;
+    const text = typeof r.text === 'string' ? r.text.slice(0, 60000) : '';
+    if (!text) return null;
+    return {
+        text,
+        authors:      Array.isArray(r.authors) ? r.authors.slice(0, 20).map(a => String(a).slice(0, 60)) : [],
+        generated_at: typeof r.generated_at === 'string' ? r.generated_at : new Date().toISOString(),
+        edited_at:    typeof r.edited_at === 'string' ? r.edited_at : null,
+        engine:       r.engine || null,
+    };
+}
+
 router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
     const userId = getUserIdFromHeader(req.headers.authorization);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const { tool, result } = req.body || {};
     if (!VALID_TOOL_KEYS.has(tool)) {
-        return res.status(400).json({ error: 'tool must be one of mockup|build|email|social' });
+        return res.status(400).json({ error: 'tool must be one of mockup|build|email|social|spec' });
     }
-    const trimmed = trimToolResult(result);
+    const trimmed = tool === 'spec' ? trimSpecResult(result) : trimToolResult(result);
     if (!trimmed) return res.status(400).json({ error: 'result is required' });
 
     await ensureChatsCollection();

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -292,6 +292,16 @@ export default function RoundTablePage() {
   const [mockup, setMockup] = useState(initToolState);
   const [email,  setEmail]  = useState(initToolState);
   const [social, setSocial] = useState(initToolState);
+  // Spec Engineer state. Independent of the other tools because spec has a
+  // simpler shape (text + authors) and lives in tool_results.spec.
+  //   idle  → button to generate
+  //   running → calling /api/spec
+  //   done  → editable textarea + save + send-to-Maya
+  //   error → message + retry
+  // `editing` holds the in-flight textarea value so Save can compare to the
+  // saved copy. `dirty` short-circuits the save button.
+  const initSpecState = { status: 'idle', result: null, error: null, editing: '', dirty: false };
+  const [spec, setSpec] = useState(initSpecState);
   // Deploy panel (Ananya → Hostinger VPS). The persisted source of truth is
   // `build.result.deploy`; this state drives the live run + restore.
   const [deploy, setDeploy] = useState(initToolState);
@@ -312,6 +322,12 @@ export default function RoundTablePage() {
     setSocial(restore(saved.social));
     // A finished deploy is persisted nested on the build result.
     setDeploy(saved.build?.deploy ? { status: 'done', result: saved.build.deploy, error: null, progress: null } : initToolState);
+    // Spec rehydration: lives at tool_results.spec.
+    if (saved.spec) {
+      setSpec({ status: 'done', result: saved.spec, error: null, editing: saved.spec.text || '', dirty: false });
+    } else {
+      setSpec(initSpecState);
+    }
     setShowHostingerLogin(false);
   }, [activeChat?.id]);
 
@@ -382,7 +398,15 @@ export default function RoundTablePage() {
           'Accept':       'text/event-stream',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ query: activeChat.query, context, ...extraBody }),
+        // query_override (when present in extraBody) replaces the chat's
+        // original query — used by Spec → Maya so Maya designs from the
+        // refined spec, not the raw original prompt.
+        body: JSON.stringify({
+          query: extraBody.query_override || activeChat.query,
+          context,
+          ...extraBody,
+          query_override: undefined,   // strip the override so the server doesn't see it
+        }),
       });
       if (!res.ok || !res.body) {
         // Server fell back to JSON (e.g. proxy stripped the stream). Try to
@@ -503,12 +527,83 @@ export default function RoundTablePage() {
       extraBody,
     });
   };
-  const triggerMockup = () => runToolAction({
+  const triggerMockup = (overrideQuery) => runToolAction({
     endpoint: '/api/mockup',
     excludeAgentId: MAYA_SKILL_ID,
     setState: setMockup,
     toolKey: 'mockup',
+    // When the Spec Engineer hands off, the spec text replaces the original
+    // user query as the design driver. extraBody.query takes precedence over
+    // the chat's stored query inside runToolAction's body construction.
+    ...(typeof overrideQuery === 'string' && overrideQuery.trim()
+      ? { extraBody: { query_override: overrideQuery.trim() } }
+      : {}),
   });
+
+  // Spec Engineer — synthesize a structured spec doc from the round-table
+  // transcript. One-shot LLM call, not the SSE-streamed creative pipeline.
+  async function generateSpec() {
+    if (!activeChat?.id) return;
+    setSpec(s => ({ ...s, status: 'running', error: null }));
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/spec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ chat_id: activeChat.id }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Spec failed (${res.status})`);
+      }
+      const data = await res.json();
+      const result = {
+        text: data.spec_text,
+        authors: data.authors || [],
+        generated_at: data.generated_at,
+        edited_at: null,
+        engine: data.engine || null,
+      };
+      setSpec({ status: 'done', result, error: null, editing: result.text, dirty: false });
+      persistSpec(result);
+    } catch (err) {
+      setSpec(s => ({ ...s, status: 'error', error: err.message }));
+    }
+  }
+
+  async function persistSpec(specResult) {
+    const chatId = activeChat?.id;
+    if (!chatId) return;
+    const token = pb.authStore.token;
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/roundtable/chats/${chatId}/tool-results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: 'spec', result: specResult }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.tool_results) {
+        setChats(prev => prev.map(c => (c.id === chatId ? { ...c, tool_results: data.tool_results } : c)));
+        setActiveChat(prev => (prev?.id === chatId ? { ...prev, tool_results: data.tool_results } : prev));
+      }
+    } catch { /* best-effort */ }
+  }
+
+  function saveSpecEdits() {
+    if (!spec.result || !spec.dirty) return;
+    const updated = { ...spec.result, text: spec.editing, edited_at: new Date().toISOString() };
+    setSpec(s => ({ ...s, result: updated, dirty: false }));
+    persistSpec(updated);
+  }
+
+  function sendSpecToMaya() {
+    const text = (spec.editing || spec.result?.text || '').trim();
+    if (!text) return;
+    if (spec.dirty) saveSpecEdits();
+    triggerMockup(text);
+  }
 
   // Save the Hostinger hPanel API token ("Login to Hostinger").
   async function saveHostingerToken() {
@@ -1421,6 +1516,136 @@ export default function RoundTablePage() {
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+
+              {/* Spec Engineer — synthesizes the round-table conversation into
+                  an editable spec doc. Sits above the design/build pipeline
+                  because the spec drives Maya's design (Send to Maya hands
+                  the spec text in as her query). */}
+              {(() => {
+                if (!activeChat) return null;
+                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
+                if (!allResponsesIn || loading) return null;
+                const accent = '#9b6cf0';
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
+                    style={{ marginTop: 16, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
+                  >
+                    {spec.status === 'idle' && (
+                      <>
+                        <div style={{ fontSize: 10, color: accent, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+                          Round table done · Spec Engineer can synthesize this
+                        </div>
+                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+                          Turn the conversation into a one-page spec — Problem, Goals, Requirements, Proposed approach, Rollout. You can edit it before sending to Maya.
+                        </div>
+                        <button onClick={generateSpec} style={{
+                          background: accent, color: '#fff', border: 'none', borderRadius: 8,
+                          padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: 8,
+                        }}>
+                          <Sparkles style={{ width: 14, height: 14 }} /> Generate Spec
+                        </button>
+                      </>
+                    )}
+                    {spec.status === 'running' && (
+                      <div className="flex items-center gap-3">
+                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                          <Sparkles style={{ width: 22, height: 22, color: accent }} />
+                        </motion.div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Drafting the spec…</div>
+                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Synthesizing every agent's contribution into one structured doc. ~10s.</div>
+                        </div>
+                      </div>
+                    )}
+                    {spec.status === 'done' && spec.result && (
+                      <>
+                        <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
+                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
+                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Spec ready</span>
+                          {spec.result.authors?.length > 0 && (
+                            <span style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', marginLeft: 4 }}>
+                              · authors: {spec.result.authors.join(', ')}
+                            </span>
+                          )}
+                          {spec.dirty && (
+                            <span style={{ fontSize: 10, color: '#f0a04b', fontFamily: 'monospace', marginLeft: 'auto' }}>● unsaved edits</span>
+                          )}
+                        </div>
+                        <textarea
+                          value={spec.editing}
+                          onChange={e => setSpec(s => ({ ...s, editing: e.target.value, dirty: e.target.value !== s.result?.text }))}
+                          spellCheck={false}
+                          style={{
+                            width: '100%', minHeight: 360,
+                            background: '#0a0c12', color: '#c8ccd8',
+                            border: '1px solid #1e2130', borderRadius: 8,
+                            padding: 12, fontSize: 12, lineHeight: 1.55,
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                            resize: 'vertical', outline: 'none',
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                          <button
+                            onClick={saveSpecEdits}
+                            disabled={!spec.dirty}
+                            style={{
+                              background: spec.dirty ? '#5cc28a' : '#1e2130',
+                              color: spec.dirty ? '#0a0c12' : '#5a607a',
+                              border: 'none', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, fontWeight: 700, cursor: spec.dirty ? 'pointer' : 'not-allowed',
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                            }}
+                          >
+                            <CheckCircle2 style={{ width: 12, height: 12 }} /> Save edits
+                          </button>
+                          <button
+                            onClick={sendSpecToMaya}
+                            disabled={mockup.status === 'running'}
+                            style={{
+                              background: '#b07ef8', color: '#fff',
+                              border: 'none', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, fontWeight: 700,
+                              cursor: mockup.status === 'running' ? 'not-allowed' : 'pointer',
+                              opacity: mockup.status === 'running' ? 0.5 : 1,
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                            }}
+                          >
+                            <Palette style={{ width: 12, height: 12 }} /> Send to Maya
+                          </button>
+                          <button
+                            onClick={generateSpec}
+                            style={{
+                              background: 'none', color: '#5a607a',
+                              border: '1px solid #1e2130', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, cursor: 'pointer',
+                            }}
+                          >
+                            Regenerate
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {spec.status === 'error' && (
+                      <div className="flex items-start gap-3">
+                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Spec generation failed</div>
+                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{spec.error}</div>
+                          <button onClick={generateSpec} style={{
+                            marginTop: 10, color: accent, background: 'none',
+                            border: `1px solid ${accent}44`, borderRadius: 6,
+                            padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+                          }}>Try again</button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })()}
 
               {/* Design → Build → Deploy pipeline — Maya, Ananya & Hostinger as an
                   avatar row below the responses. Click an avatar to open its
