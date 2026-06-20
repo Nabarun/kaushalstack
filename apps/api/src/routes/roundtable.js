@@ -252,11 +252,21 @@ function trimPriorTurns(turns) {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-router.post('/roundtable', async (req, res) => {
-    const { query, team, chat_id: chatIdInput, prior_turns: priorTurnsInput } = req.body || {};
+// System pipeline agents — they don't deliberate at the round table. Old
+// chats that historically had them in `team` still load (responses are
+// persisted), but new round-table prompts skip them so we stop paying for
+// thin Maya/Ananya/Hostinger "perspectives".
+const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
-    if (!query || !Array.isArray(team) || team.length === 0) {
+router.post('/roundtable', async (req, res) => {
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput } = req.body || {};
+
+    if (!query || !Array.isArray(rawTeam) || rawTeam.length === 0) {
         return res.status(400).json({ error: 'query and team are required' });
+    }
+    const team = rawTeam.filter(s => s && !PIPELINE_SYSTEM_IDS.has(s.id));
+    if (team.length === 0) {
+        return res.status(400).json({ error: 'team must include at least one round-table specialist (Maya/Ananya/Hostinger are pipeline-only)' });
     }
 
     // Multi-turn mode: the client passes the existing chat's id + the prior

@@ -79,6 +79,24 @@ export default function CreativePipeline({
 }) {
   const has = key => members.some(m => m.key === key);
 
+  // Auto-dim stages whose work the spec doesn't call for. Aisha is always
+  // lit (she IS the spec). Maya dims if no design/UI keywords; Ananya dims
+  // if no build/code keywords; Hostinger dims if no deploy/launch keywords.
+  // Stages stay clickable (override) and the gating logic still applies —
+  // dim is a hint, not a lock.
+  const specText = (spec?.result?.text || '').toLowerCase();
+  const DESIGN_RX = /\b(design|ui|ux|mockup|screen|page|layout|wireframe|interface|prototype|figma|font|palette|landing|app|website|web app|frontend|visual|brand)\b/;
+  const BUILD_RX  = /\b(build|implement|code|develop|html|css|javascript|react|api|backend|frontend|database|deploy|ship|app|website|widget|tool|form|component)\b/;
+  const DEPLOY_RX = /\b(deploy|deployment|host|hosting|hostinger|publish|launch|go[- ]live|production|domain|dns|ssl|vps|server|cloudflare|netlify|vercel)\b/;
+  const stageRelevant = specText ? {
+    aisha:     true,
+    maya:      DESIGN_RX.test(specText),
+    ananya:    BUILD_RX.test(specText),
+    hostinger: DEPLOY_RX.test(specText),
+  } : {
+    aisha: true, maya: true, ananya: true, hostinger: true,  // before spec exists, show all bright
+  };
+
   // Gating — each downstream agent waits for the previous one to finish.
   // Aisha (Spec Engineer) is always unlocked because the round table itself
   // is her input — by the time the pipeline shows, the responses are in.
@@ -128,6 +146,10 @@ export default function CreativePipeline({
           const badge = badgeFor(m);
           const isSel = effective === m.key;
           const dim   = badge.kind === 'locked';
+          // Visual hint: spec didn't mention this stage's work. Still clickable
+          // so the user can override and run anyway.
+          const notNeeded = !stageRelevant[m.key];
+          const visualOpacity = dim ? 0.4 : notNeeded ? 0.55 : 1;
           return (
             <React.Fragment key={m.key}>
               {i > 0 && (
@@ -135,10 +157,11 @@ export default function CreativePipeline({
               )}
               <button
                 onClick={() => setSelected(m.key)}
-                title={dim ? `Waiting for ${members[i - 1]?.name || 'the previous step'}` : m.role}
+                title={dim ? `Waiting for ${members[i - 1]?.name || 'the previous step'}` : notNeeded ? `${m.role} — the spec doesn't call for this stage. Click to run anyway.` : m.role}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer', padding: 4,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 92,
+                  opacity: visualOpacity, transition: 'opacity 0.2s',
                 }}
               >
                 <div style={{ position: 'relative' }}>
