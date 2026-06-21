@@ -616,10 +616,31 @@ const HomePage = () => {
                       <Send className="w-4 h-4" />
                     </button>
                   </div>
-                  <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading || chatLoading}
+                      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+                      title="Upload a spec (.md, .txt, .pdf, .docx) — we'll recommend a team from it"
+                    >
+                      {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+                      {uploading ? 'Reading spec…' : 'Upload a spec'}
+                    </button>
                     <TableSeatsSelector value={teamSize} onChange={setTeamSize} />
                   </div>
+                  {uploadError && <div className="text-xs text-red-500 mt-1.5">{uploadError}</div>}
                 </div>
+                {/* Sibling hidden file input — split-hero ships its own; this one
+                    covers the member empty-state path. Same ref, only one mounts
+                    at a time so there's no collision. */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".md,.markdown,.txt,.json,.csv,.yaml,.yml,.pdf,.docx"
+                  className="hidden"
+                  onChange={e => uploadSpec(e.target.files?.[0])}
+                />
               </div>
             )}
 
