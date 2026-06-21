@@ -1,4 +1,6 @@
-# @kaushalstack/mcp
+# kaushalstack-mcp
+
+> Headless kaushalstack — recommend agents, run round tables, generate specs from any MCP host.
 
 MCP server that exposes [kaushalstack](https://kaushalstack.com) as tools for
 any MCP host — Claude Desktop, Codex, Cursor, your own scripts.
@@ -36,7 +38,7 @@ Set it as `KAUSHALSTACK_API_TOKEN` in the host's MCP config (examples below).
 
 ```bash
 # Once published to npm
-npx -y @kaushalstack/mcp
+npx -y kaushalstack-mcp
 
 # Until then, run from the monorepo
 cd apps/mcp && npm install && node src/index.js
@@ -52,7 +54,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
   "mcpServers": {
     "kaushalstack": {
       "command": "npx",
-      "args": ["-y", "@kaushalstack/mcp"],
+      "args": ["-y", "kaushalstack-mcp"],
       "env": {
         "KAUSHALSTACK_API_URL": "https://kaushalstack.com",
         "KAUSHALSTACK_API_TOKEN": "eyJhbGciOi..."

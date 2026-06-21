@@ -1,5 +1,5 @@
 {
-  "name": "@kaushalstack/mcp",
+  "name": "kaushalstack-mcp",
   "version": "0.1.0",
   "description": "MCP server exposing kaushalstack — recommendation, round table, spec — as tools for Claude Desktop / Codex / any MCP host.",
   "type": "module",
