@@ -175,37 +175,53 @@ router.post('/spec', async (req, res) => {
     // Provider routing follows the same rules as /api/roundtable.
     const userBYOK = await getUserBYOK(userId);
     const usingUserKey = !!userBYOK;
-    const provider = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
-    const key      = usingUserKey ? userBYOK.key      : OPENAI_API_KEY;
-    const model    = usingUserKey
+    let provider = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
+    let key      = usingUserKey ? userBYOK.key      : OPENAI_API_KEY;
+    let model    = usingUserKey
         ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
         : SERVER_DEFAULT_MODEL;
+    let fellBackToServer = false;
 
     try {
         const userPrompt = buildSpecUserPrompt(chat);
-        const spec_text = await chatComplete(provider, {
-            key,
-            model,
-            systemPrompt: SPEC_SYSTEM_PROMPT,
-            userPrompt,
-        });
-        logger.info(`spec: chat=${chatId} authors=${authors.length} chars=${spec_text.length} provider=${provider}`);
+        let spec_text;
+        try {
+            spec_text = await chatComplete(provider, {
+                key,
+                model,
+                systemPrompt: SPEC_SYSTEM_PROMPT,
+                userPrompt,
+            });
+        } catch (err) {
+            // BYOK failed — fall back to server gpt-4o-mini so the spec
+            // still lands. Match /api/roundtable's fallback policy.
+            const isBYOKFailure = usingUserKey && (
+                err.status === 401 || err.status === 429 || err.status === 504 ||
+                err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
+            );
+            if (!isBYOKFailure) throw err;
+            const causeMsg = err.cause?.message || err.cause?.code || err.message;
+            logger.warn(`spec BYOK failed (provider=${provider} model=${model} cause=${causeMsg}) — falling back to server gpt-4o-mini`);
+            provider = SERVER_PROVIDER;
+            key      = OPENAI_API_KEY;
+            model    = SERVER_DEFAULT_MODEL;
+            fellBackToServer = true;
+            spec_text = await chatComplete(provider, {
+                key,
+                model,
+                systemPrompt: SPEC_SYSTEM_PROMPT,
+                userPrompt,
+            });
+        }
+        logger.info(`spec: chat=${chatId} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''}`);
         res.json({
             spec_text,
             authors,
             generated_at: new Date().toISOString(),
             engine: { provider, model },
+            byok_fell_back: fellBackToServer,
         });
     } catch (err) {
-        if (usingUserKey && (err.status === 401 || err.status === 429)) {
-            const providerLabel = getProviderMeta(userBYOK.provider).label;
-            return res.status(402).json({
-                error: 'user_key_failed',
-                detail: err.status === 401
-                    ? `Your saved ${providerLabel} key was rejected.`
-                    : `Your ${providerLabel} account is out of quota.`,
-            });
-        }
         const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
         logger.error(`spec error chat=${chatId}: ${err.message} | cause=${causeMsg} | provider=${provider} model=${model}`);
         res.status(500).json({ error: 'Spec generation failed' });

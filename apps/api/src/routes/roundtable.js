@@ -342,6 +342,7 @@ router.post('/roundtable', async (req, res) => {
     const { cachedPrefix, userPrompt } = buildPrompt({ query, agents: team, priorTurns });
 
     let raw;
+    let fellBackToServer = false;
     try {
         raw = await chatComplete(providerInUse, {
             key: keyInUse,
@@ -351,24 +352,35 @@ router.post('/roundtable', async (req, res) => {
             jsonMode: true,
         });
     } catch (err) {
-        // The dispatcher attaches a `status` field for upstream HTTP errors.
-        // Treat 401/429 from the user's key as a soft, actionable failure.
-        if (usingUserKey && (err.status === 401 || err.status === 429)) {
-            const providerLabel = getProviderMeta(userBYOK.provider).label;
-            return res.status(402).json({
-                error: 'user_key_failed',
-                detail: err.status === 401
-                    ? `Your saved ${providerLabel} key was rejected. Please update it on your profile.`
-                    : `Your ${providerLabel} account is out of quota or rate-limited. Check billing and try again.`,
-                status: err.status,
-            });
+        // BYOK failed for any reason (401/429/504/timeout/quota) — fall
+        // back to the server's OpenAI gpt-4o-mini so the user is never
+        // hard-blocked. Counts toward the free tier on the way out.
+        const isBYOKFailure = usingUserKey && (
+            err.status === 401 || err.status === 429 || err.status === 504 ||
+            err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
+        );
+        if (isBYOKFailure) {
+            const causeMsg = err.cause?.message || err.cause?.code || err.message;
+            logger.warn(`roundtable BYOK failed (provider=${providerInUse} model=${modelInUse} cause=${causeMsg}) — falling back to server gpt-4o-mini`);
+            try {
+                raw = await chatComplete(SERVER_PROVIDER, {
+                    key: OPENAI_API_KEY,
+                    model: SERVER_DEFAULT_MODEL,
+                    userPrompt,
+                    cachedPrefix,
+                    jsonMode: true,
+                });
+                fellBackToServer = true;
+            } catch (fallbackErr) {
+                const cm = fallbackErr.cause?.message || fallbackErr.cause?.code || '(no cause)';
+                logger.error(`roundtable server fallback also failed: ${fallbackErr.message} | cause=${cm}`);
+                return res.status(500).json({ error: 'Round table call failed (BYOK + server fallback both failed)' });
+            }
+        } else {
+            const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
+            logger.error(`roundtable provider call failed: ${err.message} | cause=${causeMsg} | provider=${providerInUse} model=${modelInUse}`);
+            return res.status(500).json({ error: 'Round table call failed' });
         }
-        // err.message in Node 22 undici is often the unhelpful "fetch failed".
-        // Surface err.cause (the real socket / TLS / DNS error) and the
-        // provider/model so we can debug without redeploying.
-        const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
-        logger.error(`roundtable provider call failed: ${err.message} | cause=${causeMsg} | provider=${providerInUse} model=${modelInUse}`);
-        return res.status(500).json({ error: 'Round table call failed' });
     }
 
     try {
@@ -424,6 +436,10 @@ router.post('/roundtable', async (req, res) => {
             is_follow_up: isFollowUp,
             turn_limit_reached: turnLimitReached,
             using_user_key: usingUserKey,
+            // Flag set when BYOK failed and we used the server key instead.
+            // Client surfaces a small banner so the user knows their key
+            // needs attention without hard-blocking the request.
+            byok_fell_back: fellBackToServer,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
     } catch (err) {
