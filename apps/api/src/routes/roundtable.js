@@ -44,9 +44,15 @@ async function ensureUsageCollection() {
 // original runtime-created collection omitted them, which silently broke the
 // history list (GET sorts by -created) AND the persistence of tool outputs.
 // This ensure step repairs both old and new deployments in place.
+// query cap is intentionally generous: when a chat is seeded from an uploaded
+// spec, the wrapped prompt includes the full spec text (up to ~60KB) along
+// with the reviewer framing. 2000 chars was a holdover from before spec
+// uploads existed and silently rejected every spec-seeded chat, breaking
+// downstream /spec lookups because the client fell back to a local- id.
+const QUERY_MAX = 100000;
 const CHAT_FIELDS = [
     { type: 'text',     name: 'user_id',      required: true },
-    { type: 'text',     name: 'query',        required: true, max: 2000 },
+    { type: 'text',     name: 'query',        required: true, max: QUERY_MAX },
     { type: 'json',     name: 'team',         maxSize: 100000 },
     { type: 'json',     name: 'responses',    maxSize: 200000 },
     // turns is the multi-turn conversation thread: [{ query, responses }, …]
@@ -77,14 +83,31 @@ async function ensureChatsCollection() {
         const existing = await pb.collections.getOne('roundtable_chats');
         const have = new Set((existing.fields || []).map(f => f.name));
         const missing = CHAT_FIELDS.filter(f => !have.has(f.name));
-        if (missing.length > 0) {
+
+        // Pre-existing fields whose constraints have drifted from CHAT_FIELDS
+        // get grown in place. Today only `query.max` matters — we widen it
+        // from the original 2000 → QUERY_MAX so spec-seeded chats stop being
+        // silently rejected. This is safe (PB allows growing text max).
+        const fields = (existing.fields || []).map(f => {
+            if (f.name === 'query' && (f.max || 0) < QUERY_MAX) {
+                return { ...f, max: QUERY_MAX };
+            }
+            return f;
+        });
+        const queryFieldGrew = fields.some((f, i) => f !== (existing.fields || [])[i]);
+        const needsUpdate = missing.length > 0 || queryFieldGrew;
+
+        if (needsUpdate) {
             try {
                 await pb.collections.update('roundtable_chats', {
-                    fields: [...existing.fields, ...missing],
+                    fields: [...fields, ...missing],
                 });
-                logger.info(`roundtable_chats: added fields [${missing.map(f => f.name).join(', ')}]`);
+                const changes = [];
+                if (missing.length > 0) changes.push(`added fields [${missing.map(f => f.name).join(', ')}]`);
+                if (queryFieldGrew)    changes.push(`widened query.max → ${QUERY_MAX}`);
+                logger.info(`roundtable_chats: ${changes.join('; ')}`);
             } catch (err) {
-                logger.warn('Could not add roundtable_chats fields:', err.message);
+                logger.warn('Could not update roundtable_chats fields:', err.message);
             }
         }
         chatsCollectionReady = true;
@@ -150,7 +173,13 @@ async function saveChat(userId, query, team, responses, uploadedSpec = null) {
             ...(uploadedSpec ? { uploaded_spec: uploadedSpec } : {}),
         });
     } catch (err) {
-        logger.warn('Failed to save chat for', userId, err.message);
+        // Surface PB field-level validation errors — without this, "Failed to
+        // create record" hides the actual culprit (which field was rejected
+        // and why), making schema drift bugs invisible in prod logs.
+        const fieldErrors = err?.data?.data
+            ? Object.entries(err.data.data).map(([f, d]) => `${f}=${d?.message || JSON.stringify(d)}`).join('; ')
+            : '';
+        logger.warn(`Failed to save chat for ${userId}: ${err.message}${fieldErrors ? ' | ' + fieldErrors : ''}`);
         return null;
     }
 }
