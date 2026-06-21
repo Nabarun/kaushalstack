@@ -1584,7 +1584,20 @@ export default function RoundTablePage() {
                   <span style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>
                     {turns.length > 1 ? `T${turns.length}:` : 'YOU:'}
                   </span>
-                  <span style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1 }}>{latestTurn?.query || activeChat.query}</span>
+                  {/* Spec-seeded chats can have queries up to ~100 chars —
+                      clamp the display to 2 lines so the input stays anchored
+                      and the response area gets its full slot. The full text
+                      lives in the title attribute on hover. */}
+                  <span
+                    title={latestTurn?.query || activeChat.query}
+                    style={{
+                      fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1,
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden', wordBreak: 'break-word', lineHeight: 1.4,
+                    }}
+                  >
+                    {latestTurn?.query || activeChat.query}
+                  </span>
                 </div>
               )}
               {/* Legacy-chat banner — predates multi-turn, can't be appended to */}
@@ -1624,7 +1637,10 @@ export default function RoundTablePage() {
                 >
                   {rtUploading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : <Paperclip style={{ width: 16, height: 16 }} />}
                 </button>
-                <input
+                {/* Multi-line textarea so long prompts (uploaded spec titles,
+                    spec follow-ups) wrap to 2 lines and scroll internally past
+                    3 — instead of horizontally scrolling away from the user. */}
+                <textarea
                   ref={inputRef}
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
@@ -1635,9 +1651,11 @@ export default function RoundTablePage() {
                     : 'Ask the round table anything…'
                   }
                   disabled={loading || limitReached}
+                  rows={2}
                   style={{
                     flex: 1, background: 'transparent', border: 'none', outline: 'none',
                     color: limitReached ? '#3a3f52' : '#e8eaf0', fontSize: 13, fontFamily: 'Syne, sans-serif',
+                    resize: 'none', lineHeight: 1.4, maxHeight: '4.2em', overflowY: 'auto',
                   }}
                 />
                 <button onClick={() => run()}
