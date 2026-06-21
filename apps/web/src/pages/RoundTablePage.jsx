@@ -259,6 +259,45 @@ function formatRelativeTime(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Persisted chats come back with responses shaped as `{ name, text }` — the
+// `agentIdx` field is added client-side at live-run time so the avatar
+// click handlers can map `responses[].agentIdx → team[i]`. Without this,
+// every avatar click on a loaded chat silently no-ops because findIndex
+// returns -1. Rebuild agentIdx by matching response.name against the team
+// (preferring agent_name, falling back to name).
+function hydrateAgentIdx(chat) {
+  if (!chat) return chat;
+  const team = Array.isArray(chat.team) ? chat.team : [];
+  const techTeam = Array.isArray(chat.tech_team) ? chat.tech_team : [];
+  const indexFor = (roster, name) => {
+    if (!name) return null;
+    const i = roster.findIndex(a => a?.agent_name === name || a?.name === name);
+    return i >= 0 ? i : null;
+  };
+  const patch = (roster) => (responses) => {
+    if (!Array.isArray(responses)) return responses;
+    return responses.map((r, fallback) => {
+      if (r && Number.isFinite(r.agentIdx)) return r;
+      const idx = indexFor(roster, r?.name);
+      return { ...r, agentIdx: idx ?? fallback };
+    });
+  };
+  const patchDomain = patch(team);
+  const patchTech   = patch(techTeam);
+  const turns      = Array.isArray(chat.turns)
+    ? chat.turns.map(t => ({ ...t, responses: patchDomain(t.responses) }))
+    : chat.turns;
+  const techTurns  = Array.isArray(chat.tech_turns)
+    ? chat.tech_turns.map(t => ({ ...t, responses: patchTech(t.responses) }))
+    : chat.tech_turns;
+  return {
+    ...chat,
+    responses: patchDomain(chat.responses),
+    turns,
+    tech_turns: techTurns,
+  };
+}
+
 export default function RoundTablePage() {
   const location  = useLocation();
   const navigate  = useNavigate();
@@ -938,7 +977,7 @@ export default function RoundTablePage() {
 
     fetch('/api/roundtable/chats', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.chats) setChats(data.chats); })
+      .then(data => { if (data?.chats) setChats(data.chats.map(hydrateAgentIdx)); })
       .catch(() => {});
 
     fetch('/api/roundtable/usage', { headers: { Authorization: `Bearer ${token}` } })
@@ -1139,8 +1178,17 @@ export default function RoundTablePage() {
   }, []);
 
   function selectChat(chat) {
-    setActiveChat(chat);
-    setFocusedIdx(chat.responses?.length ? chat.responses.length - 1 : 0);
+    // Persisted chats arrive from the API without agentIdx on each response —
+    // the click-to-focus handlers below depend on agentIdx, so without
+    // rehydration every avatar click silently no-ops. Hydration also runs
+    // at list-load (hydrateAgentIdx in the fetch above); doing it here too
+    // catches anything passed in from elsewhere (navigation state, etc).
+    const hydrated = hydrateAgentIdx(chat);
+    setActiveChat(hydrated);
+    const latest = hydrated.turns?.[hydrated.turns.length - 1]?.responses
+                || hydrated.responses
+                || [];
+    setFocusedIdx(latest.length ? latest.length - 1 : 0);
     setActiveIdx(-1);
   }
 
