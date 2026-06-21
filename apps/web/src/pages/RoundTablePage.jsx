@@ -1655,8 +1655,12 @@ export default function RoundTablePage() {
               </div>
             </div>
 
-            {/* Response feed */}
-            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
+            {/* Response feed — `min-h-0` is the missing piece: flex items
+                default to `min-height: auto`, which means even with flex-1
+                this element grows to fit its content (CreativePipeline can
+                run tall), defeating overflow-y-auto. Setting min-h-0 lets
+                it shrink and the inner scrollbar engage. */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
               {/* Prior turns transcript — collapsed view of older turns in
                   this chat. The focus carousel below always shows the latest
                   turn; prior turns get a compact "T1: query — N responses"
