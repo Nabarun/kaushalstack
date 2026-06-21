@@ -1,9 +1,15 @@
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 
+// Routes that own their own full-bleed canvas and shouldn't have the global
+// footer competing for vertical space.
+const FULL_BLEED_ROUTES = new Set(['/roundtable', '/build']);
+
 const Footer = () => {
+  const { pathname } = useLocation();
+  if (FULL_BLEED_ROUTES.has(pathname)) return null;
   return (
     <footer className="bg-secondary text-secondary-foreground mt-24">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

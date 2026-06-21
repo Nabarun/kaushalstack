@@ -1192,7 +1192,10 @@ export default function RoundTablePage() {
         <title>Round Table — kaushalstack</title>
       </Helmet>
 
-      <div style={{ background: '#080a0e', height: '100vh', color: '#e8eaf0' }} className="flex flex-col">
+      {/* Clamp to viewport-minus-header (4rem = Header h-16) so the inner
+          flex-1 overflow-y-auto regions get a bounded height. Footer is
+          hidden on this route so nothing else competes for vertical space. */}
+      <div style={{ background: '#080a0e', height: 'calc(100vh - 4rem)', color: '#e8eaf0' }} className="flex flex-col">
 
         {/* Top bar */}
         <div style={{ background: '#0d0f16', borderBottom: '1px solid #1e2130' }}
