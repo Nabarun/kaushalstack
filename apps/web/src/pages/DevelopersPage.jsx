@@ -131,12 +131,10 @@ env = { KAUSHALSTACK_API_TOKEN = "<paste-your-token>" }`,
   },
   {
     title: 'Claude Code plugin',
-    body: 'Install the kaushalstack plugin and export the token.',
-    snippet: `# in any Claude Code session:
-/plugin install github:Nabarun/kaushalstack/apps/claude-plugin
-
-# then set the env var Claude reads:
-export KAUSHALSTACK_API_TOKEN="<paste-your-token>"`,
+    body: 'Add the marketplace, install the plugin, reload. Then export KAUSHALSTACK_API_TOKEN in your shell so the plugin’s MCP server can authenticate.',
+    snippet: `/plugin marketplace add Nabarun/kaushalstack
+/plugin install kaushalstack@kaushalstack
+/reload-plugin`,
   },
   {
     title: 'Claude Desktop',
