@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette, Paperclip, Loader2 } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -264,7 +264,15 @@ export default function RoundTablePage() {
   const navigate  = useNavigate();
   const initTeam  = location.state?.team || [];
   const initQuery = location.state?.query || '';
+  const initUploadedSpec = location.state?.uploadedSpec || null;
 
+  // The uploaded draft spec, when the user arrived (or uploaded here) from a
+  // spec file. Drives the review-framed round table + Aisha's combine/as-is.
+  // Restored from the active chat (chat.uploaded_spec) so it survives reloads.
+  const [uploadedSpec, setUploadedSpec] = useState(initUploadedSpec);
+  const rtFileInputRef = useRef(null);
+  const [rtUploading, setRtUploading]   = useState(false);
+  const [rtUploadError, setRtUploadError] = useState('');
   const [prompt, setPrompt]         = useState('');
   const [activeIdx, setActiveIdx]   = useState(-1);
   const [loading, setLoading]       = useState(false);
@@ -335,6 +343,10 @@ export default function RoundTablePage() {
     } else {
       setSpec(initSpecState);
     }
+    // Uploaded-spec rehydration. Only sync from the chat once one is active —
+    // before that, keep whatever the navigation/upload seeded so the first run
+    // can review it. Switching to a chat without an upload clears it.
+    if (activeChat) setUploadedSpec(activeChat.uploaded_spec || null);
     // Tech RT rehydration — flatten tech_turns into a single responses list.
     const techTurns = Array.isArray(activeChat?.tech_turns) ? activeChat.tech_turns : [];
     if (techTurns.length > 0) {
@@ -565,7 +577,9 @@ export default function RoundTablePage() {
       const res = await fetch('/api/spec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ chat_id: activeChat.id }),
+        // When seeded from an upload, hand the draft spec to Aisha so she
+        // produces a COMBINED spec (upload + the round table's review).
+        body: JSON.stringify({ chat_id: activeChat.id, ...(uploadedSpec?.text ? { raw_spec_text: uploadedSpec.text } : {}) }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -618,6 +632,47 @@ export default function RoundTablePage() {
     if (!text) return;
     if (spec.dirty) saveSpecEdits();
     triggerMockup(text);
+  }
+
+  // Skip Aisha's synthesis: hand the user's uploaded spec to Maya verbatim.
+  function sendUploadedToMaya() {
+    const text = (uploadedSpec?.text || '').trim();
+    if (!text) return;
+    triggerMockup(text);
+  }
+
+  // Upload a spec straight from the Round Table page: extract text, recommend a
+  // fresh team from it, and stage a new chat (team + title + uploadedSpec) so
+  // the next Run reviews the spec.
+  async function uploadSpecHere(file) {
+    if (!file || rtUploading) return;
+    setRtUploadError('');
+    setRtUploading(true);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await fetch('/api/spec/upload', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Couldn't read that file (${res.status})`);
+      const specText = (data.text || '').trim();
+      if (!specText) throw new Error('No text found in that file.');
+      const rres = await fetch('/api/recommend', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // cap for the embedding model; full spec still rides on uploadedSpec.
+        body: JSON.stringify({ query: specText.slice(0, 8000), size: 6 }),
+      });
+      const rdata = await rres.json().catch(() => ({}));
+      const team = rdata.skills || [];
+      const title = (specText.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean) || file.name).slice(0, 100);
+      setActiveChat(null);
+      setDraftTeam(team.slice(0, TEAM_SIZE_MAX));
+      setUploadedSpec({ text: specText, filename: file.name });
+      setPrompt(title);
+    } catch (err) {
+      setRtUploadError(err.message);
+    } finally {
+      setRtUploading(false);
+      if (rtFileInputRef.current) rtFileInputRef.current.value = '';
+    }
   }
 
   // Convene tech team — single-step: recommend a tech team off the current
@@ -920,8 +975,8 @@ export default function RoundTablePage() {
   }, [activeChat?.id, activeChat?.turns?.length]);
 
   async function run(q) {
-    const query = (q || prompt).trim();
-    if (!query || loading) return;
+    const baseQuery = (q || prompt).trim();
+    if (!baseQuery || loading) return;
 
     // Multi-turn append vs new-chat decision. Legacy chats (predating the
     // turns field) stay read-only — submitting starts a fresh chat, same as
@@ -934,6 +989,15 @@ export default function RoundTablePage() {
       && Array.isArray(activeChat.turns)
       && activeChat.turns.length > 0
       && activeChat.turns.length < TURN_CAP;
+
+    // When seeded from an uploaded draft spec (initial run only), the round
+    // table REVIEWS the spec — each expert says what's missing — instead of
+    // discussing a fresh prompt. The spec rides in the query so the agents see
+    // it; uploaded_spec is persisted so Aisha can later combine the two.
+    const seedFromUpload = !!uploadedSpec && !isFollowUp;
+    const query = seedFromUpload
+      ? `You are reviewing a draft spec the user uploaded${baseQuery ? ` ("${baseQuery}")` : ''}. From your specialty, add what's MISSING — gaps, risks, requirements, and anything you'd insist on before building. Build on the spec; don't just restate it.\n\n=== DRAFT SPEC ===\n${uploadedSpec.text}`
+      : baseQuery;
 
     // Team for follow-ups stays locked to the existing chat's team — the
     // model can't sensibly switch personas mid-conversation.
@@ -967,7 +1031,9 @@ export default function RoundTablePage() {
         body: JSON.stringify({
           query,
           team: teamForRun,
-          ...(isFollowUp ? { chat_id: activeChat.id, prior_turns: activeChat.turns } : {}),
+          ...(isFollowUp
+            ? { chat_id: activeChat.id, prior_turns: activeChat.turns }
+            : (seedFromUpload ? { uploaded_spec: uploadedSpec } : {})),
         }),
       });
 
@@ -1009,6 +1075,7 @@ export default function RoundTablePage() {
           turns: [newTurn],
           legacy: false,
           created: new Date().toISOString(),
+          ...(seedFromUpload ? { uploaded_spec: uploadedSpec } : {}),
         };
         setActiveChat(newChat);
       }
@@ -1048,6 +1115,7 @@ export default function RoundTablePage() {
           turns: finalTurns,
           legacy: false,
           created: new Date().toISOString(),
+          ...(seedFromUpload ? { uploaded_spec: uploadedSpec } : {}),
         };
         setChats(prev => [newChat, ...prev]);
       }
@@ -1478,8 +1546,33 @@ export default function RoundTablePage() {
                   <span>· this chat predates multi-turn. Submitting will start a fresh chat.</span>
                 </div>
               )}
+              {uploadedSpec && !canFollowUp && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 11, color: '#b07ef8' }}>
+                  <Paperclip style={{ width: 12, height: 12 }} />
+                  Reviewing uploaded spec · {uploadedSpec.filename}
+                  <button onClick={() => setUploadedSpec(null)} title="Remove" style={{ background: 'none', border: 'none', color: '#5a607a', cursor: 'pointer', padding: 0, display: 'inline-flex' }}>
+                    <X style={{ width: 12, height: 12 }} />
+                  </button>
+                </div>
+              )}
+              {rtUploadError && <div style={{ fontSize: 11, color: '#f06b6b', marginBottom: 6 }}>{rtUploadError}</div>}
               <div style={{ background: '#12141c', border: `1px solid ${limitReached ? '#f06b6b33' : canFollowUp ? '#5b8dee44' : '#1e2130'}`, borderRadius: 12 }}
                 className="flex items-center gap-2 px-3 py-2">
+                <input
+                  ref={rtFileInputRef}
+                  type="file"
+                  accept=".md,.markdown,.txt,.json,.csv,.yaml,.yml,.pdf,.docx"
+                  className="hidden"
+                  onChange={e => uploadSpecHere(e.target.files?.[0])}
+                />
+                <button
+                  onClick={() => rtFileInputRef.current?.click()}
+                  disabled={rtUploading || loading || canFollowUp}
+                  title={canFollowUp ? 'Start a new chat to upload a spec' : 'Upload a spec (.md, .txt, .pdf, .docx) — recommends a team & reviews it'}
+                  style={{ background: 'none', border: 'none', color: rtUploading ? '#b07ef8' : '#5a607a', cursor: rtUploading || loading || canFollowUp ? 'not-allowed' : 'pointer', padding: 2, display: 'flex', flexShrink: 0, opacity: canFollowUp ? 0.4 : 1 }}
+                >
+                  {rtUploading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : <Paperclip style={{ width: 16, height: 16 }} />}
+                </button>
                 <input
                   ref={inputRef}
                   value={prompt}
@@ -1748,6 +1841,7 @@ export default function RoundTablePage() {
                     members={members}
                     spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
                     generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
+                    uploadedSpec={uploadedSpec} sendUploadedToMaya={sendUploadedToMaya}
                     tech={tech} conveneTechTeam={conveneTechTeam}
                     triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
                     recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
