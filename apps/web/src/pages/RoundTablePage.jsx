@@ -311,6 +311,12 @@ export default function RoundTablePage() {
   const [uploadedSpec, setUploadedSpec] = useState(initUploadedSpec);
   const rtFileInputRef = useRef(null);
   const [rtUploading, setRtUploading]   = useState(false);
+  // Two-phase progress so the centered loader card can name what's happening:
+  // 'reading' = parsing the file → text on the server, 'recommending' = embedding +
+  // matching specialists. 'idle' means no upload in progress. Phase transitions
+  // drive a stepper UI so the user sees clear progress instead of a blank wait.
+  const [rtUploadStage, setRtUploadStage] = useState('idle');
+  const [rtUploadFilename, setRtUploadFilename] = useState('');
   const [rtUploadError, setRtUploadError] = useState('');
   const [prompt, setPrompt]         = useState('');
   const [activeIdx, setActiveIdx]   = useState(-1);
@@ -687,6 +693,8 @@ export default function RoundTablePage() {
     if (!file || rtUploading) return;
     setRtUploadError('');
     setRtUploading(true);
+    setRtUploadStage('reading');
+    setRtUploadFilename(file.name);
     try {
       const fd = new FormData(); fd.append('file', file);
       const res = await fetch('/api/spec/upload', { method: 'POST', body: fd });
@@ -694,6 +702,7 @@ export default function RoundTablePage() {
       if (!res.ok) throw new Error(data.error || `Couldn't read that file (${res.status})`);
       const specText = (data.text || '').trim();
       if (!specText) throw new Error('No text found in that file.');
+      setRtUploadStage('recommending');
       const rres = await fetch('/api/recommend', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // cap for the embedding model; full spec still rides on uploadedSpec.
@@ -710,6 +719,8 @@ export default function RoundTablePage() {
       setRtUploadError(err.message);
     } finally {
       setRtUploading(false);
+      setRtUploadStage('idle');
+      setRtUploadFilename('');
       if (rtFileInputRef.current) rtFileInputRef.current.value = '';
     }
   }
@@ -1679,6 +1690,53 @@ export default function RoundTablePage() {
                 run tall), defeating overflow-y-auto. Setting min-h-0 lets
                 it shrink and the inner scrollbar engage. */}
             <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
+              {/* Spec-upload progress — replaces everything else in the feed
+                  while we read the file + match specialists. Two-step stepper
+                  so the user can see WHAT is happening, not just THAT a wait
+                  is in progress. */}
+              {rtUploading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex flex-col items-center justify-center text-center"
+                  style={{ minHeight: 240, padding: '40px 20px' }}
+                >
+                  <div style={{ position: 'relative', width: 56, height: 56, marginBottom: 18 }}>
+                    <Loader2 style={{ width: 56, height: 56, color: '#9b6cf0' }} className="animate-spin" />
+                    <Paperclip style={{
+                      position: 'absolute', top: '50%', left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: 20, height: 20, color: '#9b6cf0',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#c8ccd8', marginBottom: 6 }}>
+                    {rtUploadStage === 'reading' ? 'Reading your spec…' : 'Finding the right specialists…'}
+                  </div>
+                  {rtUploadFilename && (
+                    <div style={{ fontSize: 11, color: '#5a607a', fontFamily: 'monospace', marginBottom: 18 }}>
+                      {rtUploadFilename}
+                    </div>
+                  )}
+                  {/* Two-step indicator. Done step shows tick, current shows
+                      spinner, future shows muted dot. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: '#6a6f82' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {rtUploadStage === 'reading'
+                        ? <Loader2 style={{ width: 12, height: 12, color: '#9b6cf0' }} className="animate-spin" />
+                        : <CheckCircle2 style={{ width: 12, height: 12, color: '#5cc28a' }} />}
+                      <span style={{ color: rtUploadStage === 'reading' ? '#c8ccd8' : '#6a6f82' }}>Extract text</span>
+                    </div>
+                    <div style={{ width: 18, height: 1, background: '#1e2130' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {rtUploadStage === 'recommending'
+                        ? <Loader2 style={{ width: 12, height: 12, color: '#9b6cf0' }} className="animate-spin" />
+                        : <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#1e2130' }} />}
+                      <span style={{ color: rtUploadStage === 'recommending' ? '#c8ccd8' : '#6a6f82' }}>Match specialists</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
               {/* Prior turns transcript — collapsed view of older turns in
                   this chat. The focus carousel below always shows the latest
                   turn; prior turns get a compact "T1: query — N responses"
