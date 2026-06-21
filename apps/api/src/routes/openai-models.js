@@ -3,20 +3,9 @@ import logger from '../utils/logger.js';
 import { getTopModels, getChatModels } from '../openai-models/service.js';
 import { SUPPORTED_PROVIDERS, listChatModels } from '../providers/index.js';
 import { getUserBYOK } from './user-keys.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 // ──────────────────────────────────────────────────────────────────
 // New provider-aware route
@@ -29,7 +18,7 @@ router.get('/provider-models', async (req, res) => {
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
         return res.status(400).json({ error: `provider must be one of: ${SUPPORTED_PROVIDERS.join(', ')}` });
     }
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const byok = await getUserBYOK(userId);

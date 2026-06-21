@@ -7,6 +7,7 @@ import trendingRouter from './trending.js';
 import skillEditsRouter from './skill-edits.js';
 import leaderboardRouter from './leaderboard.js';
 import userKeysRouter from './user-keys.js';
+import apiTokensRouter from './api-tokens.js';
 import contactRouter from './contact.js';
 import socialRouter from './social.js';
 import notificationsRouter from './notifications.js';
@@ -32,6 +33,7 @@ export default () => {
     router.use('/', skillEditsRouter);
     router.use('/', leaderboardRouter);
     router.use('/', userKeysRouter);
+    router.use('/', apiTokensRouter);
     router.use('/', contactRouter);
     router.use('/', socialRouter);
     router.use('/', notificationsRouter);

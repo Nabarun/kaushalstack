@@ -2,20 +2,11 @@ import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { notify, NotificationKind } from '../notifications/dispatch.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
 const MAX_COMMENT_LEN = 2000;
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch { return null; }
-}
 
 function publicUserFields(u) {
     if (!u) return null;
@@ -47,7 +38,7 @@ async function hydrateUsers(userIds) {
 
 // POST /skills/:id/like — toggle the current user's like for this skill
 router.post('/skills/:id/like', async (req, res) => {
-    const userId  = getUserIdFromHeader(req.headers.authorization);
+    const userId  = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const skillId = req.params.id;
 
@@ -84,7 +75,7 @@ router.post('/skills/:id/like', async (req, res) => {
 
 // GET /skills/:id/like/me — whether the caller has liked this skill
 router.get('/skills/:id/like/me', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.json({ liked: false });
 
     try {
@@ -125,7 +116,7 @@ router.get('/skills/:id/comments', async (req, res) => {
 
 // POST /skills/:id/comments — add a comment
 router.post('/skills/:id/comments', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const skillId = req.params.id;
@@ -180,7 +171,7 @@ router.post('/skills/:id/comments', async (req, res) => {
 // DELETE /skills/:id/comments/:cid — author can delete their own comment;
 //   skill owner & admins can delete anything attached to their skill.
 router.delete('/skills/:id/comments/:cid', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     try {

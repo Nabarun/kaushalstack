@@ -12,6 +12,7 @@ import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
 import { CONSULT_AGENT_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Skill IDs (mirrored from PocketBase). Kept here so the route layer doesn't
@@ -363,21 +364,10 @@ export function getCreativeAgent(agentId) {
     return CREATIVE_AGENTS[agentId] || null;
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// JWT helper — same impl that lived in routes/mockup.js. Used here so the
-// shared runtime can look up a user's BYOK without each route reimplementing
-// the header parsing.
-// ────────────────────────────────────────────────────────────────────────
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
+// Resolve user id from the auth header passed in by upstream routes. Uses
+// the shared helper, which accepts both PB JWTs and ksk_ personal tokens.
+async function userIdFromAuthHeader(authHeader) {
+    return await getUserIdFromAuth({ headers: { authorization: authHeader } });
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -590,7 +580,7 @@ export async function runCreativeAgent({
     // Provider routing: if the authenticated user has an Anthropic BYOK AND
     // this agent has an anthropicModel configured, route through Claude.
     // Otherwise default to the configured OpenAI model on the server key.
-    const userId = getUserIdFromHeader(authHeader);
+    const userId = await userIdFromAuthHeader(authHeader);
     const byok   = userId ? await getUserBYOK(userId) : null;
     const useAnthropic = !!(config.anthropicModel && byok && byok.provider === 'anthropic' && byok.key);
     const provider = useAnthropic ? 'anthropic' : 'openai';

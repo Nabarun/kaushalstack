@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { getUserBYOK } from './user-keys.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -101,18 +102,6 @@ ensureUsageCollection();
 ensureChatsCollection();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 async function getUsageRecord(userId) {
     try {
@@ -303,7 +292,7 @@ router.post('/roundtable', async (req, res) => {
         return res.status(500).json({ error: 'OpenAI not configured' });
     }
 
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     const userBYOK = await getUserBYOK(userId);
     const usingUserKey = !!userBYOK;
 
@@ -449,7 +438,7 @@ router.post('/roundtable', async (req, res) => {
 });
 
 router.get('/roundtable/usage', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const userBYOK = await getUserBYOK(userId);
@@ -464,7 +453,7 @@ router.get('/roundtable/usage', async (req, res) => {
 });
 
 router.get('/roundtable/chats', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     await ensureChatsCollection();
@@ -574,7 +563,7 @@ function trimSpecResult(r) {
 }
 
 router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const { tool, result } = req.body || {};
@@ -599,7 +588,7 @@ router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
 });
 
 router.delete('/roundtable/chats/:id', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     try {

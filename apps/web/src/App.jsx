@@ -20,6 +20,7 @@ import BuildPage from '@/pages/BuildPage.jsx';
 import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
+import DevelopersPage from '@/pages/DevelopersPage.jsx';
 
 function App() {
   return (
@@ -48,6 +49,14 @@ function App() {
               <Route path="/contributors" element={<MembersPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route
+                path="/developers"
+                element={
+                  <ProtectedRoute>
+                    <DevelopersPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/build" element={<BuildPage />} />
               <Route
                 path="/roundtable"

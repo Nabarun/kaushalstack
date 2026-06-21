@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
@@ -43,16 +44,6 @@ const limiter = rateLimit({
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch { return null; }
-}
-
 // Light HTML escape so the message body in the email isn't a vector for injecting links/scripts.
 function esc(s) {
     return (s || '').replace(/[&<>"']/g, c => (
@@ -79,7 +70,7 @@ router.post('/contact', limiter, async (req, res) => {
     if (cleanMessage.length < 5) return res.status(400).json({ error: 'message is too short' });
 
     // Enrich with logged-in account info if present — useful for me when triaging.
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     let userMeta = null;
     if (userId) {
         try {

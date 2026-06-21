@@ -1,18 +1,9 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch { return null; }
-}
 
 function publicActor(u) {
     if (!u) return null;
@@ -21,7 +12,7 @@ function publicActor(u) {
 
 // GET /me/notifications — latest 20 with author/actor hydrated
 router.get('/me/notifications', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     try {
@@ -58,7 +49,7 @@ router.get('/me/notifications', async (req, res) => {
 
 // GET /me/notifications/unread-count — used by the bell badge
 router.get('/me/notifications/unread-count', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.json({ count: 0 });
 
     try {
@@ -74,7 +65,7 @@ router.get('/me/notifications/unread-count', async (req, res) => {
 
 // POST /me/notifications/:id/read — mark one read
 router.post('/me/notifications/:id/read', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     try {
@@ -89,7 +80,7 @@ router.post('/me/notifications/:id/read', async (req, res) => {
 
 // POST /me/notifications/read-all
 router.post('/me/notifications/read-all', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     try {

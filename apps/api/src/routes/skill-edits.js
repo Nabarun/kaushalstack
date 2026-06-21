@@ -2,6 +2,7 @@ import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { notify, NotificationKind } from '../notifications/dispatch.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
@@ -14,18 +15,6 @@ const EDITABLE_FIELDS = [
     'name', 'description', 'category', 'agent_name',
     'associated_tech_skills', 'video_url', 'proof_of_concept_video', 'difficulty_level',
 ];
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 async function getUser(userId) {
     try { return await pb.collection('users').getOne(userId); }
@@ -131,7 +120,7 @@ async function discardEdit(editId) {
 
 // POST /skills/:id/edits — propose an edit
 router.post('/skills/:id/edits', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const skill = await pb.collection('skills').getOne(req.params.id).catch(() => null);
@@ -261,7 +250,7 @@ async function voteOnEdit(editId, voterId, type, voteKind /* 'approve' | 'reject
 
 // POST /edits/:id/approve
 router.post('/edits/:id/approve', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const result = await voteOnEdit(req.params.id, userId, 'human', 'approve');
     res.status(result.status).json(result.body);
@@ -269,7 +258,7 @@ router.post('/edits/:id/approve', async (req, res) => {
 
 // POST /edits/:id/reject
 router.post('/edits/:id/reject', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const result = await voteOnEdit(req.params.id, userId, 'human', 'reject');
     res.status(result.status).json(result.body);
@@ -277,7 +266,7 @@ router.post('/edits/:id/reject', async (req, res) => {
 
 // POST /edits/:id/ai-review — invoke AI reviewer
 router.post('/edits/:id/ai-review', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const edit = await pb.collection('skill_edits').getOne(req.params.id).catch(() => null);
@@ -358,7 +347,7 @@ Respond with ONLY valid JSON:
 
 // GET /skills/:id/versions — list version snapshots (admin only)
 router.get('/skills/:id/versions', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const u = await getUser(userId);
     if (!u?.is_admin) return res.status(403).json({ error: 'admin only' });
@@ -376,7 +365,7 @@ router.get('/skills/:id/versions', async (req, res) => {
 
 // POST /skills/:id/rollback/:versionId — admin rollback
 router.post('/skills/:id/rollback/:versionId', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const u = await getUser(userId);
     if (!u?.is_admin) return res.status(403).json({ error: 'admin only' });
@@ -410,7 +399,7 @@ router.post('/skills/:id/rollback/:versionId', async (req, res) => {
 
 // GET /me/admin-status — used by frontend to decide whether to show admin UI
 router.get('/me/admin-status', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.json({ is_admin: false });
     const u = await getUser(userId);
     res.json({ is_admin: !!u?.is_admin });

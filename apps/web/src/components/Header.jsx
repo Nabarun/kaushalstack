@@ -29,6 +29,7 @@ const Header = () => {
     { name: 'Leaderboard', path: '/leaderboard' },
     { name: 'Members', path: '/members' },
     { name: 'About', path: '/about' },
+    { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
 

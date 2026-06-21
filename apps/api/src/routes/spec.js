@@ -19,24 +19,13 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserBYOK } from './user-keys.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERVER_PROVIDER = 'openai';
 const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
 
 const router = Router();
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 // Spec template — frozen. The agent must output EXACTLY these sections so
 // the UI can parse/render predictably and the user's edits don't break
@@ -153,7 +142,7 @@ function collectAuthors(chat) {
 }
 
 router.post('/spec', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const chatId = (req.body?.chat_id || '').trim();

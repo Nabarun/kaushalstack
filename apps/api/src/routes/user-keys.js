@@ -3,20 +3,9 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { encrypt, safeDecrypt } from '../utils/crypto.js';
 import { SUPPORTED_PROVIDERS, getProviderMeta, validateKey } from '../providers/index.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 function shapeStatus(user) {
     return {
@@ -33,7 +22,7 @@ function shapeStatus(user) {
 
 // GET /me/provider — current provider + key/model status
 router.get('/me/provider', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         const user = await pb.collection('users').getOne(userId);
@@ -46,7 +35,7 @@ router.get('/me/provider', async (req, res) => {
 // PUT /me/provider — switch provider. Does NOT clear the key, but the caller
 // is expected to follow up with /me/byok-key since keys are provider-specific.
 router.put('/me/provider', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const provider = (req.body?.provider || '').trim();
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -62,7 +51,7 @@ router.put('/me/provider', async (req, res) => {
 
 // PUT /me/byok-key — save key for the user's current provider (or provider passed in body)
 router.put('/me/byok-key', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const raw = (req.body?.key || '').trim();
@@ -98,7 +87,7 @@ router.put('/me/byok-key', async (req, res) => {
 
 // DELETE /me/byok-key
 router.delete('/me/byok-key', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         await pb.collection('users').update(userId, {
@@ -113,7 +102,7 @@ router.delete('/me/byok-key', async (req, res) => {
 
 // PUT /me/byok-model
 router.put('/me/byok-model', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const model = (req.body?.model || '').trim();
     if (!model) return res.status(400).json({ error: 'model is required' });
@@ -127,7 +116,7 @@ router.put('/me/byok-model', async (req, res) => {
 });
 
 router.delete('/me/byok-model', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         await pb.collection('users').update(userId, { preferred_model: '' });
@@ -143,7 +132,7 @@ router.delete('/me/byok-model', async (req, res) => {
 // ──────────────────────────────────────────────────────────────────
 
 router.get('/me/openai-key', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         const user = await pb.collection('users').getOne(userId);
@@ -161,7 +150,7 @@ router.post('/me/openai-key', async (req, res) => {
     req.body = { ...(req.body || {}), provider: 'openai' };
     req.method = 'PUT';
     // Re-dispatch by calling the handler directly. Simpler: duplicate the minimum logic.
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const raw = (req.body?.key || '').trim();
     if (!raw) return res.status(400).json({ error: 'key is required' });
@@ -184,7 +173,7 @@ router.post('/me/openai-key', async (req, res) => {
 });
 
 router.delete('/me/openai-key', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         await pb.collection('users').update(userId, {
@@ -198,7 +187,7 @@ router.delete('/me/openai-key', async (req, res) => {
 });
 
 router.get('/me/openai-model', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         const user = await pb.collection('users').getOne(userId);
@@ -209,7 +198,7 @@ router.get('/me/openai-model', async (req, res) => {
 });
 
 router.put('/me/openai-model', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const model = (req.body?.model || '').trim();
     if (!model) return res.status(400).json({ error: 'model is required' });
@@ -222,7 +211,7 @@ router.put('/me/openai-model', async (req, res) => {
 });
 
 router.delete('/me/openai-model', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         await pb.collection('users').update(userId, { preferred_model: '' });

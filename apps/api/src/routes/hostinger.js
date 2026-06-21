@@ -7,20 +7,9 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { encrypt, safeDecrypt } from '../utils/crypto.js';
 import { deploySession } from '../builder/deployer.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
-
-function getUserIdFromHeader(authHeader) {
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString('utf8')
-        );
-        return payload.id || null;
-    } catch {
-        return null;
-    }
-}
 
 // Returns the decrypted Hostinger token for a user, or null.
 export async function getUserHostingerToken(userId) {
@@ -40,7 +29,7 @@ export async function getUserHostingerToken(userId) {
 
 // GET /me/hostinger — connection status (no secret leaves the server)
 router.get('/me/hostinger', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         const user = await pb.collection('users').getOne(userId);
@@ -52,7 +41,7 @@ router.get('/me/hostinger', async (req, res) => {
 
 // PUT /me/hostinger — save the hPanel API token (encrypted at rest)
 router.put('/me/hostinger', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const token = (req.body?.token || '').trim();
@@ -75,7 +64,7 @@ router.put('/me/hostinger', async (req, res) => {
 
 // DELETE /me/hostinger — disconnect
 router.delete('/me/hostinger', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     try {
         await pb.collection('users').update(userId, {
@@ -101,7 +90,7 @@ function wantsStream(req) {
 // POST /api/deploy — push a build session to the VPS. JSON by default; SSE with
 // ?stream=1 so the UI can show live progress (connect → upload → configure).
 router.post('/deploy', async (req, res) => {
-    const userId = getUserIdFromHeader(req.headers.authorization);
+    const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
     const sessionId = (req.body?.session_id || '').trim();
