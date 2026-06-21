@@ -1,0 +1,12 @@
+{
+  "name": "kaushalstack",
+  "version": "0.1.0",
+  "description": "Recommend domain + tech specialists, run round-table discussions, and synthesize specs via kaushalstack — all from Claude Code slash commands or by asking Claude directly.",
+  "author": {
+    "name": "kaushalstack"
+  },
+  "homepage": "https://kaushalstack.com",
+  "repository": "https://github.com/kaushalstack/kaushalstack",
+  "license": "MIT",
+  "keywords": ["agents", "round-table", "spec", "kaushalstack", "multi-agent"]
+}
