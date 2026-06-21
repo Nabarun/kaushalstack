@@ -53,31 +53,63 @@ export async function listChatModels(key) {
         .slice(0, 20);
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode }) {
     // No native JSON mode — append an instruction to the user prompt when needed.
     // The roundtable prompt already asks for JSON, so this is mostly belt-and-suspenders.
     const finalUser = jsonMode
         ? `${userPrompt}\n\nRespond with valid JSON only, no prose or markdown fences.`
         : userPrompt;
 
+    // Anthropic prompt caching: send the cacheable prefix as its own content
+    // block with cache_control: { type: 'ephemeral' }. Cache reads cost ~10%
+    // of base input. The 1024-token minimum is on the prefix itself (a Round
+    // Table team roster + base instructions easily clears that).
+    const userBlocks = cachedPrefix
+        ? [
+            { type: 'text', text: cachedPrefix, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: finalUser },
+          ]
+        : finalUser;
+
     // Newer Claude models (Opus 4, Sonnet 4, etc.) reject `temperature` outright.
     // Anthropic's default (~1.0) is fine for our use case, so we just omit it.
     const body = {
         model: model || DEFAULT_CHAT_MODEL,
         max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: finalUser }],
+        messages: [{ role: 'user', content: userBlocks }],
     };
     if (systemPrompt) body.system = systemPrompt;
 
-    const r = await fetch(`${BASE_URL}/messages`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': key,
-            'anthropic-version': ANTHROPIC_VERSION,
-        },
-        body: JSON.stringify(body),
-    });
+    // Fail-fast timeout: Node's undici default body timeout is 5 min, which
+    // is too long to keep a user waiting when Anthropic stalls (we've seen
+    // /v1/messages hang silently on accounts with billing issues — they
+    // hold the socket open instead of returning a clean 4xx). 60s is enough
+    // for a normal Sonnet/Opus round-table response and surfaces the failure
+    // 5x faster.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    let r;
+    try {
+        r = await fetch(`${BASE_URL}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': key,
+                'anthropic-version': ANTHROPIC_VERSION,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            const e = new Error('anthropic messages timed out after 60s — check Anthropic account status / billing');
+            e.status = 504;
+            throw e;
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeoutId);
+    }
     if (!r.ok) {
         const errBody = (await r.text()).slice(0, 300);
         const err = new Error(`anthropic messages ${r.status}: ${errBody}`);

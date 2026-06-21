@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import logger from '../utils/logger.js';
-import { createSession, sessionDir, fileManifest, readFile, listDir } from './workspace.js';
+import { createSession, sessionDir, fileManifest, readFile, listDir, saveSessionResult } from './workspace.js';
 import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
 import { CONSULT_AGENT_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
@@ -337,6 +337,7 @@ export const CREATIVE_AGENTS = {
         anthropicModel:       'claude-3-5-sonnet-latest',
         maxTurns:             28,
         ingestsDesignSession: false,
+        producesDesignBrief:  true,             // her result carries styles+screen text so Ananya can inherit it even after the workspace expires
     },
     [KAVYA_SKILL_ID]: {
         agentName:            'Kavya',
@@ -380,51 +381,151 @@ function getUserIdFromHeader(authHeader) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Design-brief loader. Used when the calling agent has ingestsDesignSession
-// and the caller passed a design_session_id. Identical behaviour to the old
-// inline block in routes/build.js — pulls Maya's styles.css + first screen +
-// copies her assets into the new session so <img src> tags resolve.
+// Design-brief helpers.
+//
+// A design brief is the text Ananya inherits from Maya: her styles.css
+// (palette/type/spacing tokens) + her first screen's HTML (section structure).
+// Maya's images live on disk and get copied into Ananya's workspace separately.
+//
+// CRITICAL FRAGILITY this fixes: the brief used to be read ONLY from Maya's
+// live workspace via design_session_id. But workspaces are ephemeral — local
+// dev expires them after SESSION_TTL_HOURS (default 1h) and a container
+// restart wipes /tmp. So if the user designed mockups and then built later,
+// Maya's workspace was already gone, the loader silently returned null, and
+// Ananya built with NO brief while the UI still said "building from Maya's
+// design." Now Maya's brief TEXT is persisted on her chat result (see
+// producesDesignBrief below) and passed back in as an inline fallback, so the
+// handoff survives even when the design workspace is gone.
 // ────────────────────────────────────────────────────────────────────────
-async function loadDesignBriefAndCopyAssets(sessionId, designSessionId) {
-    if (!/^[a-f0-9]{16}$/.test(designSessionId || '')) return null;
+// Bigger cap on the styles snapshot than the screens because Maya's
+// styles.css runs ~16KB (5KB tokens + 11KB class definitions) and the
+// inline fallback needs the WHOLE file to recreate her design — otherwise
+// Ananya writes HTML referencing class names that the truncated CSS no
+// longer defines.
+const DESIGN_BRIEF_STYLES_CAP = 24000;
+const DESIGN_BRIEF_SCREEN_CAP = 2400;
+const DESIGN_BRIEF_MAX_SCREENS = 8;   // Maya produces 5; cap is a bit higher in case she ever stretches
 
+// Read the text portion of a design brief (styles.css + every screen Maya
+// produced) out of a session workspace. Returns null when nothing is present.
+//
+// Why ALL screens, not just the first: Maya hands off a multi-screen flow
+// (typically 5). If Ananya only sees screen #1 she'll build a single-page
+// site and lose the page count + the connections between screens. The brief
+// has to carry the full set so the build phase knows N pages → N files.
+export async function readDesignBriefText(sessionId) {
+    if (!/^[a-f0-9]{16}$/.test(sessionId || '')) return null;
+    const styles = await readFile(sessionId, 'styles.css').catch(() => null);
+
+    const entries = await listDir(sessionId, 'screens').catch(() => []);
+    const screenFiles = entries
+        .filter(e => e.kind === 'file' && e.name.endsWith('.html'))
+        .sort((a, b) => a.name.localeCompare(b.name))   // 01-… 02-… preserves flow order
+        .slice(0, DESIGN_BRIEF_MAX_SCREENS);
+
+    const screens = [];
+    for (const f of screenFiles) {
+        const html = await readFile(sessionId, `screens/${f.name}`).catch(() => null);
+        if (html) screens.push({ name: f.name, html: html.slice(0, DESIGN_BRIEF_SCREEN_CAP) });
+    }
+
+    if (!styles && screens.length === 0) return null;
+    return {
+        styles:        styles ? styles.slice(0, DESIGN_BRIEF_STYLES_CAP) : null,
+        screens,                                   // [{name, html}, …] — full flow
+        sample_screen: screens[0]?.html || null,   // back-compat for older callers
+    };
+}
+
+// Build the design brief handed to Ananya. Prefers Maya's live workspace (via
+// design_session_id) but falls back to the inline brief persisted on her chat
+// result so the handoff still works after the workspace is cleaned up. Always
+// tries to copy her images when the workspace survives (images can't inline).
+async function loadDesignBriefAndCopyAssets(sessionId, designSessionId, inlineBrief) {
     let designBrief = null;
+
+    // 1. Freshest source: Maya's live workspace.
     try {
-        const styles = await readFile(designSessionId, 'styles.css').catch(() => null);
-        let sampleScreen = null;
-        const screens = await listDir(designSessionId, 'screens').catch(() => []);
-        const firstHtml = screens.find(e => e.kind === 'file' && e.name.endsWith('.html'));
-        if (firstHtml) {
-            sampleScreen = await readFile(designSessionId, `screens/${firstHtml.name}`).catch(() => null);
-        }
-        if (styles || sampleScreen) {
-            designBrief = {
-                styles:        styles       ? styles.slice(0, 4000)       : null,
-                sample_screen: sampleScreen ? sampleScreen.slice(0, 3000) : null,
-            };
+        designBrief = await readDesignBriefText(designSessionId);
+        if (designBrief) {
             logger.info(`creative: design brief loaded from design_session=${designSessionId} (styles=${designBrief.styles ? designBrief.styles.length : 0}B, screen=${designBrief.sample_screen ? designBrief.sample_screen.length : 0}B)`);
         }
     } catch (err) {
-        logger.warn(`creative: failed to load design brief: ${err.message}`);
+        logger.warn(`creative: failed to load design brief from workspace: ${err.message}`);
     }
 
-    // Copy Maya's images into the new workspace so <img src> tags resolve.
-    try {
-        const fromAssets = path.join(await sessionDir(designSessionId), 'assets');
-        const toAssets   = path.join(await sessionDir(sessionId), 'assets');
-        const stat = await fs.stat(fromAssets).catch(() => null);
-        if (stat?.isDirectory()) {
-            await fs.cp(fromAssets, toAssets, { recursive: true });
-            const entries = await fs.readdir(fromAssets);
-            const copiedImages = entries
-                .filter(f => /\.(jpe?g|png|webp|gif|svg|avif)$/i.test(f))
-                .map(f => `assets/${f}`);
-            logger.info(`creative: copied ${copiedImages.length} assets from design_session=${designSessionId}`);
-            if (designBrief) designBrief.available_images = copiedImages;
-            else if (copiedImages.length > 0) designBrief = { available_images: copiedImages };
+    // 2. Fallback: the brief text persisted on Maya's chat result. This is what
+    //    keeps the handoff alive once the design workspace has expired.
+    if (!designBrief && inlineBrief && (inlineBrief.styles || inlineBrief.sample_screen || (Array.isArray(inlineBrief.screens) && inlineBrief.screens.length))) {
+        const screens = Array.isArray(inlineBrief.screens)
+            ? inlineBrief.screens.slice(0, DESIGN_BRIEF_MAX_SCREENS).map(s => ({
+                name: String(s?.name || '').slice(0, 80),
+                html: String(s?.html || '').slice(0, DESIGN_BRIEF_SCREEN_CAP),
+            })).filter(s => s.name && s.html)
+            : [];
+        designBrief = {
+            styles:        inlineBrief.styles       ? String(inlineBrief.styles).slice(0, DESIGN_BRIEF_STYLES_CAP)         : null,
+            screens,
+            sample_screen: inlineBrief.sample_screen ? String(inlineBrief.sample_screen).slice(0, DESIGN_BRIEF_SCREEN_CAP) : (screens[0]?.html || null),
+        };
+        logger.info(`creative: design brief restored from inline fallback (workspace ${designSessionId || 'n/a'} gone, screens=${screens.length})`);
+    }
+
+    // 3a. Pre-write Maya's styles.css into Ananya's workspace verbatim.
+    //     gpt-4o-mini can't reliably re-transcribe a 16KB stylesheet without
+    //     dropping or scrambling class definitions — the result is HTML that
+    //     references classes the CSS no longer has. Copying the file directly
+    //     guarantees pixel fidelity for the inherited design system.
+    //
+    //     Preference order:
+    //       a) copy from Maya's live workspace (verbatim, full file)
+    //       b) write from the inline brief's `styles` field (capped, but
+    //          better than asking Ananya to recreate from scratch)
+    let stylesPreloaded = false;
+    {
+        const toStyles = path.join(await sessionDir(sessionId), 'styles.css');
+        if (/^[a-f0-9]{16}$/.test(designSessionId || '')) {
+            const fromStyles = path.join(await sessionDir(designSessionId), 'styles.css');
+            try {
+                await fs.copyFile(fromStyles, toStyles);
+                stylesPreloaded = true;
+                logger.info(`creative: styles.css copied verbatim from design_session=${designSessionId}`);
+            } catch (err) {
+                if (err.code !== 'ENOENT') logger.warn(`creative: styles.css copy failed: ${err.message}`);
+            }
         }
-    } catch (err) {
-        logger.warn(`creative: asset copy from design_session failed: ${err.message}`);
+        if (!stylesPreloaded && designBrief?.styles) {
+            try {
+                await fs.writeFile(toStyles, designBrief.styles, 'utf8');
+                stylesPreloaded = true;
+                logger.info(`creative: styles.css restored from inline brief (${designBrief.styles.length}B)`);
+            } catch (err) {
+                logger.warn(`creative: styles.css inline restore failed: ${err.message}`);
+            }
+        }
+    }
+    if (designBrief) designBrief.stylesPreloaded = stylesPreloaded;
+
+    // 3b. Copy Maya's images into the new workspace so <img src> tags resolve.
+    //     Only possible while her workspace still exists.
+    if (/^[a-f0-9]{16}$/.test(designSessionId || '')) {
+        try {
+            const fromAssets = path.join(await sessionDir(designSessionId), 'assets');
+            const toAssets   = path.join(await sessionDir(sessionId), 'assets');
+            const stat = await fs.stat(fromAssets).catch(() => null);
+            if (stat?.isDirectory()) {
+                await fs.cp(fromAssets, toAssets, { recursive: true });
+                const entries = await fs.readdir(fromAssets);
+                const copiedImages = entries
+                    .filter(f => /\.(jpe?g|png|webp|gif|svg|avif)$/i.test(f))
+                    .map(f => `assets/${f}`);
+                logger.info(`creative: copied ${copiedImages.length} assets from design_session=${designSessionId}`);
+                if (designBrief) designBrief.available_images = copiedImages;
+                else if (copiedImages.length > 0) designBrief = { available_images: copiedImages };
+            }
+        } catch (err) {
+            logger.warn(`creative: asset copy from design_session failed: ${err.message}`);
+        }
     }
 
     return designBrief;
@@ -446,6 +547,8 @@ export async function runCreativeAgent({
     rawQuery,
     rawContext,
     designSessionId,
+    designBriefInline,   // optional: persisted Maya brief text, used as a fallback
+                         // when her workspace (design_session_id) is already gone.
     authHeader,
     onEvent,        // optional: { kind, ... } callbacks per agent step. Used by
                     // the SSE route to stream progress as the agent works.
@@ -500,8 +603,14 @@ export async function runCreativeAgent({
         logger.info(`creative: agent=${config.agentName} session=${sessionId} provider=${provider} model=${model} query=${JSON.stringify(query.slice(0, 80))} context=${context ? context.length : 0} design=${designSessionId ? 'yes' : 'no'}`);
 
         let designBrief = null;
-        if (config.ingestsDesignSession && designSessionId) {
-            designBrief = await loadDesignBriefAndCopyAssets(sessionId, designSessionId);
+        if (config.ingestsDesignSession && (designSessionId || designBriefInline)) {
+            designBrief = await loadDesignBriefAndCopyAssets(sessionId, designSessionId, designBriefInline);
+        }
+        // Whether Ananya actually received Maya's design (vs. the UI claiming so
+        // while the brief silently failed to load). Surfaced in the response.
+        const designApplied = !!(designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.screens?.length || designBrief.available_images?.length));
+        if (config.ingestsDesignSession && (designSessionId || designBriefInline) && !designApplied) {
+            logger.warn(`creative: agent=${config.agentName} session=${sessionId} expected a design brief but none could be loaded (workspace=${designSessionId || 'n/a'}, inline=${designBriefInline ? 'present' : 'none'})`);
         }
 
         // Emit a session_start event so the client can show "Maya is thinking…"
@@ -538,19 +647,41 @@ export async function runCreativeAgent({
         const { final, trace } = await agentRun;
         const manifest = await fileManifest(sessionId);
 
+        // Design-source agents (Maya) carry their brief TEXT on the result so it
+        // can be persisted on the chat and handed to Ananya later even if this
+        // workspace expires before the build runs.
+        let designBriefOut = null;
+        if (config.producesDesignBrief) {
+            designBriefOut = await readDesignBriefText(sessionId).catch(() => null);
+        }
+
         // /api/build's download + preview GET handlers work on any session id,
         // so every creative agent's output is served via the same URLs.
-        return {
-            session_id:   sessionId,
-            agent_id:     agentId,
-            agent_name:   config.agentName,
-            summary:      final,
-            files:        manifest,
+        const result = {
+            session_id:    sessionId,
+            agent_id:      agentId,
+            agent_name:    config.agentName,
+            summary:       final,
+            files:         manifest,
             trace,
-            engine:       { provider, model },
-            download_url: `/api/build/${sessionId}/download`,
-            preview_url:  `/api/build/${sessionId}/preview/`,
+            engine:        { provider, model },
+            download_url:  `/api/build/${sessionId}/download`,
+            preview_url:   `/api/build/${sessionId}/preview/`,
+            design_applied: designApplied,   // did this run actually inherit a design brief?
+            design_brief:   designBriefOut,  // present on design-source agents (Maya) for later handoff
         };
+
+        // Sidecar persistence — recovery path for clients whose SSE stream
+        // dropped mid-run. /api/build/:id/result reads this file. Failures
+        // here are swallowed because the in-memory return path is the
+        // primary one; the sidecar is purely a fallback.
+        try {
+            await saveSessionResult(sessionId, result);
+        } catch (err) {
+            logger.warn(`creative: failed to persist session result for ${sessionId}: ${err.message}`);
+        }
+
+        return result;
     } catch (err) {
         logger.error(`creative error agent=${config.agentName} session=${sessionId}: ${err.message}`);
         err.sessionId = sessionId;

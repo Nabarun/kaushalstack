@@ -41,10 +41,18 @@ export async function listChatModels(key) {
         .map(m => ({ id: m.id, created: m.created || 0, owned_by: m.owned_by || 'openai' }));
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode }) {
+    // OpenAI auto-caches identical prompt prefixes >=1024 tokens for 5-10
+    // minutes. We don't send explicit markers — the only requirement is that
+    // the cached prefix sit at the START of the prompt and be byte-identical
+    // across calls. Combining cachedPrefix + userPrompt in that order gives
+    // the cache a stable hit zone for multi-turn round tables.
+    const userContent = cachedPrefix
+        ? `${cachedPrefix}\n\n${userPrompt}`
+        : userPrompt;
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: userPrompt });
+    messages.push({ role: 'user', content: userContent });
 
     const body = {
         model: model || DEFAULT_CHAT_MODEL,

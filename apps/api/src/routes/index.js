@@ -14,6 +14,8 @@ import openaiModelsRouter from './openai-models.js';
 import buildRouter from './build.js';
 import mockupRouter from './mockup.js';
 import creativeRouter from './creative.js';
+import hostingerRouter from './hostinger.js';
+import specRouter from './spec.js';
 
 const router = Router();
 
@@ -37,6 +39,8 @@ export default () => {
     router.use('/', buildRouter);
     router.use('/', mockupRouter);
     router.use('/', creativeRouter);
+    router.use('/', hostingerRouter);
+    router.use('/', specRouter);
 
     return router;
 };

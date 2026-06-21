@@ -77,6 +77,26 @@ function TypingDots() {
   );
 }
 
+// Pull the first sample prompt out of a skill's "## When to pick X" section.
+// Newer skills (Anuba, Zach, Kavya, Tara, Vaibhav, Suyash, Prasad, …) follow
+// the convention of bullet-listing italicised utterances right under that
+// heading. Falls back to the skill name if the section is missing or doesn't
+// parse — caller can decide whether to keep or drop those.
+function extractUtteranceFromSkill(skill) {
+  if (!skill?.description) return null;
+  // Match the "When to pick" section (everything until the next H2 or H1).
+  const section = skill.description.match(/##\s+When to pick[^\n]*\n+([\s\S]*?)(?=\n##\s|\n#\s|$)/);
+  if (!section) return null;
+  // First italic bullet — works for `- *prompt*` and `* *prompt*`.
+  const italic = section[1].match(/[-*]\s+\*([^*\n][^*]*)\*/);
+  if (italic) return italic[1].trim();
+  // Fallback: any bulleted line, stripped of surrounding markdown / quote
+  // characters. Catches the "quoted prompt" pattern some older skills use.
+  const any = section[1].match(/[-*]\s+([^\n]+)/);
+  if (any) return any[1].replace(/^[*_"'`]+|[*_"'`]+$/g, '').trim();
+  return null;
+}
+
 // Strip the leading markdown `# Title (Agent)` and any other markdown
 // markers so the card preview reads as plain prose. Newer skills use
 // rich markdown descriptions; older ones are plain text — both work.
@@ -280,8 +300,11 @@ const HomePage = () => {
 
     // PocketBase direct read — `created` is the autodate field on the skills
     // collection. Fields list trims payload to what AgentCard actually renders.
+    // perPage=20 gives the phase-filtered suggestions enough headroom to land
+    // matches in Execution / Marketing tiles even when most recent drops are
+    // ideation-heavy; the "Just added" shelf below still slices to 5.
     const recentFields = 'id,name,description,category,phase,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,created';
-    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=5&fields=${recentFields}`)
+    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=20&fields=${recentFields}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.items) setRecentSkills(d.items); })
       .catch(err => console.error('Failed to fetch recent skills:', err));
@@ -382,7 +405,7 @@ const HomePage = () => {
               >
                 {/* LEFT: Demo video */}
                 <div className="order-2 lg:order-1">
-                  <DemoVideoCard src="/demo-jun6.mp4" poster="/demo-jun6-poster.jpg" duration="3 min" />
+                  <DemoVideoCard src="/demo-jun14.mp4" poster="/demo-jun14-poster.jpg" duration="2 min" />
                   <p className="text-center text-xs text-muted-foreground mt-3">
                     🎥 Latest walkthrough — Maya designs, Ananya builds, you download.
                   </p>
@@ -551,37 +574,74 @@ const HomePage = () => {
               </div>
             )}
 
-            {/* Recommended suggestions — only when empty and not in split-hero mode */}
-            {isEmpty && !showSplitHero && (
-              <div className="mb-8">
+            {/* Recommended suggestions — derived from the 5 most-recently-added
+                skills. Each pulls the first sample utterance out of that skill's
+                "When to pick" section, so clicking surfaces that exact agent.
+                If the phase tile is selected, filter to suggestions matching
+                that phase; otherwise show all five. Falls back to the hardcoded
+                examples until recent skills load. */}
+            {isEmpty && !showSplitHero && (() => {
+              const recentSuggestions = recentSkills
+                .map(s => {
+                  const prompt = extractUtteranceFromSkill(s);
+                  if (!prompt) return null;
+                  return { phase: s.phase || 'ideation', prompt, agent: s.agent_name };
+                })
+                .filter(Boolean);
+              const phaseFiltered = selectedPhase
+                ? recentSuggestions.filter(e => e.phase === selectedPhase)
+                : recentSuggestions;
+              // Threshold is 1, not 2: even a single phase-matching recent
+              // agent should surface over the static fallback. The fetch
+              // window above is wide (20) so phases with sparse drops
+              // (Marketing especially) still have a shot at hitting.
+              const usingRecent = phaseFiltered.length >= 1;
+              // Cap at 6 to match the static fallback's visual density —
+              // matches the 2-col grid layout below.
+              const examples = usingRecent
+                ? phaseFiltered.slice(0, 6)
+                : (selectedPhase ? PHASE_EXAMPLES[selectedPhase] : DEFAULT_EXAMPLES);
+              const heading = usingRecent
+                ? (selectedPhase
+                    ? `Try our newest ${selectedPhase} agents`
+                    : 'Try our newest agents')
+                : (selectedPhase
+                    ? `${selectedPhase.charAt(0).toUpperCase() + selectedPhase.slice(1)} suggestions`
+                    : 'Recommended suggestions');
+              return (
+                <div className="mb-8">
                   <div>
                     <div className="flex items-center gap-2 mb-2.5">
                       <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                        {selectedPhase
-                          ? `${selectedPhase.charAt(0).toUpperCase() + selectedPhase.slice(1)} suggestions`
-                          : 'Recommended suggestions'}
+                        {heading}
                       </span>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-2">
-                      {(selectedPhase ? PHASE_EXAMPLES[selectedPhase] : DEFAULT_EXAMPLES).map((ex, i) => (
+                      {examples.map((ex, i) => (
                         <button
-                          key={`${selectedPhase || 'all'}-${i}`}
+                          key={`${ex.agent || selectedPhase || 'all'}-${i}`}
                           onClick={() => handleSubmit(ex.prompt, ex.phase)}
                           className="text-left text-sm px-4 py-3 rounded-xl border border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors group"
                         >
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="inline-block text-[10px] font-mono font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                               {ex.phase}
                             </span>
+                            {ex.agent && (
+                              <span className="text-[10px] font-mono text-muted-foreground/70 group-hover:text-primary/70">
+                                surfaces {ex.agent}
+                              </span>
+                            )}
                           </div>
                           <div className="leading-snug">"{ex.prompt}"</div>
                         </button>
                       ))}
                     </div>
                   </div>
-              </div>
-            )}
+                </div>
+              );
+            })()}
 
             {/* Chat messages */}
             {!isEmpty && (
@@ -764,7 +824,7 @@ const HomePage = () => {
               {/* Grid scales from 1 → 2 → 3 → 5 cols. 5-across at xl puts every
                   card on one row for a clean shelf look on wide screens. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto">
-                {recentSkills.map((skill, i) => (
+                {recentSkills.slice(0, 5).map((skill, i) => (
                   <AgentCard key={skill.id} skill={skill} index={i} onViewDetails={handleViewDetails} />
                 ))}
               </div>

@@ -65,20 +65,77 @@ export async function runBuildAgent({
 
     // If Maya (UX Designer) produced mockups for this round-table chat first,
     // her design system gets appended as a hard brief. Ananya should inherit
-    // palette/type/layout rather than starting blank.
-    if (designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.available_images?.length)) {
+    // palette/type/layout AND page count — one HTML file per Maya screen,
+    // navigation wired in screen order.
+    if (designBrief && (designBrief.styles || designBrief.sample_screen || designBrief.screens?.length || designBrief.available_images?.length)) {
         const briefSections = [];
         if (designBrief.available_images?.length) {
             const imgList = designBrief.available_images.map(p => `  - ${p}`).join('\n');
             briefSections.push(`Image files ALREADY IN YOUR WORKSPACE under assets/ (copied from Maya's session — reference these directly in <img src="..."> tags, do NOT call search_images for these subjects again):\n${imgList}`);
         }
-        if (designBrief.styles) {
+        // When styles.css has been pre-copied to the workspace, we don't paste
+        // it into the prompt — the agent shouldn't be reading or rewriting it.
+        // It's only useful as context when she has to recreate it herself.
+        if (designBrief.styles && !designBrief.stylesPreloaded) {
             briefSections.push(`Maya's design system (styles.css — palette, type, spacing, tokens):\n\`\`\`css\n${designBrief.styles}\n\`\`\``);
         }
-        if (designBrief.sample_screen) {
+
+        // Prefer the full screens array. Build one prompt section per screen so
+        // Ananya can map each to a separate HTML page and wire connections.
+        const screens = Array.isArray(designBrief.screens) ? designBrief.screens : [];
+        if (screens.length > 0) {
+            // Derive Ananya-friendly page filenames from Maya's screen names:
+            // 01-hero.html → index.html (the entry), 02-form-step1.html → form-step1.html, etc.
+            const pages = screens.map((s, i) => {
+                const stripped = s.name.replace(/\.html?$/i, '').replace(/^\d+[-_]?/, ''); // "01-form-step1" → "form-step1"
+                const slug = stripped || `page-${i + 1}`;
+                const file = i === 0 ? 'index.html' : `${slug}.html`;
+                return { ...s, file, slug };
+            });
+            const planLines = pages.map((p, i) =>
+                `  ${i + 1}. ${p.name}  →  write file \`${p.file}\`${i + 1 < pages.length ? `  — its primary CTA / form action MUST link to \`${pages[i + 1].file}\`` : '  (final / end of flow — no forward link)'}`
+            ).join('\n');
+            const allowedHrefs = pages.map(p => `\`${p.file}\``).join(', ');
+            const screenSections = pages.map((p, i) => (
+                `### Screen ${i + 1} of ${pages.length} — Maya called it \`${p.name}\`  →  YOU write it as \`${p.file}\`\n\`\`\`html\n${p.html}\n\`\`\``
+            )).join('\n\n');
+            briefSections.push(
+                `Maya designed a ${pages.length}-screen flow. Build ${pages.length} HTML pages — ONE per screen — and wire them together in this order:\n\n${planLines}\n\n` +
+                `LINK NAMING — every internal navigation \`<a href="...">\` and every \`<form action="...">\` MUST resolve to one of these exact filenames: ${allowedHrefs}. NEVER copy Maya's screen filenames (\`01-…html\`) into your hrefs — those files do not exist in your workspace. If you copy a link target from Maya's HTML, you must translate it: e.g. \`02-form.html\` in Maya's source becomes \`form.html\` in yours.\n\n` +
+                `EVERY NON-FINAL PAGE NEEDS A FORWARD LINK. The "primary CTA" on each page is whatever the user clicks to advance — a button labeled "Continue", "Get my report", "Pay Now", "Upgrade", a form submit, etc. It MUST navigate forward. The two patterns are:\n` +
+                `  (a) Plain link: \`<a class="btn ..." href="next.html">Continue</a>\`\n` +
+                `  (b) Form submit: wrap the button in \`<form action="next.html" method="GET">...<button type="submit">Pay Now</button></form>\`. A bare \`<button type="submit">\` outside a form is a dead end — clicking it does nothing.\n` +
+                `Common failure: a "Pay Now" / "Upgrade" / "Continue to paid" button written as a standalone \`<button>\` without a wrapping form or an \`href\`. The user clicks it and gets stuck — even though the destination page exists. Before moving to the next page, re-read what you just wrote and confirm the forward link is present.\n\n` +
+                `NAVBAR LINKS — Maya's mockup navbars use \`href="#"\` as a placeholder for every nav item ("Pricing", "Sample report", "Stories", "Sign in", "Start free", etc.). You MUST translate each one into a real destination from your page list — \`href="#"\` in your output is forbidden EXCEPT for in-page anchor jumps where the target section actually exists (e.g. \`href="#stories"\` and the page has \`id="stories"\` somewhere). The mapping rules, in priority order:\n` +
+                `  1. If the nav label semantically matches one of your pages — "Sample report" → \`basic-report.html\`, "Pricing" → \`pro-report.html\` or \`upgrade.html\`, "Get started" / "Start free" / "Try it" → the first non-landing page (typically \`intake.html\` or \`assessment.html\`), "Sign in" / "Log in" → \`index.html\` — use that page.\n` +
+                `  2. Otherwise, drop the entire \`<a>\` tag from the navbar. A nav with 3 working links is better than a nav with 7 fake ones.\n` +
+                `Same rule applies to in-page tab-style navs ("Scorecard / Report / Tracker", "Intake / Results"). Every tab href must resolve to a real workspace file. No \`href="#"\`.\n\n` +
+                `FORM METHOD — every \`<form>\` MUST use \`method="GET"\` (or no method attribute at all, which defaults to GET). The preview is static — there is no backend. \`method="POST"\` would land the user on the destination page but with discarded form data and a broken back button. GET is the right method for "navigate to next page".\n\n` +
+                `Preserve the same shared navbar / header across every page so they feel like one app.\n\n` +
+                `MANDATORY: write a shared \`script.js\` file and \`<script defer src="script.js"></script>\` it from every page. The site is interactive HTML5 + vanilla JS, not a stack of static screenshots. Required behaviors:\n` +
+                `  - **Persist form state across pages** via localStorage. On any form-submit page, write all named fields to \`localStorage.setItem('secondact_intake', JSON.stringify(formData))\` (or a similarly-named key derived from the project) BEFORE the form's GET navigation fires. On the next page, read that key in a DOMContentLoaded handler and personalize the rendering (e.g. show "Hi, {name}" on the report page, fill in summary cards from the user's inputs, etc.).\n` +
+                `  - **Client-side validation** on every form. Use HTML5 \`required\`, \`type="email"\`, \`pattern\`, plus a small JS handler that prevents submit if validation fails and shows a friendly inline error. No native browser alerts.\n` +
+                `  - **Animate "loading" / "generating" / "processing" screens.** If Maya designed a transitional state screen (one that says "generating your report", "thinking", "analyzing"), it should auto-advance after 2–4 seconds via \`setTimeout(() => location.href = 'next.html', 3000)\` and animate a progress indicator (CSS keyframe + JS percentage tick) while it waits. The user should NEVER have to manually click "Next" on a loading screen.\n` +
+                `  - **Interactive chips / tabs / toggles**: any element Maya drew with \`is-on\` / \`active\` / \`selected\` state classes should respond to clicks (\`addEventListener('click', toggle)\`) and visually update.\n` +
+                `  - **Semantic HTML5**: use \`<header>\`, \`<nav>\`, \`<main>\`, \`<section>\`, \`<form>\`, \`<button>\` properly — not a sea of \`<div>\`s. Add \`aria-*\` attributes where needed for screen readers (\`aria-label\` on icon-only buttons, \`aria-current\` on active nav items, \`aria-live="polite"\` on the loading indicator).\n` +
+                `  - **Keep script.js under 8KB**. Use small, named functions; no frameworks.\n\n` +
+                screenSections
+            );
+        } else if (designBrief.sample_screen) {
+            // Back-compat: older briefs (or single-screen Maya runs) only carry one sample.
             briefSections.push(`Maya's primary screen layout (use the structure and visual hierarchy, NOT the device frame):\n\`\`\`html\n${designBrief.sample_screen}\n\`\`\``);
         }
-        userMessage += `\n\n────────\nDESIGN BRIEF FROM MAYA (UX Designer)\n\nYour teammate Maya already designed the mockups for this. INHERIT her visual decisions — exact palette colors, fonts, spacing scale, button/card shapes, layout patterns — AND reuse the photos she already pulled. Build the production website that embodies her design system.\n\nIMPORTANT:\n- Do NOT preserve her mockup's device frame (iPhone shell or browser-window chrome). Build the real, full-width website.\n- Pull the CSS variables / palette from her styles.css verbatim where you can. Don't invent new colors.\n- Use the same typography stack.\n- Mirror the section structure of her screen.\n- For images, USE THE FILES ALREADY IN assets/ (listed below). Only call search_images for NEW image subjects Maya didn't pull.\n\n${briefSections.join('\n\n')}`;
+
+        const multiPage = screens.length > 1;
+        // When the runtime managed to pre-write Maya's styles.css into the
+        // workspace, the agent MUST NOT overwrite it — small models keep
+        // re-transcribing the file and dropping ~80% of the class
+        // definitions. The HTML she writes references those classes, so
+        // losing them means unstyled pages.
+        const stylesLine = designBrief.stylesPreloaded
+            ? `STYLES.CSS IS ALREADY IN YOUR WORKSPACE — Maya's verbatim stylesheet has been pre-copied for you (full file, all class definitions intact). Do NOT call write_file('styles.css', ...) — that would overwrite the source of truth and destroy the design. Every HTML page you write must \`<link rel="stylesheet" href="styles.css">\` and use the class names you see in Maya's screen HTML below. The classes already exist in the pre-loaded styles.css — trust them, don't guess.`
+            : `MANDATORY FIRST STEP: write \`styles.css\` BEFORE writing any HTML page. Populate it with Maya's CSS variables, type stack, spacing, colors, button/card primitives — copied verbatim where possible. Every HTML page you write \`<link rel="stylesheet" href="styles.css">\`s it, so it MUST exist. Pages with a missing styles.css render as unstyled black text on white — a complete visual regression.`;
+        userMessage += `\n\n────────\nDESIGN BRIEF FROM MAYA (UX Designer)\n\nYour teammate Maya already designed the mockups for this. INHERIT her visual decisions — exact palette colors, fonts, spacing scale, button/card shapes, layout patterns — AND reuse the photos she already pulled. ${multiPage ? `Build ${screens.length} production HTML pages that match Maya's screen flow one-to-one.` : 'Build the production website that embodies her design system.'}\n\n${stylesLine}\n\nIMPORTANT — what to strip from Maya's mockup HTML:\n- Maya wrapped each screen in a device frame. STRIP IT in your HTML. Remove every \`<div class="stage">\`, \`<div class="browser">\`, \`<div class="browser__bar">\`, \`<div class="browser__viewport">\`, \`<div class="phone">\`, \`<div class="iphone">\`, faux URL bars, traffic-light dots, status bars — anything that exists to make her HTML look like a screenshot.\n- KEEP everything INSIDE the frame: navbars, hero sections, cards, forms, footers. That's the actual content.\n- Use the class names from Maya's screen HTML directly — \`.tile\`, \`.bento\`, \`.btn\`, \`.input\`, \`.nav\`, \`.brand\`, \`.eyebrow\`, \`.hero\`, etc. They are all defined in the pre-loaded styles.css.\n- Use the same typography stack.\n${multiPage ? `- Produce EXACTLY ${screens.length} HTML files, one per Maya screen, named per the plan below. Same number of pages as Maya, all connected in the same order.\n- Mirror the section structure of EACH screen (do not collapse multiple screens into one page).\n- Same navbar/header on every page.\n` : '- Mirror the section structure of her screen.\n'}- For images, USE THE FILES ALREADY IN assets/ (listed below). Only call search_images for NEW image subjects Maya didn't pull.\n\n${briefSections.join('\n\n')}`;
     }
 
     const messages = [

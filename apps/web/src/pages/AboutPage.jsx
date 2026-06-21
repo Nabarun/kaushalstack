@@ -60,14 +60,14 @@ const AboutPage = () => {
             <div className="text-center mb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full mb-3">
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
-                <span className="text-xs font-semibold text-primary uppercase tracking-widest">Latest · June 6</span>
+                <span className="text-xs font-semibold text-primary uppercase tracking-widest">Latest · June 14</span>
               </div>
               <h2 className="text-2xl md:text-3xl font-bold mb-2">See kaushalstack in action</h2>
               <p className="text-sm text-muted-foreground max-w-xl mx-auto">
                 Maya designs the mockups, Ananya builds the production website from her design system, you download the ZIP.
               </p>
             </div>
-            <DemoVideoCard src="/demo-jun6.mp4" poster="/demo-jun6-poster.jpg" duration="3 min" />
+            <DemoVideoCard src="/demo-jun14.mp4" poster="/demo-jun14-poster.jpg" duration="2 min" />
           </div>
         </section>
 

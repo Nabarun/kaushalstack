@@ -22,6 +22,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    volumes:
+      # Generated mockups/builds live here. Persisting the volume keeps a saved
+      # Round Table chat's previews alive across container restarts.
+      - kaushal_workspaces:/data/workspaces
     environment:
       PORT: ${PORT:-3001}
       NODE_ENV: ${NODE_ENV:-development}
@@ -29,11 +33,22 @@ services:
       PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
       PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/data/workspaces}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-0}
       INTEGRATED_AI_API_URL: ${INTEGRATED_AI_API_URL:-}
       INTEGRATED_AI_API_KEY: ${INTEGRATED_AI_API_KEY:-}
       WEBSITE_ID: ${WEBSITE_ID:-}
       WEBSITE_DOMAIN: ${WEBSITE_DOMAIN:-localhost}
       PROXY_ENTRANCE_ID: ${PROXY_ENTRANCE_ID:-}
+      # Encrypts per-user secrets (BYOK keys + Hostinger token). Required.
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET}
+      # Server-side OpenAI key used by the creative agents (Maya/Ananya/…).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # VPS target for Ananya → Hostinger deploys (defaults baked into deployer.js).
+      DEPLOY_VPS_HOST: ${DEPLOY_VPS_HOST:-}
+      DEPLOY_VPS_USER: ${DEPLOY_VPS_USER:-}
+      DEPLOY_VPS_PASSWORD: ${DEPLOY_VPS_PASSWORD:-}
+      DEPLOY_HTTP_PORT: ${DEPLOY_HTTP_PORT:-}
     depends_on:
       pocketbase:
         condition: service_healthy
@@ -47,3 +62,4 @@ services:
 
 volumes:
   pocketbase_data:
+  kaushal_workspaces:

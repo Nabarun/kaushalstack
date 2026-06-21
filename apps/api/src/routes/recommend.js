@@ -135,50 +135,24 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
         }
     }
 
-    // Required pins — Ananya for build-shaped execution, Maya for design-shaped
-    // ideation OR execution. We first try the phase-filtered scored list (so
-    // we keep _score if available); otherwise fall back to getSkillById, which
-    // ignores phase and ensures cross-phase pins still work.
+    // Required pins — Maya / Ananya / Hostinger are intentionally NOT pinned
+    // here anymore. They're executors, not deliberators: the round table is
+    // for domain specialists to discuss WHAT to build, and Aisha's spec
+    // determines WHICH executor stages then run downstream (the pipeline row
+    // below the chat). Kavya (email) and Tara (social) remain pinnable
+    // because they still benefit from round-table input on tone/audience.
     const pins = [];
-    if (phase === 'execution' && isBuildQuery(query)) {
-        const ananya = scored.find(s => s.id === ANANYA_SKILL_ID) || getSkillById(ANANYA_SKILL_ID);
-        if (ananya) pins.push(ananya);
-    }
-    // Maya pins on either explicit design language OR any web/app-y build query.
-    // Rationale: every "build a landing page / app / site" intrinsically has a
-    // UX layer — palette, typography, layout. Showing mockups alongside the
-    // build is almost always useful, never harmful.
-    if ((phase === 'ideation' || phase === 'execution') && (isDesignQuery(query) || isBuildQuery(query))) {
-        const maya = scored.find(s => s.id === MAYA_SKILL_ID) || getSkillById(MAYA_SKILL_ID);
-        if (maya) pins.push(maya);
-    }
-    // Kavya pins for marketing-phase email-shaped queries — she's the
-    // tool-using designer that renders an actual HTML email + preview, the
-    // way Maya does for app UI. Any marketing prompt that names email /
-    // newsletter / inbox / drip / launch email triggers the pin.
+    // Kavya pins for marketing-phase email-shaped queries.
     if (phase === 'marketing' && isEmailCampaignQuery(query)) {
         const kavya = scored.find(s => s.id === KAVYA_SKILL_ID) || getSkillById(KAVYA_SKILL_ID);
         if (kavya) pins.push(kavya);
     }
-    // Tara pins for marketing-phase social-media queries — Instagram, Facebook,
-    // LinkedIn post/thread, Twitter/X thread, reels, stories, carousels. She
-    // renders the post inside the platform's own UI chrome the way Maya does
-    // for apps and Kavya does for inboxes.
+    // Tara pins for marketing-phase social-media queries.
     if (phase === 'marketing' && isSocialMediaQuery(query)) {
         const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
         if (tara) pins.push(tara);
     }
-    // Hostinger pins for execution-phase deploy/hosting-shaped queries —
-    // "deploy my site", "put this online", "connect my domain", "hostinger".
-    if (phase === 'execution' && isDeployQuery(query)) {
-        const hostinger = scored.find(s => s.id === HOSTINGER_SKILL_ID) || getSkillById(HOSTINGER_SKILL_ID);
-        if (hostinger) pins.push(hostinger);
-    }
-    // Zach pins for ideation-phase B2B-SaaS-founder queries. The career
-    // category only has one slot per recommendation team, and Fabrice (D2C)
-    // wins most natural-cosine matches; this pin guarantees Zach surfaces on
-    // prompts that are clearly B2B-founder shaped, displacing Fabrice for
-    // that one slot.
+    // Zach pins for ideation-phase B2B-SaaS-founder queries.
     if (phase === 'ideation' && isB2BFounderQuery(query)) {
         const zach = scored.find(s => s.id === ZACH_SKILL_ID) || getSkillById(ZACH_SKILL_ID);
         if (zach) pins.push(zach);
@@ -199,37 +173,10 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
         }
     }
 
-    // Ananya ↔ Maya travel together. If one is in the team via any path
-    // (pin, natural cosine, or Tech force-include), the other comes along
-    // — a build needs a designer, and a design without a builder usually
-    // wants one too. Symmetric so users always see both halves of the
-    // build/design pair, regardless of which keyword tripped first.
-    const ensurePartner = (presentId, partnerId) => {
-        if (!team.some(s => s.id === presentId)) return;
-        if (team.some(s => s.id === partnerId)) return;
-        const partner = scored.find(s => s.id === partnerId) || getSkillById(partnerId);
-        if (!partner) return;
-        if (team.length < size) {
-            team.push(partner);
-            pinnedIds.add(partnerId);
-            return;
-        }
-        // Replace the weakest non-pinned, non-`presentId` slot.
-        for (let i = team.length - 1; i >= 0; i--) {
-            if (team[i].id !== presentId && !pinnedIds.has(team[i].id)) {
-                team[i] = partner;
-                pinnedIds.add(partnerId);
-                break;
-            }
-        }
-    };
-    ensurePartner(ANANYA_SKILL_ID, MAYA_SKILL_ID);
-    ensurePartner(MAYA_SKILL_ID, ANANYA_SKILL_ID);
-    // Hostinger rides along whenever Ananya is on the team — anything Ananya
-    // builds will eventually need hosting, and she consults Hostinger for the
-    // deployment guide during the build. One-directional: a pure hosting
-    // question shouldn't drag the whole build pair in.
-    ensurePartner(ANANYA_SKILL_ID, HOSTINGER_SKILL_ID);
+    // Maya/Ananya/Hostinger used to travel together in the team via
+    // ensurePartner pairs; that's gone now since they're system-pipeline
+    // executors, not round-table contributors. The pipeline strip below
+    // the chat handles their orchestration off the spec instead.
 
     return team.slice(0, size);
 }
@@ -267,9 +214,18 @@ router.post('/recommend', async (req, res) => {
             return res.json({ skills: [] });
         }
 
-        const vector    = await embedQuery(cleaned);
-        const topSkills = search(vector, 500, phase);
-        let team        = pickTeam(topSkills, size, { query, phase });
+        const vector       = await embedQuery(cleaned);
+        const rawTopSkills = search(vector, 500, phase);
+        // Two filters in series:
+        //   1. PIPELINE_SYSTEM_IDS — Maya/Ananya/Hostinger never deliberate
+        //   2. Tech-category — those go to the separate tech round table
+        //      that fires after Aisha's first spec, not the domain round
+        //      table that runs on the user's raw prompt.
+        const PIPELINE_SYSTEM_IDS = new Set([MAYA_SKILL_ID, ANANYA_SKILL_ID, HOSTINGER_SKILL_ID]);
+        const topSkills    = rawTopSkills.filter(s =>
+            !PIPELINE_SYSTEM_IDS.has(s.id) && s.category !== 'Tech'
+        );
+        let team           = pickTeam(topSkills, size, { query, phase });
 
         const techPick = team.find(s => s.category === 'Tech');
         logger.info(`recommend: "${query}" phase=${phase || 'all'} size=${size} → ${team.length} skills, top score ${team[0]?._score?.toFixed(3) || 'n/a'}, tech score ${techPick?._score?.toFixed(3) || 'omitted'}`);
@@ -279,6 +235,62 @@ router.post('/recommend', async (req, res) => {
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });
+    }
+});
+
+// Tech round table specialists — same embedding search as /recommend but
+// restricted to category=Tech. Returns 4-6 skills by default (smaller team
+// than the domain RT because tech opinions converge faster). Used by the
+// "Convene tech team" flow: the spec text is the query so the embedding
+// surfaces Node.js / React / Postgres / Docker specialists matched to the
+// actual technical surface area of the build, not the user's raw prompt.
+const TECH_TEAM_MIN = 4;
+const TECH_TEAM_MAX = 8;
+router.post('/recommend/tech', async (req, res) => {
+    const { query, size: rawSize } = req.body || {};
+    if (!query || typeof query !== 'string') {
+        return res.status(400).json({ error: 'query is required' });
+    }
+    const parsedSize = Number.isFinite(+rawSize) ? Math.floor(+rawSize) : TECH_TEAM_MIN;
+    const size = Math.max(TECH_TEAM_MIN, Math.min(TECH_TEAM_MAX, parsedSize));
+
+    const cleaned = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 1 && !STOPWORDS.has(w))
+        .join(' ') || query;
+
+    try {
+        if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+        await ensureCache();
+        if (cacheSize() === 0) return res.json({ skills: [] });
+
+        const vector = await embedQuery(cleaned);
+        const rawTopSkills = search(vector, 500, null);
+        // Tech category only, drop the system pipeline IDs explicitly even
+        // though Maya/Hostinger live outside Tech — Ananya does too in the
+        // schema, so the SKILL_ID filter protects against that.
+        const PIPELINE_SYSTEM_IDS = new Set([MAYA_SKILL_ID, ANANYA_SKILL_ID, HOSTINGER_SKILL_ID]);
+        const techSkills = rawTopSkills.filter(s =>
+            s.category === 'Tech' && !PIPELINE_SYSTEM_IDS.has(s.id)
+        );
+
+        // One per agent_name so we don't return 3 Vikrams. Pick the highest-
+        // scoring slot per name, then truncate to `size`.
+        const seenAgentNames = new Set();
+        const team = [];
+        for (const s of techSkills) {
+            if (seenAgentNames.has(s.agent_name)) continue;
+            seenAgentNames.add(s.agent_name);
+            team.push(s);
+            if (team.length === size) break;
+        }
+
+        logger.info(`recommend/tech: "${query.slice(0, 60)}" size=${size} → ${team.length} skills, top ${team[0]?._score?.toFixed(3) || 'n/a'}`);
+        res.json({ skills: team.map(({ _score, ...s }) => s) });
+    } catch (err) {
+        logger.error('recommend/tech error:', err.message);
+        res.status(500).json({ error: 'tech recommendation failed', skills: [] });
     }
 });
 

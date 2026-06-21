@@ -39,25 +39,55 @@ async function ensureUsageCollection() {
     }
 }
 
+// Fields the collection must carry. `created`/`updated` are autodate — the
+// original runtime-created collection omitted them, which silently broke the
+// history list (GET sorts by -created) AND the persistence of tool outputs.
+// This ensure step repairs both old and new deployments in place.
+const CHAT_FIELDS = [
+    { type: 'text',     name: 'user_id',      required: true },
+    { type: 'text',     name: 'query',        required: true, max: 2000 },
+    { type: 'json',     name: 'team',         maxSize: 100000 },
+    { type: 'json',     name: 'responses',    maxSize: 200000 },
+    // turns is the multi-turn conversation thread: [{ query, responses }, …]
+    // Legacy chats predate this field and rely on the top-level `query` +
+    // `responses` instead — they're surfaced read-only via a load-time
+    // adapter. New chats populate both for backwards compat: turns[0] is the
+    // initial submit, and the top-level query/responses mirror turns[0] so
+    // older readers keep working. 1 MB cap = ~10 turns × 8 agents × ~5KB.
+    { type: 'json',     name: 'turns',        maxSize: 1000000 },
+    // tech_team + tech_turns are the parallel storage for the technical
+    // round table (Aisha's "convene tech team" flow). Same shape as
+    // team/turns but tagged separately so the spec synthesizer can stitch
+    // domain + tech transcripts into one combined doc.
+    { type: 'json',     name: 'tech_team',    maxSize: 100000 },
+    { type: 'json',     name: 'tech_turns',   maxSize: 1000000 },
+    { type: 'json',     name: 'tool_results', maxSize: 600000 },
+    { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
+    { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
+];
+
 async function ensureChatsCollection() {
     if (chatsCollectionReady) return;
     try {
-        await pb.collections.getOne('roundtable_chats');
+        const existing = await pb.collections.getOne('roundtable_chats');
+        const have = new Set((existing.fields || []).map(f => f.name));
+        const missing = CHAT_FIELDS.filter(f => !have.has(f.name));
+        if (missing.length > 0) {
+            try {
+                await pb.collections.update('roundtable_chats', {
+                    fields: [...existing.fields, ...missing],
+                });
+                logger.info(`roundtable_chats: added fields [${missing.map(f => f.name).join(', ')}]`);
+            } catch (err) {
+                logger.warn('Could not add roundtable_chats fields:', err.message);
+            }
+        }
         chatsCollectionReady = true;
     } catch {
         try {
             await pb.send('/api/collections', {
                 method: 'POST',
-                body: {
-                    name: 'roundtable_chats',
-                    type: 'base',
-                    fields: [
-                        { type: 'text', name: 'user_id', required: true },
-                        { type: 'text', name: 'query',   required: true, max: 2000 },
-                        { type: 'json', name: 'team',    maxSize: 100000 },
-                        { type: 'json', name: 'responses', maxSize: 200000 },
-                    ],
-                },
+                body: { name: 'roundtable_chats', type: 'base', fields: CHAT_FIELDS },
             });
             chatsCollectionReady = true;
             logger.info('roundtable_chats collection created');
@@ -120,6 +150,9 @@ async function saveChat(userId, query, team, responses) {
             query,
             team,
             responses,
+            // turns[0] mirrors the top-level query/responses so the chat
+            // is multi-turn-ready from the start.
+            turns: [{ query, responses }],
         });
     } catch (err) {
         logger.warn('Failed to save chat for', userId, err.message);
@@ -127,16 +160,53 @@ async function saveChat(userId, query, team, responses) {
     }
 }
 
+// Append a new (query, responses) pair to an existing chat's turns array.
+// Returns the updated chat record, or null on failure / ownership mismatch.
+// Caps at 10 turns total so a runaway loop can't bloat the row.
+//
+// `kind` routes between the two round tables on the same chat:
+//   'domain' → writes to `turns` (legacy + multi-turn case)
+//   'tech'   → writes to `tech_turns` (Aisha's convene-tech flow)
+const MAX_TURNS_PER_CHAT = 10;
+async function appendChatTurn(chatId, userId, query, responses, kind = 'domain') {
+    try {
+        const existing = await pb.collection('roundtable_chats').getOne(chatId);
+        if (existing.user_id !== userId) return null;
+        const field = kind === 'tech' ? 'tech_turns' : 'turns';
+        const turns = Array.isArray(existing[field]) ? existing[field].slice() : [];
+        // Legacy chats stored only top-level query+responses; rebuild their
+        // first turn from those so the array grows monotonically. (domain only)
+        if (kind === 'domain' && turns.length === 0 && existing.query) {
+            turns.push({ query: existing.query, responses: existing.responses || [] });
+        }
+        if (turns.length >= MAX_TURNS_PER_CHAT) {
+            const e = new Error('turn limit reached'); e.status = 409;
+            throw e;
+        }
+        turns.push({ query, responses });
+        return await pb.collection('roundtable_chats').update(chatId, { [field]: turns });
+    } catch (err) {
+        if (err.status === 409) throw err;
+        logger.warn('Failed to append turn to chat', chatId, err.message);
+        return null;
+    }
+}
+
 // ── Prompt builder ───────────────────────────────────────────────────────────
 
-function buildPrompt(query, agents) {
+// Splits the model prompt into a (large, stable) cached prefix and a
+// (small, per-turn) suffix so the provider's prompt-cache machinery actually
+// hits between turns of the same chat. The prefix is the team roster + the
+// base instructions; the suffix is "earlier in this round table … now answer
+// this new question". OpenAI auto-caches identical prefixes; Anthropic uses
+// the explicit cache_control marker on the prefix block.
+function buildPrompt({ query, agents, priorTurns = [] }) {
     const agentList = agents.map((a, i) =>
         `${i + 1}. ${a.agent_name} — ${a.name} (${a.category})\n   Skills: ${a.associated_tech_skills || 'general'}\n   Background: ${(a.description || '').slice(0, 120)}`
     ).join('\n\n');
 
-    return `You are moderating a strategic round table discussion where specialist agents each share their perspective in sequence.
-
-Topic: "${query}"
+    // Stable across every turn of this chat — cache target.
+    const cachedPrefix = `You are moderating a strategic round table discussion where specialist agents each share their perspective in sequence.
 
 Team:
 ${agentList}
@@ -146,6 +216,7 @@ Rules:
 - Agents speaking after the first should briefly acknowledge or build on what was said before them
 - Be practical and specific — no generic advice
 - Use natural first-person speech fitting their role
+- On a follow-up turn, treat the prior conversation as established context: don't repeat earlier points, build on them
 
 Respond with ONLY valid JSON, no markdown fences, no extra text:
 {
@@ -154,16 +225,79 @@ Respond with ONLY valid JSON, no markdown fences, no extra text:
     ...one entry per agent in the same order as the team list...
   ]
 }`;
+
+    // Per-turn body. Prior turns appear here so the agents have memory,
+    // but the bytes change between turns (good — we don't waste a cache
+    // marker on them and they're not that big).
+    let userPrompt;
+    if (priorTurns.length === 0) {
+        userPrompt = `Topic: "${query}"`;
+    } else {
+        const turnHistory = priorTurns.map((t, i) => {
+            const responses = (t.responses || [])
+                .map(r => `  ${r.name}: ${r.text}`)
+                .join('\n');
+            return `Turn ${i + 1} — user asked: "${t.query}"\n${responses}`;
+        }).join('\n\n');
+        userPrompt = `Earlier in this round table:
+
+${turnHistory}
+
+Now the user's follow-up question: "${query}"
+
+Each agent should respond to the follow-up while staying consistent with what they said in prior turns.`;
+    }
+
+    return { cachedPrefix, userPrompt };
+}
+
+// Caps prior turns sent to the model — keep the most recent N turns
+// verbatim, drop older. Each turn ≈ 4-5KB of conversation, so 3 turns ≈ 15KB,
+// which is the sweet spot between cost and useful memory.
+const PRIOR_TURNS_KEPT_VERBATIM = 3;
+
+function trimPriorTurns(turns) {
+    if (!Array.isArray(turns) || turns.length === 0) return [];
+    return turns.slice(-PRIOR_TURNS_KEPT_VERBATIM);
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-router.post('/roundtable', async (req, res) => {
-    const { query, team } = req.body || {};
+// System pipeline agents — they don't deliberate at the round table. Old
+// chats that historically had them in `team` still load (responses are
+// persisted), but new round-table prompts skip them so we stop paying for
+// thin Maya/Ananya/Hostinger "perspectives".
+const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
-    if (!query || !Array.isArray(team) || team.length === 0) {
+router.post('/roundtable', async (req, res) => {
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput } = req.body || {};
+
+    if (!query || !Array.isArray(rawTeam) || rawTeam.length === 0) {
         return res.status(400).json({ error: 'query and team are required' });
     }
+    // kind routes between the domain RT (default) and the tech RT. Tech is
+    // a single-shot session right now — multi-turn comes later if useful.
+    const kind = kindInput === 'tech' ? 'tech' : 'domain';
+    // Tech round table requires an existing chat to append onto. Domain RT
+    // creates new chats from scratch; tech RT can only run on a chat that
+    // already has domain responses + a spec, so we enforce chat_id.
+    if (kind === 'tech' && !chatIdInput) {
+        return res.status(400).json({ error: 'tech round table requires chat_id' });
+    }
+    const team = rawTeam.filter(s => s && !PIPELINE_SYSTEM_IDS.has(s.id));
+    if (team.length === 0) {
+        return res.status(400).json({ error: 'team must include at least one round-table specialist (Maya/Ananya/Hostinger are pipeline-only)' });
+    }
+
+    // Multi-turn mode: the client passes the existing chat's id + the prior
+    // turns it has cached locally so the model has context. We validate
+    // ownership server-side before appending. Prior turns are trimmed to the
+    // most recent N to keep prompt cost bounded.
+    const isFollowUp = typeof chatIdInput === 'string'
+        && chatIdInput.trim().length > 0
+        && Array.isArray(priorTurnsInput)
+        && priorTurnsInput.length > 0;
+    const priorTurns = isFollowUp ? trimPriorTurns(priorTurnsInput) : [];
 
     if (!OPENAI_API_KEY) {
         return res.status(500).json({ error: 'OpenAI not configured' });
@@ -205,29 +339,48 @@ router.post('/roundtable', async (req, res) => {
         remaining = FREE_LIMIT - usesAfter;
     }
 
+    const { cachedPrefix, userPrompt } = buildPrompt({ query, agents: team, priorTurns });
+
     let raw;
+    let fellBackToServer = false;
     try {
         raw = await chatComplete(providerInUse, {
             key: keyInUse,
             model: modelInUse,
-            userPrompt: buildPrompt(query, team),
+            userPrompt,
+            cachedPrefix,
             jsonMode: true,
         });
     } catch (err) {
-        // The dispatcher attaches a `status` field for upstream HTTP errors.
-        // Treat 401/429 from the user's key as a soft, actionable failure.
-        if (usingUserKey && (err.status === 401 || err.status === 429)) {
-            const providerLabel = getProviderMeta(userBYOK.provider).label;
-            return res.status(402).json({
-                error: 'user_key_failed',
-                detail: err.status === 401
-                    ? `Your saved ${providerLabel} key was rejected. Please update it on your profile.`
-                    : `Your ${providerLabel} account is out of quota or rate-limited. Check billing and try again.`,
-                status: err.status,
-            });
+        // BYOK failed for any reason (401/429/504/timeout/quota) — fall
+        // back to the server's OpenAI gpt-4o-mini so the user is never
+        // hard-blocked. Counts toward the free tier on the way out.
+        const isBYOKFailure = usingUserKey && (
+            err.status === 401 || err.status === 429 || err.status === 504 ||
+            err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
+        );
+        if (isBYOKFailure) {
+            const causeMsg = err.cause?.message || err.cause?.code || err.message;
+            logger.warn(`roundtable BYOK failed (provider=${providerInUse} model=${modelInUse} cause=${causeMsg}) — falling back to server gpt-4o-mini`);
+            try {
+                raw = await chatComplete(SERVER_PROVIDER, {
+                    key: OPENAI_API_KEY,
+                    model: SERVER_DEFAULT_MODEL,
+                    userPrompt,
+                    cachedPrefix,
+                    jsonMode: true,
+                });
+                fellBackToServer = true;
+            } catch (fallbackErr) {
+                const cm = fallbackErr.cause?.message || fallbackErr.cause?.code || '(no cause)';
+                logger.error(`roundtable server fallback also failed: ${fallbackErr.message} | cause=${cm}`);
+                return res.status(500).json({ error: 'Round table call failed (BYOK + server fallback both failed)' });
+            }
+        } else {
+            const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
+            logger.error(`roundtable provider call failed: ${err.message} | cause=${causeMsg} | provider=${providerInUse} model=${modelInUse}`);
+            return res.status(500).json({ error: 'Round table call failed' });
         }
-        logger.error('roundtable provider call failed:', err.message);
-        return res.status(500).json({ error: 'Round table call failed' });
     }
 
     try {
@@ -238,21 +391,55 @@ router.post('/roundtable', async (req, res) => {
         }
 
         let chatId = null;
+        let turnLimitReached = false;
         if (userId) {
             // Free-tier usage only counts when the server key was used
             if (!usingUserKey && usageCollectionReady) incrementUsage(userId);
             if (chatsCollectionReady) {
-                const saved = await saveChat(userId, query, team, parsed.responses);
-                chatId = saved?.id || null;
+                if (kind === 'tech') {
+                    // Tech RT appends to tech_turns AND stamps the tech_team
+                    // on the chat row for later restoration. Always treats
+                    // the call as a follow-up because the chat already exists.
+                    try {
+                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses, 'tech');
+                        chatId = appended?.id || null;
+                        // Best-effort: stamp tech_team so the UI can rehydrate it.
+                        await pb.collection('roundtable_chats').update(chatIdInput, { tech_team: team }).catch(() => {});
+                    } catch (err) {
+                        if (err.status === 409) {
+                            turnLimitReached = true;
+                            chatId = chatIdInput;
+                        } else throw err;
+                    }
+                } else if (isFollowUp) {
+                    try {
+                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses, 'domain');
+                        chatId = appended?.id || null;
+                    } catch (err) {
+                        if (err.status === 409) {
+                            turnLimitReached = true;
+                            chatId = chatIdInput;
+                        } else throw err;
+                    }
+                } else {
+                    const saved = await saveChat(userId, query, team, parsed.responses);
+                    chatId = saved?.id || null;
+                }
             }
         }
 
-        logger.info(`roundtable: "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
+        logger.info(`roundtable[${kind}]: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query.slice(0, 60)}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
             chatId,
+            is_follow_up: isFollowUp,
+            turn_limit_reached: turnLimitReached,
             using_user_key: usingUserKey,
+            // Flag set when BYOK failed and we used the server key instead.
+            // Client surfaces a small banner so the user knows their key
+            // needs attention without hard-blocking the request.
+            byok_fell_back: fellBackToServer,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
     } catch (err) {
@@ -287,17 +474,127 @@ router.get('/roundtable/chats', async (req, res) => {
             sort: '-created',
         });
         res.json({
-            chats: list.items.map(c => ({
-                id: c.id,
-                query: c.query,
-                team: c.team,
-                responses: c.responses,
-                created: c.created,
-            })),
+            chats: list.items.map(c => {
+                // Adapter for legacy chats: those rows have only top-level
+                // query+responses (no turns field). Wrap them as a one-turn
+                // thread so the client treats every chat uniformly. We also
+                // flag legacy=true so the UI can show a "start a new chat to
+                // continue" banner — appending to a legacy chat would
+                // double-write into the schema migration boundary.
+                const turns = Array.isArray(c.turns) && c.turns.length > 0
+                    ? c.turns
+                    : [{ query: c.query, responses: c.responses || [] }];
+                const legacy = !(Array.isArray(c.turns) && c.turns.length > 0);
+                return {
+                    id: c.id,
+                    query: c.query,
+                    team: c.team,
+                    responses: c.responses,
+                    turns,
+                    legacy,
+                    // Tech round table — only populated for chats that ran the
+                    // "Convene tech team" flow. Empty array / null otherwise.
+                    tech_team:  Array.isArray(c.tech_team)  ? c.tech_team  : [],
+                    tech_turns: Array.isArray(c.tech_turns) ? c.tech_turns : [],
+                    tool_results: c.tool_results || {},
+                    created: c.created,
+                };
+            }),
         });
     } catch (err) {
         logger.error('list chats error:', err.message);
         res.status(500).json({ error: err.message, chats: [] });
+    }
+});
+
+// The fields of a creative-agent result worth persisting onto a chat so it can
+// be re-opened later. We deliberately drop `trace` (only useful live) to keep
+// the JSON small — the rest is enough to rehydrate the panel and re-serve the
+// preview/download from the (now persistent) workspace volume.
+function trimToolResult(r) {
+    if (!r || typeof r !== 'object') return null;
+    // Persist Maya's design brief text (styles + EVERY screen) so Ananya can
+    // inherit the full flow on a later build even after the design workspace
+    // expires. Cap the sizes per-field to keep the chat JSON small — 8 screens
+    // × 2400 chars + 4000 char styles ≈ 24KB worst case, still well below any
+    // PocketBase row limit.
+    let designBrief = null;
+    if (r.design_brief && typeof r.design_brief === 'object') {
+        const rawScreens = Array.isArray(r.design_brief.screens) ? r.design_brief.screens : [];
+        const screens = rawScreens.slice(0, 8).map(s => ({
+            name: typeof s?.name === 'string' ? s.name.slice(0, 80)   : '',
+            html: typeof s?.html === 'string' ? s.html.slice(0, 2400) : '',
+        })).filter(s => s.name && s.html);
+        designBrief = {
+            // Styles cap is matched to the API-side DESIGN_BRIEF_STYLES_CAP
+            // (24KB). Maya's stylesheets typically run 15–18KB, so the old
+            // 4KB cap truncated the bulk of her class definitions and the
+            // inline-fallback Ananya run rendered as unstyled HTML.
+            styles:        typeof r.design_brief.styles === 'string'        ? r.design_brief.styles.slice(0, 24000)       : null,
+            screens,
+            sample_screen: typeof r.design_brief.sample_screen === 'string' ? r.design_brief.sample_screen.slice(0, 2400) : (screens[0]?.html || null),
+        };
+    }
+    return {
+        session_id:    r.session_id,
+        agent_id:      r.agent_id,
+        agent_name:    r.agent_name,
+        summary:       typeof r.summary === 'string' ? r.summary.slice(0, 20000) : '',
+        files:         Array.isArray(r.files) ? r.files.slice(0, 200) : [],
+        engine:        r.engine || null,
+        download_url:  r.download_url,
+        preview_url:   r.preview_url,
+        design_applied: typeof r.design_applied === 'boolean' ? r.design_applied : undefined,
+        design_brief:   designBrief,
+        deploy:         r.deploy || undefined,   // VPS deploy result (Ananya → Hostinger)
+        saved_at:      new Date().toISOString(),
+    };
+}
+
+// POST /roundtable/chats/:id/tool-results — merge one creative-agent output
+// (Maya mockups, Ananya build, Kavya email, Tara social, Spec Engineer doc)
+// into the chat under a stable key. Idempotent per key: re-running a tool
+// overwrites that slot.
+const VALID_TOOL_KEYS = new Set(['mockup', 'build', 'email', 'social', 'spec']);
+
+// Spec is plain text plus a tiny envelope — much simpler shape than the
+// creative-agent results. Capped at 60KB so a runaway model can't bloat the
+// row, but Maya's 16KB stylesheet + 5×2KB screens is still a fraction of this.
+function trimSpecResult(r) {
+    if (!r || typeof r !== 'object') return null;
+    const text = typeof r.text === 'string' ? r.text.slice(0, 60000) : '';
+    if (!text) return null;
+    return {
+        text,
+        authors:      Array.isArray(r.authors) ? r.authors.slice(0, 20).map(a => String(a).slice(0, 60)) : [],
+        generated_at: typeof r.generated_at === 'string' ? r.generated_at : new Date().toISOString(),
+        edited_at:    typeof r.edited_at === 'string' ? r.edited_at : null,
+        engine:       r.engine || null,
+    };
+}
+
+router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
+    const userId = getUserIdFromHeader(req.headers.authorization);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { tool, result } = req.body || {};
+    if (!VALID_TOOL_KEYS.has(tool)) {
+        return res.status(400).json({ error: 'tool must be one of mockup|build|email|social|spec' });
+    }
+    const trimmed = tool === 'spec' ? trimSpecResult(result) : trimToolResult(result);
+    if (!trimmed) return res.status(400).json({ error: 'result is required' });
+
+    await ensureChatsCollection();
+    try {
+        const chat = await pb.collection('roundtable_chats').getOne(req.params.id);
+        if (chat.user_id !== userId) return res.status(403).json({ error: 'forbidden' });
+
+        const merged = { ...(chat.tool_results || {}), [tool]: trimmed };
+        await pb.collection('roundtable_chats').update(req.params.id, { tool_results: merged });
+        res.json({ ok: true, tool_results: merged });
+    } catch (err) {
+        logger.error('save tool-result error:', err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 

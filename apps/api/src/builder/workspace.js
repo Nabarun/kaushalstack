@@ -2,12 +2,20 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-// Per-session workspace lives under /tmp/kaushal-build/<sessionId>/.
-// /tmp gets wiped on container restart — fine for first cut. Cleanup runs
-// opportunistically (sessions older than 1h are removed on each new session).
+// Per-session workspace lives under <WORKSPACE_ROOT>/<sessionId>/.
+// In Docker we point WORKSPACE_ROOT at a named volume (see docker-compose) so
+// generated mockups/builds survive container restarts and a saved Round Table
+// chat can re-open its previews days later. Bare local dev keeps the old
+// /tmp default. Cleanup runs opportunistically on each new session: sessions
+// older than SESSION_TTL_HOURS are removed. Set SESSION_TTL_HOURS=0 to keep
+// every workspace forever (the default in prod — the chats that reference them
+// persist forever too, so their previews should as well).
 
-const ROOT = '/tmp/kaushal-build';
-const SESSION_TTL_MS = 60 * 60 * 1000;
+const ROOT = process.env.WORKSPACE_ROOT || '/tmp/kaushal-build';
+const TTL_HOURS = process.env.SESSION_TTL_HOURS !== undefined
+    ? parseFloat(process.env.SESSION_TTL_HOURS)
+    : 1;
+const SESSION_TTL_MS = TTL_HOURS > 0 ? TTL_HOURS * 60 * 60 * 1000 : 0; // 0 = never expire
 
 async function ensureRoot() {
     await fs.mkdir(ROOT, { recursive: true });
@@ -76,12 +84,15 @@ export async function writeFile(sessionId, relPath, contents) {
 }
 
 // Walk the workspace and return a flat list of {path, bytes} for every file.
+// Hidden sidecar files (anything starting with `_session_`) are excluded so
+// they don't show up in the user's manifest or download zip.
 export async function fileManifest(sessionId) {
     const root = await sessionDir(sessionId);
     const out = [];
     async function walk(dir, prefix) {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         for (const e of entries) {
+            if (!prefix && e.name.startsWith('_session_')) continue; // sidecar at root
             const full = path.join(dir, e.name);
             const rel = prefix ? `${prefix}/${e.name}` : e.name;
             if (e.isDirectory()) await walk(full, rel);
@@ -95,7 +106,33 @@ export async function fileManifest(sessionId) {
     return out;
 }
 
+// Persist the final result of a creative-agent run alongside the session
+// workspace so a client that lost its SSE stream can recover the result later.
+// We store it as a sidecar JSON file (`_session_result.json`) at the session
+// root and bypass the user-facing manifest/preview routes for it.
+const SESSION_RESULT_FILE = '_session_result.json';
+
+export async function saveSessionResult(sessionId, resultObj) {
+    const dir = await sessionDir(sessionId);
+    const abs = path.join(dir, SESSION_RESULT_FILE);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(abs, JSON.stringify(resultObj), 'utf8');
+}
+
+export async function readSessionResult(sessionId) {
+    const dir = await sessionDir(sessionId);
+    const abs = path.join(dir, SESSION_RESULT_FILE);
+    try {
+        const raw = await fs.readFile(abs, 'utf8');
+        return JSON.parse(raw);
+    } catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+}
+
 async function cleanupOld() {
+    if (SESSION_TTL_MS === 0) return; // persistence mode — keep everything
     try {
         const entries = await fs.readdir(ROOT, { withFileTypes: true });
         const now = Date.now();

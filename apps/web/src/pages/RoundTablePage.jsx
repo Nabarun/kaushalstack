@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Hammer, Download, CheckCircle2, AlertCircle, Eye, Palette, Lock, Sparkles, Mail, Megaphone } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -10,12 +10,14 @@ import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Hammer, Download, Ch
 //   Maya   — 5 device-framed HTML mockups
 //   Kavya  — HTML email campaign + Gmail-frame preview
 //   Tara   — platform-native social posts + per-platform chrome
-const ANANYA_SKILL_ID = '0v9syxxawznp95v';
-const MAYA_SKILL_ID   = 'uepji0o2teuf29b';
-const KAVYA_SKILL_ID  = 'ip1bvcutzgsy28p';
-const TARA_SKILL_ID   = 'eu6cweasi3d4xt8';
+const ANANYA_SKILL_ID    = '0v9syxxawznp95v';
+const MAYA_SKILL_ID      = 'uepji0o2teuf29b';
+const KAVYA_SKILL_ID     = 'ip1bvcutzgsy28p';
+const TARA_SKILL_ID      = 'eu6cweasi3d4xt8';
+const HOSTINGER_SKILL_ID = 'hostingerdeploy';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
+import CreativePipeline from '@/components/CreativePipeline';
 
 // 10-slot palette so teams of 6 (hex viz) and 7–10 (grid viz) both have
 // distinct colors per slot. Slots 0–5 are the originals so existing screens
@@ -24,6 +26,10 @@ const PALETTE = [
   '#5b8dee', '#b07ef8', '#f0a04b', '#4ecba8', '#f06b6b', '#e070c2',
   '#5cc28a', '#f7c948', '#38b6ff', '#ff8a3d',
 ];
+// Soft floor + hard ceiling for the round table. HomePage's seat picker
+// enforces 6–10 too; mirrored here so the round-table-side editor (remove
+// an agent, add a new one) clamps to the same range.
+const TEAM_SIZE_MIN = 6;
 const TEAM_SIZE_MAX = 10;
 const FREE_LIMIT = 10;
 
@@ -50,7 +56,10 @@ function getOvalPositions(count) {
         const y = numRows === 1
             ? (yTop + yBottom) / 2
             : yTop + ((yBottom - yTop) * row) / (numRows - 1);
-        const x = col === 0 ? 40 : 240;
+        // x=50/230 (instead of 40/240) gives the 88px-wide name labels below
+        // each avatar enough breathing room without clipping against the
+        // 280px-wide panel edges.
+        const x = col === 0 ? 50 : 230;
         positions.push({ x, y });
     }
     return positions;
@@ -123,6 +132,7 @@ function BYOKScreen({ reason }) {
 // keep it focused on the simple idle → running → done → error flow.
 function CreativeToolPanel({
   status, result, error,
+  pendingSessionId, recoveryNote, onRecover,
   color, Icon, label,
   idleHeadline, idleBlurb, idleCta,
   runningHeadline, runningBlurb,
@@ -210,6 +220,19 @@ function CreativeToolPanel({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>{label} generation failed</div>
             <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{error}</div>
+            {pendingSessionId && (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: '#0a0c12', border: '1px solid #2a3550', borderRadius: 6, fontSize: 11, color: '#a8b1c8', lineHeight: 1.55 }}>
+                The stream dropped but the run may have finished on the server.
+                <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {onRecover && (
+                    <button onClick={onRecover} style={{ color, background: 'none', border: `1px solid ${color}44`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                      Check if it finished
+                    </button>
+                  )}
+                  {recoveryNote && <span style={{ fontSize: 11, color: '#8a91a8', fontStyle: 'italic' }}>{recoveryNote}</span>}
+                </div>
+              </div>
+            )}
             <button onClick={onTrigger} style={{
               marginTop: 10, color, background: 'none', border: `1px solid ${color}44`,
               borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
@@ -260,17 +283,90 @@ export default function RoundTablePage() {
   // `social` = Tara social posts. The `progress` field holds the most recent
   // streamed event from the agent (tool call, turn count) so the UI shows
   // "Maya is fetching photos…" instead of a 2-minute opaque spinner.
-  const initToolState = { status: 'idle', result: null, error: null, progress: null };
+  // pendingSessionId tracks the workspace id once the SSE stream's
+  // `session_start` event fires. It stays populated on error so the UI can
+  // offer a "Check if it finished" recovery action — Maya/Ananya often
+  // complete server-side after the SSE stream has died on the client.
+  const initToolState = { status: 'idle', result: null, error: null, progress: null, pendingSessionId: null, recoveryNote: null };
   const [build, setBuild]   = useState(initToolState);
   const [mockup, setMockup] = useState(initToolState);
   const [email,  setEmail]  = useState(initToolState);
   const [social, setSocial] = useState(initToolState);
+  // Spec Engineer state. Independent of the other tools because spec has a
+  // simpler shape (text + authors) and lives in tool_results.spec.
+  //   idle  → button to generate
+  //   running → calling /api/spec
+  //   done  → editable textarea + save + send-to-Maya
+  //   error → message + retry
+  // `editing` holds the in-flight textarea value so Save can compare to the
+  // saved copy. `dirty` short-circuits the save button.
+  const initSpecState = { status: 'idle', result: null, error: null, editing: '', dirty: false };
+  const [spec, setSpec] = useState(initSpecState);
+  // Tech round table state — fires after Aisha's first spec via the
+  // "Convene tech team" CTA. Two-step: first /api/recommend/tech returns
+  // a tech team (status='picking'), then user confirms and we POST
+  // /api/roundtable with kind=tech (status='running' → 'done').
+  // tech_responses is the flat array of replies; rehydrates from chat.tech_turns.
+  const initTechState = { status: 'idle', team: [], responses: [], error: null };
+  const [tech, setTech] = useState(initTechState);
+  // Deploy panel (Ananya → Hostinger VPS). The persisted source of truth is
+  // `build.result.deploy`; this state drives the live run + restore.
+  const [deploy, setDeploy] = useState(initToolState);
+  // Hostinger connection ("Login to Hostinger" → stored hPanel API token).
+  const [hostinger, setHostinger]               = useState({ connected: false, last4: null, loading: true, saving: false, error: null });
+  const [showHostingerLogin, setShowHostingerLogin] = useState(false);
+  const [hostingerToken, setHostingerToken]     = useState('');
+  // On chat switch, rehydrate each tool panel from the chat's persisted
+  // tool_results (saved server-side when a run finishes) so previously
+  // generated mockups/builds re-appear with their previews. Falls back to idle
+  // for tools that were never run in this chat.
   useEffect(() => {
-    setBuild(initToolState);
-    setMockup(initToolState);
-    setEmail(initToolState);
-    setSocial(initToolState);
+    const saved = activeChat?.tool_results || {};
+    const restore = r => (r ? { status: 'done', result: r, error: null, progress: null } : initToolState);
+    setBuild(restore(saved.build));
+    setMockup(restore(saved.mockup));
+    setEmail(restore(saved.email));
+    setSocial(restore(saved.social));
+    // A finished deploy is persisted nested on the build result.
+    setDeploy(saved.build?.deploy ? { status: 'done', result: saved.build.deploy, error: null, progress: null } : initToolState);
+    // Spec rehydration: lives at tool_results.spec.
+    if (saved.spec) {
+      setSpec({ status: 'done', result: saved.spec, error: null, editing: saved.spec.text || '', dirty: false });
+    } else {
+      setSpec(initSpecState);
+    }
+    // Tech RT rehydration — flatten tech_turns into a single responses list.
+    const techTurns = Array.isArray(activeChat?.tech_turns) ? activeChat.tech_turns : [];
+    if (techTurns.length > 0) {
+      const flat = techTurns.flatMap(t => (t.responses || []));
+      setTech({ status: 'done', team: activeChat?.tech_team || [], responses: flat, error: null });
+    } else {
+      setTech(initTechState);
+    }
+    setShowHostingerLogin(false);
   }, [activeChat?.id]);
+
+  // Persist a finished tool result onto the active chat so it survives reloads.
+  // Also mirror it into the local `chats` cache so the in-memory copy matches.
+  async function persistToolResult(toolKey, result) {
+    const chatId = activeChat?.id;
+    if (!chatId || !result?.session_id) return;
+    const token = pb.authStore.token;
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/roundtable/chats/${chatId}/tool-results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: toolKey, result }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.tool_results) {
+        setChats(prev => prev.map(c => (c.id === chatId ? { ...c, tool_results: data.tool_results } : c)));
+        setActiveChat(prev => (prev?.id === chatId ? { ...prev, tool_results: data.tool_results } : prev));
+      }
+    } catch { /* best-effort — the in-memory result still shows this session */ }
+  }
 
   // Friendly label for an agent event, used in the running-state subtitle.
   function describeProgress(evt) {
@@ -285,14 +381,20 @@ export default function RoundTablePage() {
       if (name === 'consult_agent') return `Consulting ${evt.args?.agent_name || 'a teammate'}`;
       return `Running ${name}`;
     }
+    // Deployer emits deploy_step events with a human-friendly message
+    // already baked in (connect → upload → configure → verify → finalize).
+    if (evt.kind === 'deploy_step') return evt.message || `Deploy step: ${evt.step || '…'}`;
     if (evt.kind === 'final')     return 'Wrapping up';
     if (evt.kind === 'truncated') return 'Hit the turn cap — finishing what made it';
     return null;
   }
 
-  async function runToolAction({ endpoint, excludeAgentId, setState, extraBody = {} }) {
+  async function runToolAction({ endpoint, excludeAgentId, setState, toolKey, extraBody = {} }) {
     if (!activeChat) return;
-    setState({ status: 'running', result: null, error: null, progress: null });
+    setState({ status: 'running', result: null, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+    // pendingSessionId is captured outside the setState closure so the catch
+    // block can put it on the error state without racing the latest setter.
+    let pendingSessionId = null;
     try {
       const skill = activeChat.team.find(s => s.id === excludeAgentId);
       const skillAgentName = skill?.agent_name;
@@ -311,7 +413,15 @@ export default function RoundTablePage() {
           'Accept':       'text/event-stream',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ query: activeChat.query, context, ...extraBody }),
+        // query_override (when present in extraBody) replaces the chat's
+        // original query — used by Spec → Maya so Maya designs from the
+        // refined spec, not the raw original prompt.
+        body: JSON.stringify({
+          query: extraBody.query_override || activeChat.query,
+          context,
+          ...extraBody,
+          query_override: undefined,   // strip the override so the server doesn't see it
+        }),
       });
       if (!res.ok || !res.body) {
         // Server fell back to JSON (e.g. proxy stripped the stream). Try to
@@ -351,6 +461,12 @@ export default function RoundTablePage() {
           if (eventName === 'done') { finalResult = payload; }
           else if (eventName === 'error') { finalError = payload?.error || 'Action failed'; }
           else {
+            // session_start carries the workspace id so we can offer a
+            // "did it finish anyway?" recovery action if the stream dies.
+            if (eventName === 'session_start' && payload?.sessionId) {
+              pendingSessionId = payload.sessionId;
+              setState(prev => ({ ...prev, pendingSessionId }));
+            }
             // Progress event — update the visible subtitle live.
             setState(prev => ({ ...prev, progress: { ...payload, kind: eventName } }));
           }
@@ -359,44 +475,329 @@ export default function RoundTablePage() {
 
       if (finalError) throw new Error(finalError);
       if (!finalResult) throw new Error('Stream ended without a result');
-      setState({ status: 'done', result: finalResult, error: null, progress: null });
+      setState({ status: 'done', result: finalResult, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+      if (toolKey) persistToolResult(toolKey, finalResult);
     } catch (err) {
-      setState({ status: 'error', result: null, error: err.message, progress: null });
+      // Keep pendingSessionId on the error state — the recovery flow uses it
+      // to fetch the persisted result via /api/build/:id/result.
+      setState({ status: 'error', result: null, error: err.message, progress: null, pendingSessionId, recoveryNote: null });
     }
   }
 
+  // Recovery path: the SSE stream may die mid-run (network blip, proxy
+  // timeout, browser tab throttling), but the agent keeps running server-side
+  // and writes its final result to a sidecar JSON at
+  // /api/build/:id/result. This polls that endpoint and slots the result
+  // back into the tool state as if SSE had delivered it.
+  async function recoverPending({ setState, toolKey }) {
+    return new Promise((resolve) => {
+      setState(prev => {
+        const sessionId = prev.pendingSessionId;
+        if (!sessionId) { resolve(); return prev; }
+        // Mark we're checking — UI flips the button to a spinner string.
+        (async () => {
+          try {
+            const r = await fetch(`/api/build/${sessionId}/result`);
+            if (r.status === 404) {
+              setState(p => ({ ...p, recoveryNote: 'Maya is still running — try again in ~30s' }));
+              resolve();
+              return;
+            }
+            if (!r.ok) {
+              const txt = (await r.text()).slice(0, 200);
+              setState(p => ({ ...p, recoveryNote: `Lookup failed: ${txt || r.status}` }));
+              resolve();
+              return;
+            }
+            const result = await r.json();
+            setState({ status: 'done', result, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+            if (toolKey) persistToolResult(toolKey, result);
+            resolve();
+          } catch (err) {
+            setState(p => ({ ...p, recoveryNote: `Lookup failed: ${err.message}` }));
+            resolve();
+          }
+        })();
+        return { ...prev, recoveryNote: 'Checking…' };
+      });
+    });
+  }
+
   // If Maya already produced mockups in this chat, Ananya consumes them as a
-  // design brief — palette, typography, layout structure carry over.
-  const triggerBuild = () => runToolAction({
-    endpoint: '/api/build',
-    excludeAgentId: ANANYA_SKILL_ID,
-    setState: setBuild,
-    extraBody: mockup.status === 'done' && mockup.result?.session_id
-      ? { design_session_id: mockup.result.session_id }
-      : {},
-  });
-  const triggerMockup = () => runToolAction({
+  // design brief — palette, typography, layout structure carry over. We pass
+  // BOTH her session id (so her images get copied) AND the persisted brief text
+  // (so the handoff still works after her workspace has expired — which is the
+  // common case once you come back to a saved chat).
+  const triggerBuild = () => {
+    const extraBody = {};
+    if (mockup.status === 'done' && mockup.result) {
+      if (mockup.result.session_id)  extraBody.design_session_id = mockup.result.session_id;
+      if (mockup.result.design_brief) extraBody.design_brief     = mockup.result.design_brief;
+    }
+    return runToolAction({
+      endpoint: '/api/build',
+      excludeAgentId: ANANYA_SKILL_ID,
+      setState: setBuild,
+      toolKey: 'build',
+      extraBody,
+    });
+  };
+  const triggerMockup = (overrideQuery) => runToolAction({
     endpoint: '/api/mockup',
     excludeAgentId: MAYA_SKILL_ID,
     setState: setMockup,
+    toolKey: 'mockup',
+    // When the Spec Engineer hands off, the spec text replaces the original
+    // user query as the design driver. extraBody.query takes precedence over
+    // the chat's stored query inside runToolAction's body construction.
+    ...(typeof overrideQuery === 'string' && overrideQuery.trim()
+      ? { extraBody: { query_override: overrideQuery.trim() } }
+      : {}),
   });
+
+  // Spec Engineer — synthesize a structured spec doc from the round-table
+  // transcript. One-shot LLM call, not the SSE-streamed creative pipeline.
+  async function generateSpec() {
+    if (!activeChat?.id) return;
+    setSpec(s => ({ ...s, status: 'running', error: null }));
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/spec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ chat_id: activeChat.id }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Spec failed (${res.status})`);
+      }
+      const data = await res.json();
+      const result = {
+        text: data.spec_text,
+        authors: data.authors || [],
+        generated_at: data.generated_at,
+        edited_at: null,
+        engine: data.engine || null,
+      };
+      setSpec({ status: 'done', result, error: null, editing: result.text, dirty: false });
+      persistSpec(result);
+    } catch (err) {
+      setSpec(s => ({ ...s, status: 'error', error: err.message }));
+    }
+  }
+
+  async function persistSpec(specResult) {
+    const chatId = activeChat?.id;
+    if (!chatId) return;
+    const token = pb.authStore.token;
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/roundtable/chats/${chatId}/tool-results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: 'spec', result: specResult }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.tool_results) {
+        setChats(prev => prev.map(c => (c.id === chatId ? { ...c, tool_results: data.tool_results } : c)));
+        setActiveChat(prev => (prev?.id === chatId ? { ...prev, tool_results: data.tool_results } : prev));
+      }
+    } catch { /* best-effort */ }
+  }
+
+  function saveSpecEdits() {
+    if (!spec.result || !spec.dirty) return;
+    const updated = { ...spec.result, text: spec.editing, edited_at: new Date().toISOString() };
+    setSpec(s => ({ ...s, result: updated, dirty: false }));
+    persistSpec(updated);
+  }
+
+  function sendSpecToMaya() {
+    const text = (spec.editing || spec.result?.text || '').trim();
+    if (!text) return;
+    if (spec.dirty) saveSpecEdits();
+    triggerMockup(text);
+  }
+
+  // Convene tech team — single-step: recommend a tech team off the current
+  // spec text, then immediately run the tech round table on that team with
+  // the spec as the context. Once tech responses are in, we auto-regenerate
+  // Aisha's spec so it incorporates both transcripts.
+  async function conveneTechTeam() {
+    const chatId = activeChat?.id;
+    const specText = (spec.editing || spec.result?.text || '').trim();
+    if (!chatId || !specText) return;
+    setTech({ status: 'recommending', team: [], responses: [], error: null });
+    const token = pb.authStore.token;
+    try {
+      // 1. Recommend tech specialists off the spec.
+      const recRes = await fetch('/api/recommend/tech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: specText, size: 5 }),
+      });
+      if (!recRes.ok) throw new Error(`Tech recommend failed (${recRes.status})`);
+      const recData = await recRes.json();
+      const techTeam = recData.skills || [];
+      if (techTeam.length === 0) throw new Error('No tech specialists matched this spec');
+
+      setTech({ status: 'running', team: techTeam, responses: [], error: null });
+
+      // 2. Run the tech round table. The "query" we pass is a focused brief
+      // — what the tech team should debate. Anchored on the spec.
+      const techQuery = `Review this spec and weigh in on the engineering choices, architecture, and risks. Where it's silent on stack/infra, propose concrete options.\n\nSpec:\n${specText}`;
+      const rtRes = await fetch('/api/roundtable', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          query: techQuery,
+          team: techTeam,
+          chat_id: chatId,
+          kind: 'tech',
+        }),
+      });
+      if (!rtRes.ok) {
+        const errBody = await rtRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `Tech round table failed (${rtRes.status})`);
+      }
+      const rtData = await rtRes.json();
+      const responses = rtData.responses || [];
+      setTech({ status: 'done', team: techTeam, responses, error: null });
+
+      // Reflect the tech turn into local activeChat so the next Aisha
+      // regenerate sees it without a server round-trip.
+      setActiveChat(prev => prev ? {
+        ...prev,
+        tech_team: techTeam,
+        tech_turns: [{ query: techQuery, responses }],
+      } : prev);
+
+      // 3. Auto-regenerate Aisha's spec with combined context.
+      generateSpec();
+    } catch (err) {
+      setTech(t => ({ ...t, status: 'error', error: err.message }));
+    }
+  }
+
+  // Save the Hostinger hPanel API token ("Login to Hostinger").
+  async function saveHostingerToken() {
+    const tok = hostingerToken.trim();
+    if (!tok) return;
+    setHostinger(h => ({ ...h, saving: true, error: null }));
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/me/hostinger', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ token: tok }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setHostinger(h => ({ ...h, saving: false, error: data.error || 'Could not save token' })); return; }
+      setHostinger({ connected: true, last4: data.last4 || null, loading: false, saving: false, error: null });
+      setShowHostingerLogin(false);
+      setHostingerToken('');
+    } catch (err) {
+      setHostinger(h => ({ ...h, saving: false, error: err.message }));
+    }
+  }
+
+  // Deploy Ananya's finished build to the Hostinger VPS. Streams progress over
+  // SSE, then nests the deploy result on the build and persists it.
+  async function triggerDeploy() {
+    const sessionId = build.result?.session_id;
+    if (!sessionId) return;
+    setDeploy({ status: 'running', result: null, error: null, progress: null });
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/deploy?stream=1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+
+      // Not-connected (or any pre-stream failure) comes back as JSON, not SSE.
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'hostinger_not_connected') {
+          setHostinger(h => ({ ...h, connected: false }));
+          setShowHostingerLogin(true);
+          throw new Error('Connect your Hostinger account first.');
+        }
+        throw new Error(data.error || `Deploy failed (${res.status})`);
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      let finalError  = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let split;
+        while ((split = buffer.indexOf('\n\n')) >= 0) {
+          const raw = buffer.slice(0, split);
+          buffer    = buffer.slice(split + 2);
+          if (!raw || raw.startsWith(':')) continue;
+          let eventName = 'message';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+            else if (line.startsWith('data: ')) data += line.slice(6);
+          }
+          if (!data) continue;
+          let payload;
+          try { payload = JSON.parse(data); } catch { continue; }
+          if (eventName === 'done') finalResult = payload;
+          else if (eventName === 'error') finalError = payload?.error || 'Deploy failed';
+          else setDeploy(prev => ({ ...prev, progress: { ...payload, kind: eventName } }));
+        }
+      }
+
+      if (finalError) throw new Error(finalError);
+      if (!finalResult) throw new Error('Stream ended without a result');
+      setDeploy({ status: 'done', result: finalResult, error: null, progress: null });
+
+      // Nest the deploy on the build result and persist so it survives reloads.
+      const updatedBuild = { ...build.result, deploy: finalResult };
+      setBuild(prev => ({ ...prev, result: updatedBuild }));
+      persistToolResult('build', updatedBuild);
+    } catch (err) {
+      setDeploy({ status: 'error', result: null, error: err.message, progress: null });
+    }
+  }
   // Kavya + Tara both run via the generic /api/creative endpoint — the agent
   // is picked by agent_id (PocketBase skill id). See routes/creative.js.
   const triggerEmail = () => runToolAction({
     endpoint: '/api/creative',
     excludeAgentId: KAVYA_SKILL_ID,
     setState: setEmail,
+    toolKey: 'email',
     extraBody: { agent_id: KAVYA_SKILL_ID },
   });
   const triggerSocial = () => runToolAction({
     endpoint: '/api/creative',
     excludeAgentId: TARA_SKILL_ID,
     setState: setSocial,
+    toolKey: 'social',
     extraBody: { agent_id: TARA_SKILL_ID },
   });
 
   // Convenience flag for the UI to indicate Ananya will inherit Maya's design.
-  const buildWillInheritDesign = mockup.status === 'done' && !!mockup.result?.session_id;
+  // True when Maya finished and we have either her live session or her persisted
+  // brief text to hand over.
+  const buildWillInheritDesign = mockup.status === 'done'
+    && !!(mockup.result?.session_id || mockup.result?.design_brief);
 
   const inputRef = useRef(null);
 
@@ -404,6 +805,76 @@ export default function RoundTablePage() {
   const visTeam = activeChat?.team || draftTeam;
   const agents  = visTeam.slice(0, TEAM_SIZE_MAX).map((skill, i) => ({ ...skill, color: PALETTE[i] || PALETTE[i % PALETTE.length], idx: i }));
   const ovalPositions = getOvalPositions(agents.length);
+  // Team can be edited at any time the round table isn't mid-call — both
+  // before the first prompt AND between turns of an active chat. Adding mid-
+  // conversation means the new agent gets prior turns as background context
+  // and responds from the next turn forward; removing means that agent stops
+  // weighing in. Legacy chats predate multi-turn so we don't touch them.
+  const canEditTeam = !loading && !activeChat?.legacy;
+  // Source-of-truth team for the editor: the active chat's team while a chat
+  // is open, otherwise the draft. removeAgent/addAgent route writes to the
+  // matching slot.
+  const editingTeam = activeChat?.team || draftTeam;
+  const canRemove   = canEditTeam && editingTeam.length > TEAM_SIZE_MIN;
+  const canAdd      = canEditTeam && editingTeam.length < TEAM_SIZE_MAX;
+
+  // Agent-add picker state. Search hits /api/recommend so results are ordered
+  // by relevance to the user's typed query (not by recency). Stuck behind a
+  // popover so the search field doesn't clutter the resting page.
+  const [showPicker, setShowPicker]       = useState(false);
+  const [pickerQuery, setPickerQuery]     = useState('');
+  const [pickerResults, setPickerResults] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+
+  function applyTeamMutation(mutator) {
+    if (activeChat) {
+      // Edit the live chat's team; also reflect into the history sidebar
+      // entry so prepended chat list stays consistent.
+      setActiveChat(prev => prev ? { ...prev, team: mutator(prev.team || []) } : prev);
+      setChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, team: mutator(c.team || []) } : c));
+    } else {
+      setDraftTeam(prev => mutator(prev));
+    }
+  }
+  function removeAgent(skillId) {
+    if (!canRemove) return;
+    applyTeamMutation(team => team.filter(s => s.id !== skillId));
+  }
+  function addAgent(skill) {
+    if (!canAdd) return;
+    if (editingTeam.some(s => s.id === skill.id)) return;
+    applyTeamMutation(team => [...team, skill]);
+    setShowPicker(false);
+    setPickerQuery('');
+    setPickerResults([]);
+  }
+  async function searchAgents(q) {
+    const text = q.trim();
+    if (!text) { setPickerResults([]); return; }
+    setPickerLoading(true);
+    try {
+      const r = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text, size: 15 }),
+      });
+      if (!r.ok) { setPickerResults([]); return; }
+      const data = await r.json();
+      const selected = new Set(editingTeam.map(s => s.id));
+      setPickerResults((data.skills || []).filter(s => !selected.has(s.id)));
+    } catch {
+      setPickerResults([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  }
+  // Debounced search — fires 250ms after the user stops typing.
+  useEffect(() => {
+    if (!showPicker) return;
+    const id = setTimeout(() => { searchAgents(pickerQuery); }, 250);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerQuery, showPicker, editingTeam.length]);
 
   // Load history + usage on mount
   useEffect(() => {
@@ -430,25 +901,56 @@ export default function RoundTablePage() {
         }
       })
       .catch(() => {});
+
+    // Hostinger connection status — gates Ananya's deploy button.
+    fetch('/api/me/hostinger', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setHostinger(h => ({ ...h, connected: !!data?.connected, last4: data?.last4 || null, loading: false })))
+      .catch(() => setHostinger(h => ({ ...h, loading: false })));
   }, []);
 
+  // Reset focus to the FIRST response of the latest turn whenever the active
+  // chat changes OR a new turn lands. Picking the first response (not last)
+  // makes the carousel start from the top of the new round, matching the
+  // reading order in the prior-turns transcript above it.
   useEffect(() => {
-    if (activeChat?.responses?.length > 0) setFocusedIdx(activeChat.responses.length - 1);
-  }, [activeChat?.id]);
+    const latest = activeChat?.turns?.[activeChat.turns.length - 1];
+    const responsesLen = latest?.responses?.length || activeChat?.responses?.length || 0;
+    if (responsesLen > 0) setFocusedIdx(0);
+  }, [activeChat?.id, activeChat?.turns?.length]);
 
   async function run(q) {
     const query = (q || prompt).trim();
-    if (!query || loading || draftTeam.length === 0 || limitReached) return;
+    if (!query || loading) return;
+
+    // Multi-turn append vs new-chat decision. Legacy chats (predating the
+    // turns field) stay read-only — submitting starts a fresh chat, same as
+    // before, so the migration boundary doesn't graft new turns onto rows
+    // that the old write path can't represent. The 10-turn cap matches the
+    // backend; past it we silently fall back to a new chat.
+    const TURN_CAP = 10;
+    const isFollowUp = !!activeChat
+      && !activeChat.legacy
+      && Array.isArray(activeChat.turns)
+      && activeChat.turns.length > 0
+      && activeChat.turns.length < TURN_CAP;
+
+    // Team for follow-ups stays locked to the existing chat's team — the
+    // model can't sensibly switch personas mid-conversation.
+    const teamForRun = isFollowUp
+      ? activeChat.team.slice(0, TEAM_SIZE_MAX)
+      : draftTeam.slice(0, TEAM_SIZE_MAX);
+
+    if (teamForRun.length === 0 || limitReached) return;
 
     setPrompt('');
-    setActiveChat(null);
+    if (!isFollowUp) setActiveChat(null);
     setLoading(true);
     setActiveIdx(-1);
     setFocusedIdx(0);
 
     // animate cycling agents during wait
     let cur = 0;
-    const teamForRun = draftTeam.slice(0, TEAM_SIZE_MAX);
     const animTimer = setInterval(() => {
       setActiveIdx(cur % teamForRun.length);
       cur++;
@@ -462,7 +964,11 @@ export default function RoundTablePage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ query, team: teamForRun }),
+        body: JSON.stringify({
+          query,
+          team: teamForRun,
+          ...(isFollowUp ? { chat_id: activeChat.id, prior_turns: activeChat.turns } : {}),
+        }),
       });
 
       clearInterval(animTimer);
@@ -488,24 +994,63 @@ export default function RoundTablePage() {
         return { ...r, agentIdx: agentIdx >= 0 ? agentIdx : i };
       });
 
-      const newChat = {
-        id: data.chatId || `local-${Date.now()}`,
-        query,
-        team: teamForRun,
-        responses: [],
-        created: new Date().toISOString(),
-      };
-      setActiveChat(newChat);
+      const newTurn = { query, responses: [] };
 
-      // Reveal responses one at a time
+      if (isFollowUp) {
+        // Append a fresh turn to the existing chat. We keep mutating the
+        // last turn's responses array as the per-agent reveal animates.
+        setActiveChat(prev => prev ? { ...prev, turns: [...(prev.turns || []), newTurn] } : prev);
+      } else {
+        const newChat = {
+          id: data.chatId || `local-${Date.now()}`,
+          query,
+          team: teamForRun,
+          responses: [],
+          turns: [newTurn],
+          legacy: false,
+          created: new Date().toISOString(),
+        };
+        setActiveChat(newChat);
+      }
+
+      // Reveal responses one at a time, appending to the latest turn each time.
       for (let i = 0; i < responsesWithIdx.length; i++) {
         setActiveIdx(responsesWithIdx[i].agentIdx);
         await new Promise(resolve => setTimeout(resolve, 300));
-        setActiveChat(prev => prev ? { ...prev, responses: [...prev.responses, responsesWithIdx[i]] } : prev);
+        setActiveChat(prev => {
+          if (!prev) return prev;
+          const turns = (prev.turns || []).slice();
+          const lastIdx = turns.length - 1;
+          if (lastIdx < 0) return prev;
+          turns[lastIdx] = { ...turns[lastIdx], responses: [...turns[lastIdx].responses, responsesWithIdx[i]] };
+          // Keep top-level `responses` mirroring the latest turn so any older
+          // consumer that still reads activeChat.responses stays current.
+          return { ...prev, turns, responses: turns[lastIdx].responses };
+        });
       }
 
-      // Prepend to history
-      setChats(prev => [{ ...newChat, responses: responsesWithIdx }, ...prev]);
+      // Snapshot the final state into history. For follow-ups we update the
+      // existing entry; for fresh chats we prepend a new one.
+      const finalTurns = isFollowUp
+        ? [...(activeChat.turns || []), { query, responses: responsesWithIdx }]
+        : [{ query, responses: responsesWithIdx }];
+
+      if (isFollowUp) {
+        setChats(prev => prev.map(c => (
+          c.id === activeChat.id ? { ...c, turns: finalTurns, responses: responsesWithIdx } : c
+        )));
+      } else {
+        const newChat = {
+          id: data.chatId || `local-${Date.now()}`,
+          query,
+          team: teamForRun,
+          responses: responsesWithIdx,
+          turns: finalTurns,
+          legacy: false,
+          created: new Date().toISOString(),
+        };
+        setChats(prev => [newChat, ...prev]);
+      }
       setActiveIdx(-1);
     } catch (err) {
       clearInterval(animTimer);
@@ -552,10 +1097,20 @@ export default function RoundTablePage() {
     } catch {}
   }
 
-  const responses       = activeChat?.responses || [];
+  // Multi-turn: responses always refers to the LATEST turn's responses so the
+  // focused-response carousel + agent highlighting always reflect the most
+  // recent round of answers. Prior turns are surfaced separately above.
+  const turns           = Array.isArray(activeChat?.turns) ? activeChat.turns : (activeChat ? [{ query: activeChat.query, responses: activeChat.responses || [] }] : []);
+  const latestTurn      = turns[turns.length - 1];
+  const priorTurns      = turns.slice(0, -1);
+  const responses       = latestTurn?.responses || activeChat?.responses || [];
   const focusedResponse = responses[focusedIdx];
   const focusedAgent    = focusedResponse ? agents[focusedResponse.agentIdx] || agents[0] : null;
   const focusedColor    = focusedResponse ? PALETTE[focusedResponse.agentIdx] || PALETTE[0] : null;
+  // Disabling the follow-up affordance on legacy chats keeps the
+  // pre-multi-turn schema untouched and gives users a clear nudge to start
+  // fresh if they want a conversation.
+  const canFollowUp     = !!activeChat && !activeChat.legacy && turns.length < 10;
 
   const remainingColor =
     remaining === null ? '#4a4f60'
@@ -616,13 +1171,16 @@ export default function RoundTablePage() {
           </div>
         </div>
 
-        {/* 3-column layout */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* 3-column layout — min-h-0 is the Flexbox overflow gotcha: without
+            it, this row's min-height: auto lets it grow to fit children,
+            defeating the overflow-hidden + the inner columns' overflow-y-auto.
+            Same min-h-0 reasoning applies to each column. */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* ── Left: Round Table Viz (hidden on mobile — compact strip lives in
                   the middle column instead) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderRight: '1px solid #1e2130' }}
-            className="hidden md:flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
+            className="hidden md:flex flex-col items-center py-6 flex-shrink-0 min-h-0 overflow-y-auto">
 
             {/* Vertical oval boardroom — row count adapts to team size so the
                 table always looks packed. Seats alternate left→right in fill
@@ -654,28 +1212,57 @@ export default function RoundTablePage() {
                       if (rIdx >= 0) setFocusedIdx(rIdx);
                     }}
                   >
-                    <motion.div
-                      animate={
-                        activeIdx === i ? {
-                          boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
-                          scale: 1.12, borderColor: `${a.color}99`,
-                        } : focusedResponse?.agentIdx === i ? {
-                          boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
-                        } : {
-                          boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                    <div style={{ position: 'relative' }}>
+                      <motion.div
+                        animate={
+                          activeIdx === i ? {
+                            boxShadow: [`0 0 0 2px ${a.color}50, 0 0 16px ${a.color}30`, `0 0 0 4px ${a.color}20, 0 0 26px ${a.color}20`],
+                            scale: 1.12, borderColor: `${a.color}99`,
+                          } : focusedResponse?.agentIdx === i ? {
+                            boxShadow: `0 0 0 2px ${a.color}60`, scale: 1.06, borderColor: `${a.color}88`,
+                          } : {
+                            boxShadow: 'none', scale: 1, borderColor: 'rgba(255,255,255,0.06)',
+                          }
                         }
-                      }
-                      transition={{ duration: 0.3 }}
-                      style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
-                    >
-                      <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </motion.div>
-                    <div style={{ textAlign: 'center', maxWidth: 56 }}>
+                        transition={{ duration: 0.3 }}
+                        style={{ width: 40, height: 40, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}
+                      >
+                        <img src={avatarUrl(a.agent_name)} alt={a.agent_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </motion.div>
+                      {/* Remove ✕ — only while drafting AND we have more than
+                          the floor team size, so the user can't accidentally
+                          drop below 6. role=button + stopPropagation keeps
+                          the click from also firing the parent focus button. */}
+                      {canRemove && (
+                        <span
+                          role="button"
+                          aria-label={`Remove ${a.agent_name}`}
+                          title={`Remove ${a.agent_name}`}
+                          onClick={(e) => { e.stopPropagation(); removeAgent(a.id); }}
+                          style={{
+                            position: 'absolute', top: -4, right: -4,
+                            width: 16, height: 16, borderRadius: '50%',
+                            background: '#1a0a0a', border: '1px solid #f06b6b88',
+                            color: '#f06b6b', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            zIndex: 4, transition: 'transform 0.15s, background 0.15s',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.18)'; e.currentTarget.style.background = '#3a0e0e'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = '#1a0a0a'; }}
+                        >
+                          <X style={{ width: 9, height: 9 }} strokeWidth={3} />
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'center', width: 88 }}>
                       <div style={{
-                        fontSize: 8, fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.1,
-                        color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#3a3f52',
+                        fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1.15,
+                        color: activeIdx === i ? a.color : focusedResponse?.agentIdx === i ? `${a.color}cc` : '#5a5f72',
                         transition: 'color 0.3s',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        // 2-line clamp instead of single-line ellipsis so
+                        // "Calisthenics Coach" reads as "Calisthenics / Coach"
+                        // rather than "Calisthenic…".
+                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                       }}>
                         {a.agent_name}
                       </div>
@@ -723,53 +1310,110 @@ export default function RoundTablePage() {
               </motion.div>
             </div>
 
-            <div className="w-full px-4 space-y-1 mt-2">
-              {agents.map((a, i) => {
-                const hasResponse = responses.some(r => r.agentIdx === i);
-                const isActive    = activeIdx === i;
-                const isFocused   = focusedResponse?.agentIdx === i;
-                return (
-                  <button key={i} onClick={() => {
-                    const rIdx = responses.findIndex(r => r.agentIdx === i);
-                    if (rIdx >= 0) setFocusedIdx(rIdx);
-                  }} disabled={!hasResponse}
-                    style={{
-                      width: '100%', background: isFocused ? `${a.color}12` : 'transparent',
-                      border: `1px solid ${isFocused ? `${a.color}30` : 'transparent'}`,
-                      borderRadius: 8, padding: '6px 10px',
-                      cursor: hasResponse ? 'pointer' : 'default',
-                      display: 'flex', alignItems: 'center', gap: 8,
-                    }}
-                  >
-                    <div style={{
-                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                      background: isActive ? a.color : hasResponse ? `${a.color}80` : '#1e2130',
-                      transition: 'background 0.3s',
-                    }} />
-                    <img src={avatarUrl(a.agent_name)} alt={a.agent_name}
-                      style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                    <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', color: isFocused ? a.color : '#4a4f60' }}>
-                        {a.agent_name}
+            {/* Team-size pill + add-agent affordance — only while drafting.
+                The pill shows current/max so the user sees room before they
+                click; the button is a popover trigger. Hidden once a chat
+                is active because the team is locked from that point. */}
+            {canEditTeam && (
+              <div className="mt-4 w-full px-4 flex flex-col items-center gap-3" style={{ position: 'relative' }}>
+                <div style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', letterSpacing: '0.08em' }}>
+                  {editingTeam.length} / {TEAM_SIZE_MAX} agents
+                </div>
+                <button
+                  onClick={() => { setShowPicker(s => !s); setPickerQuery(''); setPickerResults([]); }}
+                  disabled={!canAdd}
+                  style={{
+                    background: canAdd ? '#12141c' : '#0d0f16',
+                    border: `1px dashed ${canAdd ? '#5b8dee55' : '#1e213055'}`,
+                    color: canAdd ? '#5b8dee' : '#3a3f52',
+                    borderRadius: 8, padding: '7px 12px',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
+                    cursor: canAdd ? 'pointer' : 'not-allowed',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <UserPlus style={{ width: 12, height: 12 }} />
+                  {canAdd ? 'Add agent' : 'Team full'}
+                </button>
+
+                <AnimatePresence>
+                  {showPicker && canAdd && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.15 }}
+                      style={{
+                        position: 'absolute', top: '100%', left: 8, right: 8,
+                        background: '#0d0f16', border: '1px solid #1e2130',
+                        borderRadius: 10, marginTop: 6, padding: 10, zIndex: 30,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#12141c', border: '1px solid #1e2130', borderRadius: 8, padding: '6px 8px', marginBottom: 8 }}>
+                        <Search style={{ width: 11, height: 11, color: '#4a4f60' }} />
+                        <input
+                          autoFocus
+                          value={pickerQuery}
+                          onChange={(e) => setPickerQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Escape') setShowPicker(false); }}
+                          placeholder="Search for an agent…"
+                          style={{
+                            flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                            color: '#e8eaf0', fontSize: 12, fontFamily: 'monospace',
+                          }}
+                        />
                       </div>
-                      <div style={{ fontSize: 9, color: '#2e3244', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {a.category}
+                      <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                        {pickerLoading && (
+                          <div style={{ fontSize: 11, color: '#4a4f60', padding: '8px 6px', fontFamily: 'monospace' }}>Searching…</div>
+                        )}
+                        {!pickerLoading && pickerQuery.trim() && pickerResults.length === 0 && (
+                          <div style={{ fontSize: 11, color: '#4a4f60', padding: '8px 6px', fontFamily: 'monospace' }}>No matching agents</div>
+                        )}
+                        {!pickerLoading && !pickerQuery.trim() && (
+                          <div style={{ fontSize: 11, color: '#3a3f52', padding: '8px 6px', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                            Type what you want help with — e.g. "kirana marketing", "GST", "logo design".
+                          </div>
+                        )}
+                        {!pickerLoading && pickerResults.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => addAgent(s)}
+                            style={{
+                              width: '100%', textAlign: 'left',
+                              background: 'transparent', border: '1px solid transparent',
+                              borderRadius: 6, padding: '6px 8px', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              marginBottom: 2, transition: 'background 0.12s, border-color 0.12s',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#12141c'; e.currentTarget.style.borderColor = '#1e2130'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                          >
+                            <img src={avatarUrl(s.agent_name)} alt={s.agent_name}
+                              style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#c8ccd8', lineHeight: 1.2 }}>
+                                {s.agent_name}
+                              </div>
+                              <div style={{ fontSize: 9, color: '#5a5f72', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {s.category} · {s.name}
+                              </div>
+                            </div>
+                            <Plus style={{ width: 12, height: 12, color: '#5b8dee', flexShrink: 0 }} />
+                          </button>
+                        ))}
                       </div>
-                    </div>
-                    {isActive && (
-                      <motion.span style={{ fontSize: 8, fontFamily: 'monospace', color: a.color }}
-                        animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 1, repeat: Infinity }}>
-                        thinking…
-                      </motion.span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
           </div>
 
           {/* ── Middle: Active Chat (input at TOP) ── */}
-          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
 
             {/* Compact agents strip (mobile only — replaces the left viz which
                 is hidden below md). Horizontal scroll if more than ~6 fit. */}
@@ -815,21 +1459,37 @@ export default function RoundTablePage() {
 
             {/* Input pinned to top */}
             <div style={{ background: '#0a0c12', borderBottom: '1px solid #1e2130' }} className="px-3 sm:px-5 py-3 sm:py-4 flex-shrink-0">
-              {/* Active chat query header */}
+              {/* Active chat query header — shows the most recent turn's question */}
               {activeChat && (
                 <div className="mb-3 flex items-start gap-2">
-                  <span style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>YOU:</span>
-                  <span style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1 }}>{activeChat.query}</span>
+                  <span style={{ fontSize: 10, color: '#4a4f60', fontFamily: 'monospace', flexShrink: 0, paddingTop: 2 }}>
+                    {turns.length > 1 ? `T${turns.length}:` : 'YOU:'}
+                  </span>
+                  <span style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600, flex: 1 }}>{latestTurn?.query || activeChat.query}</span>
                 </div>
               )}
-              <div style={{ background: '#12141c', border: `1px solid ${limitReached ? '#f06b6b33' : '#1e2130'}`, borderRadius: 12 }}
+              {/* Legacy-chat banner — predates multi-turn, can't be appended to */}
+              {activeChat?.legacy && (
+                <div className="mb-3 flex items-center gap-2" style={{
+                  background: '#1a1408', border: '1px solid #4d3811', borderRadius: 8,
+                  padding: '6px 10px', fontSize: 11, color: '#d4b27d', lineHeight: 1.5,
+                }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>READ-ONLY</span>
+                  <span>· this chat predates multi-turn. Submitting will start a fresh chat.</span>
+                </div>
+              )}
+              <div style={{ background: '#12141c', border: `1px solid ${limitReached ? '#f06b6b33' : canFollowUp ? '#5b8dee44' : '#1e2130'}`, borderRadius: 12 }}
                 className="flex items-center gap-2 px-3 py-2">
                 <input
                   ref={inputRef}
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
-                  placeholder={limitReached ? 'Free limit reached — connect your OpenAI key to continue' : 'Ask the round table anything…'}
+                  placeholder={
+                    limitReached ? 'Free limit reached — connect your OpenAI key to continue'
+                    : canFollowUp ? `Follow up… (${10 - turns.length} turn${10 - turns.length === 1 ? '' : 's'} left)`
+                    : 'Ask the round table anything…'
+                  }
                   disabled={loading || limitReached}
                   style={{
                     flex: 1, background: 'transparent', border: 'none', outline: 'none',
@@ -853,6 +1513,31 @@ export default function RoundTablePage() {
 
             {/* Response feed */}
             <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
+              {/* Prior turns transcript — collapsed view of older turns in
+                  this chat. The focus carousel below always shows the latest
+                  turn; prior turns get a compact "T1: query — N responses"
+                  summary so the user can see how the conversation evolved
+                  without us re-rendering every old response in full. */}
+              {priorTurns.length > 0 && !loading && (
+                <div className="mb-5 pb-4" style={{ borderBottom: '1px solid #1e2130' }}>
+                  <div style={{ fontSize: 10, color: '#3a3f52', fontFamily: 'monospace', letterSpacing: '0.1em', marginBottom: 8, textTransform: 'uppercase' }}>
+                    Earlier in this chat
+                  </div>
+                  <div className="space-y-2">
+                    {priorTurns.map((t, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#6a6f82', lineHeight: 1.5, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                        <span style={{ fontFamily: 'monospace', color: '#4a4f60', fontSize: 10, flexShrink: 0 }}>T{i + 1}</span>
+                        <span style={{ flex: 1 }}>
+                          {t.query}
+                          <span style={{ color: '#3a3f52', marginLeft: 6 }}>
+                            · {(t.responses || []).length} agent{(t.responses || []).length === 1 ? '' : 's'} replied
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <AnimatePresence mode="wait">
                 {limitReached && !activeChat ? (
                   <BYOKScreen key="byok" reason={limitReason} />
@@ -910,101 +1595,128 @@ export default function RoundTablePage() {
                 ) : null}
               </AnimatePresence>
 
-              {/* Design Mockups — only when Maya is in the team and all responses are in */}
-              {(() => {
+              {/* Spec Engineer (Aisha) is now the first avatar in the
+                  CreativePipeline below — generate/edit/send-to-Maya live
+                  inside her section instead of in a standalone panel. */}
+              {false && (() => {
                 if (!activeChat) return null;
-                const teamHasMaya = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasMaya || !allResponsesIn || loading) return null;
+                if (!allResponsesIn || loading) return null;
+                const accent = '#9b6cf0';
                 return (
                   <motion.div
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.25 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
                     style={{ marginTop: 16, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
                   >
-                    {mockup.status === 'idle' && (
+                    {spec.status === 'idle' && (
                       <>
-                        <div style={{ fontSize: 10, color: '#b07ef8', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
-                          Round table done · Maya can design this
+                        <div style={{ fontSize: 10, color: accent, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+                          Round table done · Spec Engineer can synthesize this
                         </div>
                         <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-                          Generate 5 device-framed HTML mockups so you can see screens before anything ships.
+                          Turn the conversation into a one-page spec — Problem, Goals, Requirements, Proposed approach, Rollout. You can edit it before sending to Maya.
                         </div>
-                        <button onClick={triggerMockup} style={{
-                          background: '#b07ef8', color: '#fff', border: 'none', borderRadius: 8,
+                        <button onClick={generateSpec} style={{
+                          background: accent, color: '#fff', border: 'none', borderRadius: 8,
                           padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                           display: 'inline-flex', alignItems: 'center', gap: 8,
                         }}>
-                          <Palette style={{ width: 14, height: 14 }} /> Design Mockups
+                          <Sparkles style={{ width: 14, height: 14 }} /> Generate Spec
                         </button>
                       </>
                     )}
-                    {mockup.status === 'running' && (() => {
-                      const live = describeProgress(mockup.progress);
-                      return (
-                        <div className="flex items-center gap-3">
-                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                            <Palette style={{ width: 22, height: 22, color: '#b07ef8' }} />
-                          </motion.div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Maya is sketching…</div>
-                            <div style={{ fontSize: 11, color: live ? '#b07ef8' : '#5a607a', marginTop: 2 }}>
-                              {live || 'Picking a palette, fetching photos, drawing 5 screens. 1–2 minutes.'}
-                            </div>
-                          </div>
+                    {spec.status === 'running' && (
+                      <div className="flex items-center gap-3">
+                        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                          <Sparkles style={{ width: 22, height: 22, color: accent }} />
+                        </motion.div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Drafting the spec…</div>
+                          <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>Synthesizing every agent's contribution into one structured doc. ~10s.</div>
                         </div>
-                      );
-                    })()}
-                    {mockup.status === 'done' && mockup.result && (
+                      </div>
+                    )}
+                    {spec.status === 'done' && spec.result && (
                       <>
-                        <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
+                        <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
                           <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
-                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Mockups ready</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{mockup.result.summary}</div>
-                        {mockup.result.files?.length > 0 && (
-                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130', maxHeight: 180, overflow: 'auto' }}>
-                            {mockup.result.files.map(f => (
-                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                                <span>{f.path}</span>
-                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {mockup.result.preview_url && (
-                            <a href={`/api${mockup.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
-                              background: '#b07ef8', color: '#fff', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                            }}>
-                              <Eye style={{ width: 14, height: 14 }} /> Preview
-                            </a>
+                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Spec ready</span>
+                          {spec.result.authors?.length > 0 && (
+                            <span style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', marginLeft: 4 }}>
+                              · authors: {spec.result.authors.join(', ')}
+                            </span>
                           )}
-                          <a href={`/api${mockup.result.download_url.replace(/^\/api/, '')}`} download style={{
-                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
-                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                          }}>
-                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
-                          </a>
+                          {spec.dirty && (
+                            <span style={{ fontSize: 10, color: '#f0a04b', fontFamily: 'monospace', marginLeft: 'auto' }}>● unsaved edits</span>
+                          )}
+                        </div>
+                        <textarea
+                          value={spec.editing}
+                          onChange={e => setSpec(s => ({ ...s, editing: e.target.value, dirty: e.target.value !== s.result?.text }))}
+                          spellCheck={false}
+                          style={{
+                            width: '100%', minHeight: 360,
+                            background: '#0a0c12', color: '#c8ccd8',
+                            border: '1px solid #1e2130', borderRadius: 8,
+                            padding: 12, fontSize: 12, lineHeight: 1.55,
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                            resize: 'vertical', outline: 'none',
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                          <button
+                            onClick={saveSpecEdits}
+                            disabled={!spec.dirty}
+                            style={{
+                              background: spec.dirty ? '#5cc28a' : '#1e2130',
+                              color: spec.dirty ? '#0a0c12' : '#5a607a',
+                              border: 'none', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, fontWeight: 700, cursor: spec.dirty ? 'pointer' : 'not-allowed',
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                            }}
+                          >
+                            <CheckCircle2 style={{ width: 12, height: 12 }} /> Save edits
+                          </button>
+                          <button
+                            onClick={sendSpecToMaya}
+                            disabled={mockup.status === 'running'}
+                            style={{
+                              background: '#b07ef8', color: '#fff',
+                              border: 'none', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, fontWeight: 700,
+                              cursor: mockup.status === 'running' ? 'not-allowed' : 'pointer',
+                              opacity: mockup.status === 'running' ? 0.5 : 1,
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                            }}
+                          >
+                            <Palette style={{ width: 12, height: 12 }} /> Send to Maya
+                          </button>
+                          <button
+                            onClick={generateSpec}
+                            style={{
+                              background: 'none', color: '#5a607a',
+                              border: '1px solid #1e2130', borderRadius: 8, padding: '8px 14px',
+                              fontSize: 12, cursor: 'pointer',
+                            }}
+                          >
+                            Regenerate
+                          </button>
                         </div>
                       </>
                     )}
-                    {mockup.status === 'error' && (
+                    {spec.status === 'error' && (
                       <div className="flex items-start gap-3">
                         <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Mockup generation failed</div>
-                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{mockup.error}</div>
-                          <button onClick={triggerMockup} style={{
-                            marginTop: 10, color: '#b07ef8', background: 'none', border: '1px solid #b07ef844',
-                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
-                          }}>
-                            Try again
-                          </button>
+                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Spec generation failed</div>
+                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{spec.error}</div>
+                          <button onClick={generateSpec} style={{
+                            marginTop: 10, color: accent, background: 'none',
+                            border: `1px solid ${accent}44`, borderRadius: 6,
+                            padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+                          }}>Try again</button>
                         </div>
                       </div>
                     )}
@@ -1012,164 +1724,39 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Build & Download — only when Ananya is in the team and all responses are in.
-                  When Maya is ALSO in the team, this panel renders in a locked state until
-                  her mockups complete, then animates open to unlock the build action. */}
+              {/* Aisha → Maya → Ananya → Hostinger pipeline. The four are
+                  always shown as system stages once the round table is in,
+                  regardless of which specialists the user picked. Earlier
+                  code gated Maya/Ananya/Hostinger on team membership, which
+                  broke the flow for teams that didn't happen to include
+                  them — "Send to Maya" would disappear when there's no
+                  Maya in the round table. The triggers route to /api/mockup
+                  etc. by skill id, which works whether or not the agent was
+                  ever a round-table contributor. */}
               {(() => {
                 if (!activeChat) return null;
-                const teamHasAnanya = activeChat.team?.some(s => s.id === ANANYA_SKILL_ID);
-                const teamHasMaya   = activeChat.team?.some(s => s.id === MAYA_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasAnanya || !allResponsesIn || loading) return null;
-                const buildLocked = teamHasMaya && mockup.status !== 'done';
+                if (!allResponsesIn || loading) return null;
+                const members = [
+                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',   accent: '#9b6cf0', theme: 'warm' },
+                  { key: 'maya',      name: 'Maya',      role: 'UX Designer',     accent: '#b07ef8', theme: 'warm' },
+                  { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',    accent: '#5b8dee', theme: 'warm' },
+                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer', accent: '#9b6cf0', theme: 'cool' },
+                ];
                 return (
-                  <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.2 }}
-                    style={{ marginTop: 32, padding: 20, background: '#0e1018', border: '1px solid #1e2130', borderRadius: 12 }}
-                  >
-                    {build.status === 'idle' && (
-                      <AnimatePresence mode="wait">
-                        {buildLocked ? (
-                          <motion.div
-                            key="locked"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.2 } }}
-                          >
-                            <div style={{ fontSize: 10, color: '#5a607a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <Lock style={{ width: 11, height: 11 }} />
-                              Waiting for Maya
-                            </div>
-                            <div style={{ fontSize: 13, color: '#8a91a8', marginBottom: 14, lineHeight: 1.65 }}>
-                              Generate the mockups first — Ananya will build the production website using <span style={{ color: '#b07ef8', fontWeight: 600 }}>Maya's palette, typography, and layout</span>.
-                            </div>
-                            <button disabled style={{
-                              background: '#1e2130', color: '#5a607a', border: '1px solid #1e2130',
-                              borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
-                              cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8,
-                            }}>
-                              <Lock style={{ width: 14, height: 14 }} />
-                              Locked — design first
-                            </button>
-                          </motion.div>
-                        ) : (
-                          <motion.div
-                            key="unlocked"
-                            initial={{
-                              opacity: 0,
-                              scale: 0.95,
-                              boxShadow: '0 0 0 0 rgba(92, 194, 138, 0)',
-                            }}
-                            animate={{
-                              opacity: 1,
-                              scale: 1,
-                              boxShadow: [
-                                '0 0 0 0 rgba(92, 194, 138, 0)',
-                                '0 0 0 16px rgba(92, 194, 138, 0.25)',
-                                '0 0 0 32px rgba(92, 194, 138, 0)',
-                              ],
-                            }}
-                            transition={{
-                              opacity: { duration: 0.35 },
-                              scale:   { duration: 0.5, type: 'spring', stiffness: 240, damping: 18 },
-                              boxShadow: { duration: 1.2, times: [0, 0.5, 1], ease: 'easeOut' },
-                            }}
-                            style={{ borderRadius: 10, padding: 2 }}
-                          >
-                            <div style={{ fontSize: 10, color: '#5b8dee', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              {buildWillInheritDesign && <Sparkles style={{ width: 11, height: 11, color: '#5cc28a' }} />}
-                              {buildWillInheritDesign
-                                ? "Maya designed it · Ananya will build from her design"
-                                : "Round table done · Ananya can build this"}
-                            </div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-                              {buildWillInheritDesign
-                                ? <>Ananya inherits Maya's <span style={{ color: '#b07ef8', fontWeight: 600 }}>palette, typography, and layout structure</span>, then ships the production website (no mockup device frame).</>
-                                : <>The team's input becomes Ananya's brief. She'll write the files, you download the ZIP.</>}
-                            </div>
-                            <button onClick={triggerBuild} style={{
-                              background: '#5b8dee', color: '#fff', border: 'none', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8,
-                            }}>
-                              <Hammer style={{ width: 14, height: 14 }} />
-                              {buildWillInheritDesign ? "Build from Maya's design" : 'Build & Download'}
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    )}
-                    {build.status === 'running' && (() => {
-                      const live = describeProgress(build.progress);
-                      return (
-                        <div className="flex items-center gap-3">
-                          <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
-                            <Hammer style={{ width: 22, height: 22, color: '#5b8dee' }} />
-                          </motion.div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Ananya is building…</div>
-                            <div style={{ fontSize: 11, color: live ? '#5b8dee' : '#5a607a', marginTop: 2 }}>
-                              {live || 'Reading the team input, calling tools, writing files. 30–90 seconds.'}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {build.status === 'done' && build.result && (
-                      <>
-                        <div className="flex items-center gap-2 mb-2" style={{ marginBottom: 10 }}>
-                          <CheckCircle2 style={{ width: 16, height: 16, color: '#5cc28a' }} />
-                          <span style={{ fontSize: 11, color: '#5cc28a', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>App ready</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{build.result.summary}</div>
-                        {build.result.files?.length > 0 && (
-                          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#0a0c12', borderRadius: 6, border: '1px solid #1e2130' }}>
-                            {build.result.files.map(f => (
-                              <div key={f.path} style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                                <span>{f.path}</span>
-                                <span style={{ color: '#4a4f60' }}>{f.bytes.toLocaleString()} B</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {build.result.preview_url && (
-                            <a href={`/api${build.result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
-                              background: '#5b8dee', color: '#fff', borderRadius: 8,
-                              padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                            }}>
-                              <Eye style={{ width: 14, height: 14 }} /> Preview
-                            </a>
-                          )}
-                          <a href={`/api${build.result.download_url.replace(/^\/api/, '')}`} download style={{
-                            background: '#5cc28a', color: '#0a0c12', borderRadius: 8,
-                            padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-                          }}>
-                            <Download style={{ width: 14, height: 14 }} /> Download ZIP
-                          </a>
-                        </div>
-                      </>
-                    )}
-                    {build.status === 'error' && (
-                      <div className="flex items-start gap-3">
-                        <AlertCircle style={{ width: 18, height: 18, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#f06b6b', fontWeight: 600 }}>Build failed</div>
-                          <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{build.error}</div>
-                          <button onClick={triggerBuild} style={{
-                            marginTop: 10, color: '#5b8dee', background: 'none', border: '1px solid #5b8dee44',
-                            borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
-                          }}>
-                            Try again
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
+                  <CreativePipeline
+                    members={members}
+                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
+                    generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
+                    tech={tech} conveneTechTeam={conveneTechTeam}
+                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
+                    recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
+                    recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}
+                    saveHostingerToken={saveHostingerToken}
+                    showHostingerLogin={showHostingerLogin} setShowHostingerLogin={setShowHostingerLogin}
+                    hostingerToken={hostingerToken} setHostingerToken={setHostingerToken} setHostinger={setHostinger}
+                    describeProgress={describeProgress} buildWillInheritDesign={buildWillInheritDesign}
+                  />
                 );
               })()}
 
@@ -1184,6 +1771,9 @@ export default function RoundTablePage() {
                     status={email.status}
                     result={email.result}
                     error={email.error}
+                    pendingSessionId={email.pendingSessionId}
+                    recoveryNote={email.recoveryNote}
+                    onRecover={() => recoverPending({ setState: setEmail, toolKey: 'email' })}
                     progressLabel={describeProgress(email.progress)}
                     color="#f0a04b"
                     Icon={Mail}
@@ -1210,6 +1800,9 @@ export default function RoundTablePage() {
                     status={social.status}
                     result={social.result}
                     error={social.error}
+                    pendingSessionId={social.pendingSessionId}
+                    recoveryNote={social.recoveryNote}
+                    onRecover={() => recoverPending({ setState: setSocial, toolKey: 'social' })}
                     progressLabel={describeProgress(social.progress)}
                     color="#e070c2"
                     Icon={Megaphone}
@@ -1247,7 +1840,7 @@ export default function RoundTablePage() {
                   could go here later; for now the screen is too narrow to fit
                   three columns) ── */}
           <div style={{ width: 280, minWidth: 280, background: '#0a0c12', borderLeft: '1px solid #1e2130' }}
-            className="hidden md:flex flex-col flex-shrink-0">
+            className="hidden md:flex flex-col flex-shrink-0 min-h-0">
 
             <div style={{ borderBottom: '1px solid #1e2130' }} className="px-4 py-3 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
