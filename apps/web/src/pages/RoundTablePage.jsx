@@ -302,6 +302,13 @@ export default function RoundTablePage() {
   // saved copy. `dirty` short-circuits the save button.
   const initSpecState = { status: 'idle', result: null, error: null, editing: '', dirty: false };
   const [spec, setSpec] = useState(initSpecState);
+  // Tech round table state — fires after Aisha's first spec via the
+  // "Convene tech team" CTA. Two-step: first /api/recommend/tech returns
+  // a tech team (status='picking'), then user confirms and we POST
+  // /api/roundtable with kind=tech (status='running' → 'done').
+  // tech_responses is the flat array of replies; rehydrates from chat.tech_turns.
+  const initTechState = { status: 'idle', team: [], responses: [], error: null };
+  const [tech, setTech] = useState(initTechState);
   // Deploy panel (Ananya → Hostinger VPS). The persisted source of truth is
   // `build.result.deploy`; this state drives the live run + restore.
   const [deploy, setDeploy] = useState(initToolState);
@@ -327,6 +334,14 @@ export default function RoundTablePage() {
       setSpec({ status: 'done', result: saved.spec, error: null, editing: saved.spec.text || '', dirty: false });
     } else {
       setSpec(initSpecState);
+    }
+    // Tech RT rehydration — flatten tech_turns into a single responses list.
+    const techTurns = Array.isArray(activeChat?.tech_turns) ? activeChat.tech_turns : [];
+    if (techTurns.length > 0) {
+      const flat = techTurns.flatMap(t => (t.responses || []));
+      setTech({ status: 'done', team: activeChat?.tech_team || [], responses: flat, error: null });
+    } else {
+      setTech(initTechState);
     }
     setShowHostingerLogin(false);
   }, [activeChat?.id]);
@@ -603,6 +618,69 @@ export default function RoundTablePage() {
     if (!text) return;
     if (spec.dirty) saveSpecEdits();
     triggerMockup(text);
+  }
+
+  // Convene tech team — single-step: recommend a tech team off the current
+  // spec text, then immediately run the tech round table on that team with
+  // the spec as the context. Once tech responses are in, we auto-regenerate
+  // Aisha's spec so it incorporates both transcripts.
+  async function conveneTechTeam() {
+    const chatId = activeChat?.id;
+    const specText = (spec.editing || spec.result?.text || '').trim();
+    if (!chatId || !specText) return;
+    setTech({ status: 'recommending', team: [], responses: [], error: null });
+    const token = pb.authStore.token;
+    try {
+      // 1. Recommend tech specialists off the spec.
+      const recRes = await fetch('/api/recommend/tech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: specText, size: 5 }),
+      });
+      if (!recRes.ok) throw new Error(`Tech recommend failed (${recRes.status})`);
+      const recData = await recRes.json();
+      const techTeam = recData.skills || [];
+      if (techTeam.length === 0) throw new Error('No tech specialists matched this spec');
+
+      setTech({ status: 'running', team: techTeam, responses: [], error: null });
+
+      // 2. Run the tech round table. The "query" we pass is a focused brief
+      // — what the tech team should debate. Anchored on the spec.
+      const techQuery = `Review this spec and weigh in on the engineering choices, architecture, and risks. Where it's silent on stack/infra, propose concrete options.\n\nSpec:\n${specText}`;
+      const rtRes = await fetch('/api/roundtable', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          query: techQuery,
+          team: techTeam,
+          chat_id: chatId,
+          kind: 'tech',
+        }),
+      });
+      if (!rtRes.ok) {
+        const errBody = await rtRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `Tech round table failed (${rtRes.status})`);
+      }
+      const rtData = await rtRes.json();
+      const responses = rtData.responses || [];
+      setTech({ status: 'done', team: techTeam, responses, error: null });
+
+      // Reflect the tech turn into local activeChat so the next Aisha
+      // regenerate sees it without a server round-trip.
+      setActiveChat(prev => prev ? {
+        ...prev,
+        tech_team: techTeam,
+        tech_turns: [{ query: techQuery, responses }],
+      } : prev);
+
+      // 3. Auto-regenerate Aisha's spec with combined context.
+      generateSpec();
+    } catch (err) {
+      setTech(t => ({ ...t, status: 'error', error: err.message }));
+    }
   }
 
   // Save the Hostinger hPanel API token ("Login to Hostinger").
@@ -1670,6 +1748,7 @@ export default function RoundTablePage() {
                     members={members}
                     spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
                     generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
+                    tech={tech} conveneTechTeam={conveneTechTeam}
                     triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
                     recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
                     recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}

@@ -216,12 +216,15 @@ router.post('/recommend', async (req, res) => {
 
         const vector       = await embedQuery(cleaned);
         const rawTopSkills = search(vector, 500, phase);
-        // Maya/Ananya/Hostinger are system pipeline agents — they execute
-        // off Aisha's spec, they don't deliberate at the round table. Strip
-        // them from the candidate pool so they never appear in the
-        // recommendation or the picker.
+        // Two filters in series:
+        //   1. PIPELINE_SYSTEM_IDS — Maya/Ananya/Hostinger never deliberate
+        //   2. Tech-category — those go to the separate tech round table
+        //      that fires after Aisha's first spec, not the domain round
+        //      table that runs on the user's raw prompt.
         const PIPELINE_SYSTEM_IDS = new Set([MAYA_SKILL_ID, ANANYA_SKILL_ID, HOSTINGER_SKILL_ID]);
-        const topSkills    = rawTopSkills.filter(s => !PIPELINE_SYSTEM_IDS.has(s.id));
+        const topSkills    = rawTopSkills.filter(s =>
+            !PIPELINE_SYSTEM_IDS.has(s.id) && s.category !== 'Tech'
+        );
         let team           = pickTeam(topSkills, size, { query, phase });
 
         const techPick = team.find(s => s.category === 'Tech');
@@ -232,6 +235,62 @@ router.post('/recommend', async (req, res) => {
     } catch (err) {
         logger.error('recommend error:', err.message);
         res.status(500).json({ error: 'recommendation failed', skills: [] });
+    }
+});
+
+// Tech round table specialists — same embedding search as /recommend but
+// restricted to category=Tech. Returns 4-6 skills by default (smaller team
+// than the domain RT because tech opinions converge faster). Used by the
+// "Convene tech team" flow: the spec text is the query so the embedding
+// surfaces Node.js / React / Postgres / Docker specialists matched to the
+// actual technical surface area of the build, not the user's raw prompt.
+const TECH_TEAM_MIN = 4;
+const TECH_TEAM_MAX = 8;
+router.post('/recommend/tech', async (req, res) => {
+    const { query, size: rawSize } = req.body || {};
+    if (!query || typeof query !== 'string') {
+        return res.status(400).json({ error: 'query is required' });
+    }
+    const parsedSize = Number.isFinite(+rawSize) ? Math.floor(+rawSize) : TECH_TEAM_MIN;
+    const size = Math.max(TECH_TEAM_MIN, Math.min(TECH_TEAM_MAX, parsedSize));
+
+    const cleaned = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 1 && !STOPWORDS.has(w))
+        .join(' ') || query;
+
+    try {
+        if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+        await ensureCache();
+        if (cacheSize() === 0) return res.json({ skills: [] });
+
+        const vector = await embedQuery(cleaned);
+        const rawTopSkills = search(vector, 500, null);
+        // Tech category only, drop the system pipeline IDs explicitly even
+        // though Maya/Hostinger live outside Tech — Ananya does too in the
+        // schema, so the SKILL_ID filter protects against that.
+        const PIPELINE_SYSTEM_IDS = new Set([MAYA_SKILL_ID, ANANYA_SKILL_ID, HOSTINGER_SKILL_ID]);
+        const techSkills = rawTopSkills.filter(s =>
+            s.category === 'Tech' && !PIPELINE_SYSTEM_IDS.has(s.id)
+        );
+
+        // One per agent_name so we don't return 3 Vikrams. Pick the highest-
+        // scoring slot per name, then truncate to `size`.
+        const seenAgentNames = new Set();
+        const team = [];
+        for (const s of techSkills) {
+            if (seenAgentNames.has(s.agent_name)) continue;
+            seenAgentNames.add(s.agent_name);
+            team.push(s);
+            if (team.length === size) break;
+        }
+
+        logger.info(`recommend/tech: "${query.slice(0, 60)}" size=${size} → ${team.length} skills, top ${team[0]?._score?.toFixed(3) || 'n/a'}`);
+        res.json({ skills: team.map(({ _score, ...s }) => s) });
+    } catch (err) {
+        logger.error('recommend/tech error:', err.message);
+        res.status(500).json({ error: 'tech recommendation failed', skills: [] });
     }
 });
 

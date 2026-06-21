@@ -55,6 +55,12 @@ const CHAT_FIELDS = [
     // initial submit, and the top-level query/responses mirror turns[0] so
     // older readers keep working. 1 MB cap = ~10 turns × 8 agents × ~5KB.
     { type: 'json',     name: 'turns',        maxSize: 1000000 },
+    // tech_team + tech_turns are the parallel storage for the technical
+    // round table (Aisha's "convene tech team" flow). Same shape as
+    // team/turns but tagged separately so the spec synthesizer can stitch
+    // domain + tech transcripts into one combined doc.
+    { type: 'json',     name: 'tech_team',    maxSize: 100000 },
+    { type: 'json',     name: 'tech_turns',   maxSize: 1000000 },
     { type: 'json',     name: 'tool_results', maxSize: 600000 },
     { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
     { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
@@ -157,15 +163,20 @@ async function saveChat(userId, query, team, responses) {
 // Append a new (query, responses) pair to an existing chat's turns array.
 // Returns the updated chat record, or null on failure / ownership mismatch.
 // Caps at 10 turns total so a runaway loop can't bloat the row.
+//
+// `kind` routes between the two round tables on the same chat:
+//   'domain' → writes to `turns` (legacy + multi-turn case)
+//   'tech'   → writes to `tech_turns` (Aisha's convene-tech flow)
 const MAX_TURNS_PER_CHAT = 10;
-async function appendChatTurn(chatId, userId, query, responses) {
+async function appendChatTurn(chatId, userId, query, responses, kind = 'domain') {
     try {
         const existing = await pb.collection('roundtable_chats').getOne(chatId);
         if (existing.user_id !== userId) return null;
-        const turns = Array.isArray(existing.turns) ? existing.turns.slice() : [];
+        const field = kind === 'tech' ? 'tech_turns' : 'turns';
+        const turns = Array.isArray(existing[field]) ? existing[field].slice() : [];
         // Legacy chats stored only top-level query+responses; rebuild their
-        // first turn from those so the array grows monotonically.
-        if (turns.length === 0 && existing.query) {
+        // first turn from those so the array grows monotonically. (domain only)
+        if (kind === 'domain' && turns.length === 0 && existing.query) {
             turns.push({ query: existing.query, responses: existing.responses || [] });
         }
         if (turns.length >= MAX_TURNS_PER_CHAT) {
@@ -173,7 +184,7 @@ async function appendChatTurn(chatId, userId, query, responses) {
             throw e;
         }
         turns.push({ query, responses });
-        return await pb.collection('roundtable_chats').update(chatId, { turns });
+        return await pb.collection('roundtable_chats').update(chatId, { [field]: turns });
     } catch (err) {
         if (err.status === 409) throw err;
         logger.warn('Failed to append turn to chat', chatId, err.message);
@@ -259,10 +270,19 @@ function trimPriorTurns(turns) {
 const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
 router.post('/roundtable', async (req, res) => {
-    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput } = req.body || {};
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput } = req.body || {};
 
     if (!query || !Array.isArray(rawTeam) || rawTeam.length === 0) {
         return res.status(400).json({ error: 'query and team are required' });
+    }
+    // kind routes between the domain RT (default) and the tech RT. Tech is
+    // a single-shot session right now — multi-turn comes later if useful.
+    const kind = kindInput === 'tech' ? 'tech' : 'domain';
+    // Tech round table requires an existing chat to append onto. Domain RT
+    // creates new chats from scratch; tech RT can only run on a chat that
+    // already has domain responses + a spec, so we enforce chat_id.
+    if (kind === 'tech' && !chatIdInput) {
+        return res.status(400).json({ error: 'tech round table requires chat_id' });
     }
     const team = rawTeam.filter(s => s && !PIPELINE_SYSTEM_IDS.has(s.id));
     if (team.length === 0) {
@@ -364,9 +384,24 @@ router.post('/roundtable', async (req, res) => {
             // Free-tier usage only counts when the server key was used
             if (!usingUserKey && usageCollectionReady) incrementUsage(userId);
             if (chatsCollectionReady) {
-                if (isFollowUp) {
+                if (kind === 'tech') {
+                    // Tech RT appends to tech_turns AND stamps the tech_team
+                    // on the chat row for later restoration. Always treats
+                    // the call as a follow-up because the chat already exists.
                     try {
-                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses);
+                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses, 'tech');
+                        chatId = appended?.id || null;
+                        // Best-effort: stamp tech_team so the UI can rehydrate it.
+                        await pb.collection('roundtable_chats').update(chatIdInput, { tech_team: team }).catch(() => {});
+                    } catch (err) {
+                        if (err.status === 409) {
+                            turnLimitReached = true;
+                            chatId = chatIdInput;
+                        } else throw err;
+                    }
+                } else if (isFollowUp) {
+                    try {
+                        const appended = await appendChatTurn(chatIdInput, userId, query, parsed.responses, 'domain');
                         chatId = appended?.id || null;
                     } catch (err) {
                         if (err.status === 409) {
@@ -381,7 +416,7 @@ router.post('/roundtable', async (req, res) => {
             }
         }
 
-        logger.info(`roundtable: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
+        logger.info(`roundtable[${kind}]: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query.slice(0, 60)}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
@@ -441,6 +476,10 @@ router.get('/roundtable/chats', async (req, res) => {
                     responses: c.responses,
                     turns,
                     legacy,
+                    // Tech round table — only populated for chats that ran the
+                    // "Convene tech team" flow. Empty array / null otherwise.
+                    tech_team:  Array.isArray(c.tech_team)  ? c.tech_team  : [],
+                    tech_turns: Array.isArray(c.tech_turns) ? c.tech_turns : [],
                     tool_results: c.tool_results || {},
                     created: c.created,
                 };

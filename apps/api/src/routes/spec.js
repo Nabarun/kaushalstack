@@ -102,28 +102,46 @@ RULES:
 - Authors line must list every agent that contributed a perspective. Order them as they appeared.`;
 
 function buildSpecUserPrompt(chat) {
-    // Pull every turn's responses — multi-turn chats accumulate context that
-    // should all flow into the spec.
-    const turns = Array.isArray(chat.turns) && chat.turns.length > 0
+    // Domain round-table transcript — every turn's responses.
+    const domainTurns = Array.isArray(chat.turns) && chat.turns.length > 0
         ? chat.turns
         : [{ query: chat.query, responses: chat.responses || [] }];
 
-    const transcript = turns.map((t, i) => {
-        const header = turns.length > 1 ? `### Turn ${i + 1}\nUser asked: "${t.query}"\n` : `User asked: "${t.query}"\n`;
+    const domainTranscript = domainTurns.map((t, i) => {
+        const header = domainTurns.length > 1 ? `### Domain · Turn ${i + 1}\nUser asked: "${t.query}"\n` : `User asked: "${t.query}"\n`;
         const replies = (t.responses || []).map(r => `**${r.name}:** ${r.text}`).join('\n\n');
         return `${header}\n${replies}`;
     }).join('\n\n---\n\n');
 
-    return `Synthesize the spec from this round-table conversation:\n\n${transcript}`;
+    // Tech round-table transcript — only present when "Convene tech team"
+    // fired. Tech RT is single-shot for now (no multi-turn) so we just
+    // flatten its turns linearly.
+    const techTurns = Array.isArray(chat.tech_turns) ? chat.tech_turns : [];
+    let techTranscript = '';
+    if (techTurns.length > 0) {
+        techTranscript = '\n\n========\n\nTECHNICAL ROUND TABLE (consulted on the spec):\n\n' +
+            techTurns.map((t, i) => {
+                const header = techTurns.length > 1 ? `### Tech · Round ${i + 1}\nQuestion: "${t.query}"\n` : `Question: "${t.query}"\n`;
+                const replies = (t.responses || []).map(r => `**${r.name}:** ${r.text}`).join('\n\n');
+                return `${header}\n${replies}`;
+            }).join('\n\n---\n\n');
+    }
+
+    const guidance = techTurns.length > 0
+        ? `Synthesize the spec from BOTH round-table conversations below. The domain round table set the problem and goals; the technical round table reviewed the spec draft and weighed in on architecture, stack choices, and engineering risks. The final spec should absorb both perspectives — domain-driven Problem/Goals/Requirements, tech-driven Proposed approach/Failure modes/Open questions.`
+        : `Synthesize the spec from this round-table conversation:`;
+
+    return `${guidance}\n\n${domainTranscript}${techTranscript}`;
 }
 
 function collectAuthors(chat) {
-    const turns = Array.isArray(chat.turns) && chat.turns.length > 0
+    const domainTurns = Array.isArray(chat.turns) && chat.turns.length > 0
         ? chat.turns
         : [{ responses: chat.responses || [] }];
+    const techTurns = Array.isArray(chat.tech_turns) ? chat.tech_turns : [];
     const seen = new Set();
     const order = [];
-    for (const t of turns) {
+    for (const t of [...domainTurns, ...techTurns]) {
         for (const r of (t.responses || [])) {
             if (r?.name && !seen.has(r.name)) {
                 seen.add(r.name);

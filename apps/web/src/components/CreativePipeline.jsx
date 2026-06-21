@@ -71,6 +71,7 @@ export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
   spec, mockup, build, deploy, hostinger,
   generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
+  tech, conveneTechTeam,
   triggerMockup, triggerBuild, triggerDeploy,
   recoverMockup, recoverBuild,
   saveHostingerToken, showHostingerLogin, setShowHostingerLogin,
@@ -212,7 +213,7 @@ export default function CreativePipeline({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya: has('maya') }} />}
+            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
             {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
@@ -233,7 +234,7 @@ export default function CreativePipeline({
 // ── Aisha — Spec Engineer ───────────────────────────────────────────
 // Synthesizes the round-table transcript into an editable spec doc and
 // hands it off to Maya as her design brief. First step in the pipeline.
-function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya }) {
+function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya, tech, conveneTechTeam }) {
   const accent = '#9b6cf0';
   if (spec.status === 'running') {
     return (
@@ -290,6 +291,78 @@ function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMa
             Regenerate
           </button>
         </div>
+
+        {/* ── Tech round table ──────────────────────────────────
+            After v1 spec is ready, Aisha can convene a tech round
+            table to review the spec from an engineering angle.
+            Their perspectives get folded into a v2 spec automatically. */}
+        {tech && (
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px dashed #1e2130' }}>
+            {tech.status === 'idle' && (
+              <>
+                <div style={{ fontSize: 10, color: '#5a8dee', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Optional · convene tech team
+                </div>
+                <div style={{ fontSize: 12, color: '#8a91a8', marginBottom: 10, lineHeight: 1.6 }}>
+                  Hand the spec to a fresh round table of tech specialists — they'll weigh in on architecture, stack choices, and engineering risks. Aisha will then update the spec with their input.
+                </div>
+                <button onClick={conveneTechTeam} disabled={spec.dirty} style={btn('#5b8dee')} title={spec.dirty ? 'Save your edits first' : 'Recommend a tech team and run a tech round table'}>
+                  <Sparkles style={{ width: 12, height: 12 }} /> Convene tech team
+                </button>
+              </>
+            )}
+            {tech.status === 'recommending' && (
+              <div style={{ fontSize: 12, color: '#8a91a8', fontFamily: 'monospace' }}>
+                Picking tech specialists from the spec…
+              </div>
+            )}
+            {tech.status === 'running' && (
+              <div className="flex items-center gap-3">
+                <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+                  <Sparkles style={{ width: 18, height: 18, color: '#5b8dee' }} />
+                </motion.div>
+                <div>
+                  <div style={{ fontSize: 12, color: '#c8ccd8', fontWeight: 600 }}>Tech round table in session…</div>
+                  <div style={{ fontSize: 11, color: '#5a607a', marginTop: 2 }}>
+                    {tech.team?.length || 0} specialists weighing in: {(tech.team || []).map(s => s.agent_name).join(', ')}
+                  </div>
+                </div>
+              </div>
+            )}
+            {tech.status === 'done' && tech.responses?.length > 0 && (
+              <>
+                <Tag color="#5cc28a" icon={CheckCircle2}>Tech round table done</Tag>
+                <div style={{ fontSize: 11, color: '#5a607a', fontFamily: 'monospace', marginBottom: 10 }}>
+                  {tech.responses.length} response{tech.responses.length === 1 ? '' : 's'} folded into the spec above. Authors: {tech.responses.map(r => r.name).join(', ')}
+                </div>
+                <details style={{ marginBottom: 8 }}>
+                  <summary style={{ fontSize: 11, color: '#5b8dee', fontFamily: 'monospace', cursor: 'pointer' }}>View tech responses ↓</summary>
+                  <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: '2px solid #1e2130' }}>
+                    {tech.responses.map((r, i) => (
+                      <div key={i} style={{ marginBottom: 10, fontSize: 12, color: '#8a91a8', lineHeight: 1.55 }}>
+                        <div style={{ fontWeight: 700, color: '#5b8dee', marginBottom: 2 }}>{r.name}</div>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{r.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+                <button onClick={conveneTechTeam} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '6px 12px', fontSize: 11, cursor: 'pointer' }}>
+                  Re-convene a fresh tech team
+                </button>
+              </>
+            )}
+            {tech.status === 'error' && (
+              <div className="flex items-start gap-3">
+                <AlertCircle style={{ width: 16, height: 16, color: '#f06b6b', flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: '#f06b6b', fontWeight: 600 }}>Tech round table failed</div>
+                  <div style={{ fontSize: 11, color: '#8a91a8', fontFamily: 'monospace', marginTop: 4 }}>{tech.error}</div>
+                  <button onClick={conveneTechTeam} style={{ marginTop: 8, color: '#5b8dee', background: 'none', border: '1px solid #5b8dee44', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>Try again</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </>
     );
   }
