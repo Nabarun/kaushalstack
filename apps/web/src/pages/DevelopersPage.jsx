@@ -120,6 +120,99 @@ function CodeBlock({ children }) {
   );
 }
 
+// Grouped reference for the endpoints a token can hit. Kept in sync with
+// apps/api/src/routes/*.js — additions show up here, not in a separate doc.
+const ENDPOINT_GROUPS = [
+  {
+    title: 'Round table',
+    description: 'Build a specialist team, run a session, browse history.',
+    rows: [
+      { method: 'POST',   path: '/api/recommend',                desc: 'Recommend a domain specialist team for a query' },
+      { method: 'POST',   path: '/api/recommend/tech',           desc: 'Recommend a tech specialist team for the spec' },
+      { method: 'POST',   path: '/api/roundtable',               desc: 'Run a round-table turn (domain or tech)' },
+      { method: 'GET',    path: '/api/roundtable/usage',         desc: 'Your free-tier usage + cap' },
+      { method: 'GET',    path: '/api/roundtable/chats',         desc: 'Your saved chats (newest first)' },
+      { method: 'DELETE', path: '/api/roundtable/chats/:id',     desc: 'Delete a chat' },
+    ],
+  },
+  {
+    title: 'Spec engineer',
+    description: 'Synthesize a round-table chat into a structured spec.',
+    rows: [
+      { method: 'POST',   path: '/api/spec',                     desc: 'Generate a spec doc from a chat' },
+      { method: 'POST',   path: '/api/spec/upload',              desc: 'Extract text from an uploaded spec file (.md/.pdf/.docx/.txt)' },
+    ],
+  },
+  {
+    title: 'Personal access tokens',
+    description: 'Manage the tokens that authenticate every API call.',
+    rows: [
+      { method: 'GET',    path: '/api/me/api-tokens',            desc: 'List your tokens (prefix + last4 only)' },
+      { method: 'POST',   path: '/api/me/api-tokens',            desc: 'Create a token — returned ONCE in the response' },
+      { method: 'DELETE', path: '/api/me/api-tokens/:id',        desc: 'Revoke a token' },
+    ],
+  },
+  {
+    title: 'Provider (BYOK)',
+    description: 'Bring your own OpenAI / Anthropic key for unlimited use.',
+    rows: [
+      { method: 'GET',    path: '/api/me/provider',              desc: 'Provider + saved key status' },
+      { method: 'PUT',    path: '/api/me/provider',              desc: 'Switch provider (openai / anthropic)' },
+      { method: 'PUT',    path: '/api/me/byok-key',              desc: 'Save a provider key (validated, encrypted)' },
+      { method: 'DELETE', path: '/api/me/byok-key',              desc: 'Remove your saved key' },
+      { method: 'PUT',    path: '/api/me/byok-model',            desc: 'Set preferred model id for your provider' },
+      { method: 'GET',    path: '/api/provider-models',          desc: 'List chat models reachable with your key' },
+    ],
+  },
+  {
+    title: 'Hostinger deploy',
+    description: 'Push an Ananya build to your Hostinger VPS.',
+    rows: [
+      { method: 'GET',    path: '/api/me/hostinger',             desc: 'Connection status' },
+      { method: 'PUT',    path: '/api/me/hostinger',             desc: 'Save your Hostinger API token' },
+      { method: 'DELETE', path: '/api/me/hostinger',             desc: 'Disconnect' },
+      { method: 'POST',   path: '/api/deploy',                   desc: 'Deploy a build session (?stream=1 for SSE)' },
+    ],
+  },
+  {
+    title: 'Community',
+    description: 'Likes, comments, and proposed edits on skills.',
+    rows: [
+      { method: 'POST',   path: '/api/skills/:id/like',          desc: 'Toggle your like on a skill' },
+      { method: 'GET',    path: '/api/skills/:id/comments',      desc: 'List comments on a skill' },
+      { method: 'POST',   path: '/api/skills/:id/comments',      desc: 'Add a comment' },
+      { method: 'POST',   path: '/api/skills/:id/edits',         desc: 'Propose an edit to a skill' },
+      { method: 'GET',    path: '/api/edits?status=pending',     desc: 'List edits in the review queue' },
+      { method: 'POST',   path: '/api/edits/:id/approve',        desc: 'Approve a proposed edit' },
+    ],
+  },
+  {
+    title: 'Notifications',
+    description: 'The bell + read-state your dashboard uses.',
+    rows: [
+      { method: 'GET',    path: '/api/me/notifications',         desc: 'Latest 20 notifications, actor-hydrated' },
+      { method: 'GET',    path: '/api/me/notifications/unread-count', desc: 'Unread count (badge)' },
+      { method: 'POST',   path: '/api/me/notifications/read-all', desc: 'Mark all read' },
+    ],
+  },
+];
+
+const METHOD_STYLE = {
+  GET:    'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+  POST:   'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30',
+  PUT:    'bg-amber-500/10 text-amber-700 dark:text-amber-500 border-amber-500/30',
+  DELETE: 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30',
+};
+
+function MethodBadge({ method }) {
+  const cls = METHOD_STYLE[method] || 'bg-muted text-muted-foreground border-border';
+  return (
+    <span className={`inline-flex items-center justify-center text-[10px] font-bold tracking-wider w-14 py-0.5 rounded border ${cls} shrink-0`}>
+      {method}
+    </span>
+  );
+}
+
 const SETUP_SNIPPETS = [
   {
     title: 'Codex CLI',
@@ -359,6 +452,51 @@ export default function DevelopersPage() {
                   </CardHeader>
                   <CardContent>
                     <CodeBlock>{s.snippet}</CodeBlock>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* API reference */}
+          <div className="mt-12">
+            <h2 className="text-xl font-bold mb-1">API endpoints</h2>
+            <p className="text-sm text-muted-foreground mb-2">
+              Every endpoint accepts your token via <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code>.
+              Base URL: <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">https://kaushalstack.com</code>
+            </p>
+            <p className="text-xs text-muted-foreground mb-6">
+              Most JSON in/JSON out. Request and response shapes mirror what the kaushalstack-mcp tools send — see{' '}
+              <a href="https://www.npmjs.com/package/kaushalstack-mcp" target="_blank" rel="noreferrer" className="text-primary hover:underline">the npm package</a> for the canonical schemas.
+            </p>
+
+            <div className="space-y-6">
+              {ENDPOINT_GROUPS.map(g => (
+                <Card key={g.title}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{g.title}</CardTitle>
+                    <CardDescription className="text-xs">{g.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="divide-y border rounded-md overflow-hidden">
+                      {g.rows.map(r => (
+                        <div key={`${r.method}-${r.path}`} className="px-3 py-2 flex items-center gap-3 text-sm hover:bg-muted/40 transition-colors">
+                          <MethodBadge method={r.method} />
+                          <code className="font-mono text-xs sm:text-sm break-all flex-shrink-0">{r.path}</code>
+                          <span className="hidden sm:inline text-xs text-muted-foreground truncate ml-auto pl-3">
+                            {r.desc}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Mobile: show descriptions below since the row layout is tight on narrow screens. */}
+                    <div className="sm:hidden mt-2 space-y-1">
+                      {g.rows.map(r => (
+                        <p key={`m-${r.method}-${r.path}`} className="text-[11px] text-muted-foreground leading-snug">
+                          <span className="font-mono font-semibold">{r.method}</span> {r.path} — {r.desc}
+                        </p>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
