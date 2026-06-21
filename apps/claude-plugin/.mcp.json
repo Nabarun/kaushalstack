@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "kaushalstack-mcp"],
       "env": {
-        "KAUSHALSTACK_API_URL": "${KAUSHALSTACK_API_URL:-https://kaushalstack.com}",
+        "KAUSHALSTACK_API_URL": "${KAUSHALSTACK_API_URL}",
         "KAUSHALSTACK_API_TOKEN": "${KAUSHALSTACK_API_TOKEN}"
       }
     }

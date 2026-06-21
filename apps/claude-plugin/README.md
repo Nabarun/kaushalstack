@@ -8,12 +8,12 @@ loop, callable from inside Claude Code.
 
 | Command | Purpose |
 |---|---|
-| `/kaushal-recommend <prompt>` | Pick 6–10 domain specialists for a prompt |
-| `/kaushal-tech <spec>` | Pick 4–8 engineers off a spec |
-| `/kaushal-roundtable` | Run a discussion with the most recent team |
-| `/kaushal-spec` | Have Aisha synthesize a spec from the chat |
-| `/kaushal-chats` | List recent chats + their state |
-| `/kaushal-build <prompt>` | **Run the whole pipeline end-to-end in one command** |
+| `/kaushalstack:recommend <prompt>` | Pick 6–10 domain specialists for a prompt |
+| `/kaushalstack:tech <spec>` | Pick 4–8 engineers off a spec |
+| `/kaushalstack:roundtable` | Run a discussion with the most recent team |
+| `/kaushalstack:spec` | Have Aisha synthesize a spec from the chat |
+| `/kaushalstack:chats` | List recent chats + their state |
+| `/kaushalstack:build <prompt>` | **Run the whole pipeline end-to-end in one command** |
 
 The MCP server (`kaushalstack-mcp`) gets auto-spawned when the plugin
 loads. The five tools it exposes are also callable directly by Claude
@@ -24,8 +24,9 @@ control and orchestration.
 
 ### 1. Get your kaushalstack token
 
-Sign in at https://kaushalstack.com → DevTools → Application → Local Storage
-→ `https://kaushalstack.com` → copy `token` out of the `pb_auth` entry.
+Sign in at https://kaushalstack.com and go to **Developers**
+(https://kaushalstack.com/developers). Click **Generate token**, name it,
+and copy the `ksk_…` value — it's shown only once.
 
 ### 2. Set the token as an env var on your shell
 
@@ -43,7 +44,11 @@ Add the kaushalstack marketplace, then install the plugin from it:
 ```
 /plugin marketplace add Nabarun/kaushalstack
 /plugin install kaushalstack@kaushalstack
+/reload-plugin
 ```
+
+After install, restart Claude Code so the bundled MCP server picks up the
+`KAUSHALSTACK_API_TOKEN` you exported in step 2.
 
 Or, to install straight from a local checkout without the marketplace:
 
