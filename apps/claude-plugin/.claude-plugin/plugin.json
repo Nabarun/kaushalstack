@@ -6,7 +6,7 @@
     "name": "kaushalstack"
   },
   "homepage": "https://kaushalstack.com",
-  "repository": "https://github.com/kaushalstack/kaushalstack",
+  "repository": "https://github.com/Nabarun/kaushalstack",
   "license": "MIT",
   "keywords": ["agents", "round-table", "spec", "kaushalstack", "multi-agent"]
 }
