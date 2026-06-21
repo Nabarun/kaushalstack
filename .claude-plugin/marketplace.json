@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "kaushalstack",
+  "description": "kaushalstack Claude Code extensions — round-table → spec orchestration over the kaushalstack-mcp server.",
+  "owner": {
+    "name": "kaushalstack"
+  },
+  "plugins": [
+    {
+      "name": "kaushalstack",
+      "description": "Recommend domain + tech specialists, run round-table discussions, and synthesize specs via kaushalstack — from slash commands or by asking Claude directly.",
+      "source": "./apps/claude-plugin",
+      "category": "productivity",
+      "homepage": "https://kaushalstack.com"
+    }
+  ]
+}

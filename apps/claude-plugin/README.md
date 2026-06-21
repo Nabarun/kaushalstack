@@ -38,13 +38,14 @@ export KAUSHALSTACK_API_TOKEN="eyJhbGciOi..."
 
 ### 3. Install the plugin
 
-Once Claude Code's plugin marketplace publishes this:
+Add the kaushalstack marketplace, then install the plugin from it:
 
 ```
-/plugin install kaushalstack
+/plugin marketplace add Nabarun/kaushalstack
+/plugin install kaushalstack@kaushalstack
 ```
 
-Until then, point Claude Code at this directory directly:
+Or, to install straight from a local checkout without the marketplace:
 
 ```
 /plugin install /path/to/kaushalstack/apps/claude-plugin
