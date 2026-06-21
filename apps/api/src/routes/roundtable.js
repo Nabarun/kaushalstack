@@ -62,6 +62,10 @@ const CHAT_FIELDS = [
     // domain + tech transcripts into one combined doc.
     { type: 'json',     name: 'tech_team',    maxSize: 100000 },
     { type: 'json',     name: 'tech_turns',   maxSize: 1000000 },
+    // uploaded_spec: { text, filename } — set when the user seeded this chat by
+    // uploading a draft spec. Lets Aisha produce a COMBINED spec (upload + the
+    // round table's review) and survives reloads.
+    { type: 'json',     name: 'uploaded_spec', maxSize: 200000 },
     { type: 'json',     name: 'tool_results', maxSize: 600000 },
     { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
     { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
@@ -132,7 +136,7 @@ async function incrementUsage(userId) {
     }
 }
 
-async function saveChat(userId, query, team, responses) {
+async function saveChat(userId, query, team, responses, uploadedSpec = null) {
     try {
         return await pb.collection('roundtable_chats').create({
             user_id: userId,
@@ -142,6 +146,8 @@ async function saveChat(userId, query, team, responses) {
             // turns[0] mirrors the top-level query/responses so the chat
             // is multi-turn-ready from the start.
             turns: [{ query, responses }],
+            // present only when the chat was seeded from an uploaded draft spec.
+            ...(uploadedSpec ? { uploaded_spec: uploadedSpec } : {}),
         });
     } catch (err) {
         logger.warn('Failed to save chat for', userId, err.message);
@@ -259,7 +265,12 @@ function trimPriorTurns(turns) {
 const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
 router.post('/roundtable', async (req, res) => {
-    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput } = req.body || {};
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput } = req.body || {};
+    // Normalize an uploaded draft spec (only honored when creating a new chat).
+    let uploadedSpec = null;
+    if (uploadedSpecInput && typeof uploadedSpecInput === 'object' && typeof uploadedSpecInput.text === 'string' && uploadedSpecInput.text.trim()) {
+        uploadedSpec = { text: uploadedSpecInput.text.slice(0, 60000), filename: String(uploadedSpecInput.filename || 'spec').slice(0, 200) };
+    }
 
     if (!query || !Array.isArray(rawTeam) || rawTeam.length === 0) {
         return res.status(400).json({ error: 'query and team are required' });
@@ -411,7 +422,7 @@ router.post('/roundtable', async (req, res) => {
                         } else throw err;
                     }
                 } else {
-                    const saved = await saveChat(userId, query, team, parsed.responses);
+                    const saved = await saveChat(userId, query, team, parsed.responses, uploadedSpec);
                     chatId = saved?.id || null;
                 }
             }
@@ -485,6 +496,8 @@ router.get('/roundtable/chats', async (req, res) => {
                     // "Convene tech team" flow. Empty array / null otherwise.
                     tech_team:  Array.isArray(c.tech_team)  ? c.tech_team  : [],
                     tech_turns: Array.isArray(c.tech_turns) ? c.tech_turns : [],
+                    // { text, filename } when this chat was seeded from an upload.
+                    uploaded_spec: c.uploaded_spec || null,
                     tool_results: c.tool_results || {},
                     created: c.created,
                 };

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Palette, Hammer, Rocket, Server, Globe, LogIn, ExternalLink,
-  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles,
+  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles, Paperclip,
 } from 'lucide-react';
 import { avatarUrl } from '@/lib/avatar';
 
@@ -71,6 +71,7 @@ export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
   spec, mockup, build, deploy, hostinger,
   generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
+  uploadedSpec, sendUploadedToMaya,
   tech, conveneTechTeam,
   triggerMockup, triggerBuild, triggerDeploy,
   recoverMockup, recoverBuild,
@@ -213,7 +214,7 @@ export default function CreativePipeline({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
+            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
             {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
@@ -234,7 +235,7 @@ export default function CreativePipeline({
 // ── Aisha — Spec Engineer ───────────────────────────────────────────
 // Synthesizes the round-table transcript into an editable spec doc and
 // hands it off to Maya as her design brief. First step in the pipeline.
-function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, mockup, hasMaya, tech, conveneTechTeam }) {
+function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya, tech, conveneTechTeam }) {
   const accent = '#9b6cf0';
   if (spec.status === 'running') {
     return (
@@ -287,8 +288,13 @@ function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMa
               <Palette style={{ width: 12, height: 12 }} /> Send to Maya
             </button>
           )}
+          {uploadedSpec && hasMaya && (
+            <button onClick={sendUploadedToMaya} disabled={mockup.status === 'running'} title="Send your original uploaded spec to Maya, ignoring this combined draft" style={{ background: 'none', color: '#8a91a8', border: '1px solid #1e2130', borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Paperclip style={{ width: 12, height: 12 }} /> Send uploaded as-is
+            </button>
+          )}
           <button onClick={generateSpec} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer' }}>
-            Regenerate
+            {uploadedSpec ? 'Re-combine' : 'Regenerate'}
           </button>
         </div>
 
@@ -372,13 +378,27 @@ function AishaSection({ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMa
   // idle
   return (
     <>
-      <Tag color={accent} icon={Sparkles}>Aisha can synthesize this</Tag>
+      <Tag color={accent} icon={Sparkles}>{uploadedSpec ? 'Aisha can combine this' : 'Aisha can synthesize this'}</Tag>
+      {uploadedSpec && (
+        <div style={{ fontSize: 11, color: '#b07ef8', marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Paperclip style={{ width: 12, height: 12 }} /> From your uploaded spec · {uploadedSpec.filename}
+        </div>
+      )}
       <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-        Turn the round table into a one-page spec — Problem, Goals, Requirements, Proposed approach, Rollout. Edit before {hasMaya ? 'sending to Maya' : 'using downstream'}.
+        {uploadedSpec
+          ? <>Merge your uploaded draft with everything the round table added — gaps filled, requirements tightened. Or skip Aisha and send your spec to Maya unchanged.</>
+          : <>Turn the round table into a one-page spec — Problem, Goals, Requirements, Proposed approach, Rollout. Edit before {hasMaya ? 'sending to Maya' : 'using downstream'}.</>}
       </div>
-      <button onClick={generateSpec} style={btn(accent)}>
-        <Sparkles style={{ width: 14, height: 14 }} /> Generate Spec
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button onClick={generateSpec} style={btn(accent)}>
+          <Sparkles style={{ width: 14, height: 14 }} /> {uploadedSpec ? 'Generate combined spec' : 'Generate Spec'}
+        </button>
+        {uploadedSpec && hasMaya && (
+          <button onClick={sendUploadedToMaya} disabled={mockup.status === 'running'} style={{ background: 'none', color: '#b07ef8', border: '1px solid #b07ef844', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Palette style={{ width: 14, height: 14 }} /> Use uploaded spec as-is → Maya
+          </button>
+        )}
+      </div>
     </>
   );
 }

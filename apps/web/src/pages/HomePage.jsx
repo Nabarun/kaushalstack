@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone } from 'lucide-react';
+import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
 import DemoVideoCard from '@/components/DemoVideoCard.jsx';
@@ -341,7 +341,38 @@ const HomePage = () => {
     setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   };
 
-  const reset = () => { setMessages([]); setInput(''); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100); };
+  // Upload a spec file → extract text (server handles md/txt/pdf/docx) →
+  // recommend a team from it. The extracted spec rides along on the result so
+  // "Deploy to Round Table" can hand it to the round table + Aisha.
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading]   = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  async function uploadSpec(file) {
+    if (!file || uploading) return;
+    setUploadError('');
+    setUploading(true);
+    setMessages(prev => [...prev, { type: 'user', text: `📎 ${file.name}`, phase: selectedPhase }]);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await fetch('/api/spec/upload', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Couldn't read that file (${res.status})`);
+      const specText = (data.text || '').trim();
+      if (!specText) throw new Error('No text found in that file.');
+      // Cap the text used for recommendation — the embedding model has a token
+      // limit. The full spec still rides on uploadedSpec for the round table.
+      const team = await recommendTeam(specText.slice(0, 8000), selectedPhase, teamSize);
+      const title = (specText.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean) || file.name).slice(0, 100);
+      setMessages(prev => [...prev, { type: 'result', skills: team, query: title, phase: selectedPhase, uploadedSpec: { text: specText, filename: file.name } }]);
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  const reset = () => { setMessages([]); setInput(''); setUploadError(''); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100); };
 
   const handleViewDetails = (skill) => { setSelectedSkill(skill); setIsModalOpen(true); };
 
@@ -452,10 +483,28 @@ const HomePage = () => {
                         <Send className="w-5 h-5" />
                       </button>
                     </div>
-                    <div className="flex items-center justify-end mt-2 pt-2 border-t border-border/50">
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading || chatLoading}
+                        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+                        title="Upload a spec (.md, .txt, .pdf, .docx) — we'll recommend a team from it"
+                      >
+                        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+                        {uploading ? 'Reading spec…' : 'Upload a spec'}
+                      </button>
                       <TableSeatsSelector value={teamSize} onChange={setTeamSize} />
                     </div>
+                    {uploadError && <div className="text-xs text-red-500 mt-1.5">{uploadError}</div>}
                   </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".md,.markdown,.txt,.json,.csv,.yaml,.yml,.pdf,.docx"
+                    className="hidden"
+                    onChange={e => uploadSpec(e.target.files?.[0])}
+                  />
 
                   <div className="text-center lg:text-left pt-1">
                     <Link to="/signup" className="text-xs text-muted-foreground hover:text-primary transition-colors">
@@ -685,7 +734,7 @@ const HomePage = () => {
                               transition={{ delay: 0.7, duration: 0.4, type: 'spring', stiffness: 220 }}
                             >
                               <button
-                                onClick={() => navigate('/roundtable', { state: { team: msg.skills, query: msg.query } })}
+                                onClick={() => navigate('/roundtable', { state: { team: msg.skills, query: msg.query, uploadedSpec: msg.uploadedSpec } })}
                                 className="group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
                                 style={{
                                   background: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)',

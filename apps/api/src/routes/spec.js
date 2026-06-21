@@ -15,6 +15,9 @@
 // under the key "spec". This route only produces the first draft.
 
 import { Router } from 'express';
+import multer from 'multer';
+import mammoth from 'mammoth';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
@@ -24,8 +27,53 @@ import { getUserIdFromAuth } from '../utils/auth.js';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERVER_PROVIDER = 'openai';
 const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
+const UPLOAD_TEXT_CAP = 60000; // chars — keep prompts bounded regardless of file size
 
 const router = Router();
+
+// ── Spec file upload → plain text ────────────────────────────────────────────
+// One endpoint handles every format the user might drop in: .md/.txt/.json read
+// straight off the buffer, .pdf via pdf-parse, .docx via mammoth. Returns the
+// extracted text so the client can recommend a team from it and seed the round
+// table. In-memory only (multer memoryStorage) — nothing touches disk.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+async function extractText(file) {
+    const name = (file.originalname || 'spec').toLowerCase();
+    const ext  = name.includes('.') ? name.split('.').pop() : '';
+    const mt   = file.mimetype || '';
+    if (ext === 'pdf' || mt === 'application/pdf') {
+        const data = await pdfParse(file.buffer);
+        return data.text || '';
+    }
+    if (ext === 'docx' || mt.includes('officedocument.wordprocessingml')) {
+        const { value } = await mammoth.extractRawText({ buffer: file.buffer });
+        return value || '';
+    }
+    if (ext === 'doc' || mt === 'application/msword') {
+        const e = new Error('Legacy .doc isn\'t supported — save it as .docx (or paste the text).'); e.status = 415; throw e;
+    }
+    // Everything else: treat as UTF-8 text (.md, .txt, .markdown, .json, .csv, .yaml…).
+    return file.buffer.toString('utf8');
+}
+
+router.post('/spec/upload', upload.single('file'), async (req, res) => {
+    // Public, like /api/recommend — it only extracts text and hands it back to
+    // the caller; nothing is stored and no account data is touched. The chat it
+    // later seeds still requires a signed-in user.
+    if (!req.file) return res.status(400).json({ error: 'no file uploaded (expected field "file")' });
+    try {
+        let text = (await extractText(req.file) || '').trim();
+        if (!text) return res.status(422).json({ error: 'could not read any text from that file' });
+        const truncated = text.length > UPLOAD_TEXT_CAP;
+        if (truncated) text = text.slice(0, UPLOAD_TEXT_CAP);
+        logger.info(`spec upload: file=${req.file.originalname} chars=${text.length}${truncated ? ' (truncated)' : ''}`);
+        res.json({ text, filename: req.file.originalname, chars: text.length, truncated });
+    } catch (err) {
+        logger.warn(`spec upload failed: ${err.message}`);
+        res.status(err.status || 422).json({ error: err.message || 'failed to read file' });
+    }
+});
 
 // Spec template — frozen. The agent must output EXACTLY these sections so
 // the UI can parse/render predictably and the user's edits don't break
@@ -90,7 +138,7 @@ RULES:
 - Be specific. "Improve UX" is not a goal; "let a user revoke their key in one click from the dashboard" is.
 - Authors line must list every agent that contributed a perspective. Order them as they appeared.`;
 
-function buildSpecUserPrompt(chat) {
+function buildSpecUserPrompt(chat, rawSpecText) {
     // Domain round-table transcript — every turn's responses.
     const domainTurns = Array.isArray(chat.turns) && chat.turns.length > 0
         ? chat.turns
@@ -114,6 +162,15 @@ function buildSpecUserPrompt(chat) {
                 const replies = (t.responses || []).map(r => `**${r.name}:** ${r.text}`).join('\n\n');
                 return `${header}\n${replies}`;
             }).join('\n\n---\n\n');
+    }
+
+    // When the user uploaded a draft spec, the round table was convened to
+    // REVIEW it — so the job is to merge, not synthesize from scratch.
+    const uploaded = (rawSpecText || '').trim();
+    if (uploaded) {
+        const uploadedBlock = `\n\n========\n\nUSER-UPLOADED DRAFT SPEC (the starting point — keep its concrete details and intent):\n\n${uploaded.slice(0, 40000)}`;
+        const reviewGuidance = `Produce a single COMBINED spec. Start from the user's uploaded draft spec below, then FOLD IN everything the round table added — fill the gaps it flagged, tighten the goals, and absorb the experts' suggestions${techTurns.length > 0 ? ' and the technical round table\'s architecture/risk notes' : ''}. Keep the concrete details from the upload; don't drop them. Reformat the result to the required template.`;
+        return `${reviewGuidance}${uploadedBlock}\n\n========\n\nROUND-TABLE REVIEW (what the experts added / flagged as missing):\n\n${domainTranscript}${techTranscript}`;
     }
 
     const guidance = techTurns.length > 0
@@ -148,6 +205,10 @@ router.post('/spec', async (req, res) => {
     const chatId = (req.body?.chat_id || '').trim();
     if (!chatId) return res.status(400).json({ error: 'chat_id is required' });
 
+    // Optional uploaded draft spec → produce a COMBINED spec (upload + review).
+    // Falls back to the chat's persisted uploaded_spec when the client omits it.
+    let rawSpecText = typeof req.body?.raw_spec_text === 'string' ? req.body.raw_spec_text : '';
+
     let chat;
     try {
         chat = await pb.collection('roundtable_chats').getOne(chatId);
@@ -155,6 +216,10 @@ router.post('/spec', async (req, res) => {
         return res.status(404).json({ error: 'chat not found' });
     }
     if (chat.user_id !== userId) return res.status(403).json({ error: 'not your chat' });
+
+    if (!rawSpecText && chat.uploaded_spec) {
+        rawSpecText = typeof chat.uploaded_spec === 'string' ? chat.uploaded_spec : (chat.uploaded_spec.text || '');
+    }
 
     const authors = collectAuthors(chat);
     if (authors.length === 0) {
@@ -172,7 +237,7 @@ router.post('/spec', async (req, res) => {
     let fellBackToServer = false;
 
     try {
-        const userPrompt = buildSpecUserPrompt(chat);
+        const userPrompt = buildSpecUserPrompt(chat, rawSpecText);
         let spec_text;
         try {
             spec_text = await chatComplete(provider, {
