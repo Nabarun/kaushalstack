@@ -585,11 +585,15 @@ export async function runCreativeAgent({
     // Provider routing: if the authenticated user has an Anthropic BYOK AND
     // this agent has an anthropicModel configured, route through Claude.
     // Otherwise default to the configured OpenAI model on the server key.
+    // `let` rather than `const` because we may flip to OpenAI mid-run if the
+    // user's Anthropic key fails (matches the BYOK soft-fallback policy
+    // /roundtable and /spec already implement).
     const userId = await userIdFromAuthHeader(authHeader);
     const byok   = userId ? await getUserBYOK(userId) : null;
     const useAnthropic = !!(config.anthropicModel && byok && byok.provider === 'anthropic' && byok.key);
-    const provider = useAnthropic ? 'anthropic' : 'openai';
-    const model    = useAnthropic ? (byok.model || config.anthropicModel) : config.openaiModel;
+    let provider = useAnthropic ? 'anthropic' : 'openai';
+    let model    = useAnthropic ? (byok.model || config.anthropicModel) : config.openaiModel;
+    let byokFellBack = false;
 
     let sessionId;
     try {
@@ -612,34 +616,52 @@ export async function runCreativeAgent({
         // immediately and surface the session id (useful for download/preview).
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
-        const agentRun = useAnthropic
-            ? runAnthropicAgent({
-                sessionId,
-                apiKey:       byok.key,
-                query,
-                context,
-                designBrief,
-                model,
-                systemPrompt: config.systemPrompt,
-                maxTurns:     config.maxTurns,
-                userIntro:    config.userIntro,
-                onEvent,
-            })
-            : runBuildAgent({
-                sessionId,
-                query,
-                context,
-                designBrief,
-                model,
-                systemPrompt: config.systemPrompt,
-                maxTurns:     config.maxTurns,
-                userIntro:    config.userIntro,
-                extraTools:   config.extraTools || [],
-                requireConsult: !!config.requireConsult,
-                onEvent,
-            });
+        const openaiRun = () => runBuildAgent({
+            sessionId,
+            query,
+            context,
+            designBrief,
+            model:        config.openaiModel,
+            systemPrompt: config.systemPrompt,
+            maxTurns:     config.maxTurns,
+            userIntro:    config.userIntro,
+            extraTools:   config.extraTools || [],
+            requireConsult: !!config.requireConsult,
+            onEvent,
+        });
 
-        const { final, trace } = await agentRun;
+        let final, trace;
+        if (useAnthropic) {
+            try {
+                ({ final, trace } = await runAnthropicAgent({
+                    sessionId,
+                    apiKey:       byok.key,
+                    query,
+                    context,
+                    designBrief,
+                    model,
+                    systemPrompt: config.systemPrompt,
+                    maxTurns:     config.maxTurns,
+                    userIntro:    config.userIntro,
+                    onEvent,
+                }));
+            } catch (anthErr) {
+                // Soft-fallback: any failure from the user's Anthropic key
+                // (invalid, rate-limited, network) drops us back to the
+                // server's OpenAI model so the user still gets a result
+                // instead of a "fetch failed" dead-end. Same policy as
+                // /roundtable + /spec.
+                const cause = anthErr?.cause?.message || anthErr?.cause?.code || anthErr?.message || 'unknown';
+                logger.warn(`creative BYOK fallback agent=${config.agentName} session=${sessionId} (cause=${cause}) — retrying on ${config.openaiModel}`);
+                provider = 'openai';
+                model    = config.openaiModel;
+                byokFellBack = true;
+                if (onEvent) onEvent({ kind: 'byok_fallback', sessionId, provider, model });
+                ({ final, trace } = await openaiRun());
+            }
+        } else {
+            ({ final, trace } = await openaiRun());
+        }
         const manifest = await fileManifest(sessionId);
 
         // Design-source agents (Maya) carry their brief TEXT on the result so it
@@ -660,6 +682,7 @@ export async function runCreativeAgent({
             files:         manifest,
             trace,
             engine:        { provider, model },
+            byok_fell_back: byokFellBack,
             download_url:  `/api/build/${sessionId}/download`,
             preview_url:   `/api/build/${sessionId}/preview/`,
             design_applied: designApplied,   // did this run actually inherit a design brief?
