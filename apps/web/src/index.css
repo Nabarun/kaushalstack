@@ -1,4 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+/* Playfair Display Italic — used only for the logo tagline. ital,wght=1,500
+   keeps the import small (single face, swap on load). */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,500&display=swap');
 
 @tailwind base;
 @tailwind components;

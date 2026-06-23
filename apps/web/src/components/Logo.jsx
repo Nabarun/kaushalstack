@@ -39,24 +39,40 @@ export function LogoMark({ size = 28, gradientId, className }) {
  * Props:
  *   size       icon side length in px (default 28)
  *   showText   set false for the icon-only variant (default true)
- *   tagline    set true to render "skills for AI agents" beneath the mark
+ *   tagline    set true to render "Your AI Onboarding Partner" below the
+ *              wordmark in an italic serif (Playfair Display)
  */
 export default function Logo({ size = 28, showText = true, tagline = false, className = '' }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <LogoMark size={size} />
       {showText && (
-        <span className="flex flex-col leading-none">
+        <span className="flex flex-col leading-tight">
+          {/* Wordmark — title-cased KaushalStack with the platform's split
+              tint. "Kaushal" stays in the foreground colour, "Stack" picks
+              up the primary so the inflection point on the K↔S boundary
+              echoes the icon's two-tone gradient. */}
           <span className="font-bold tracking-tight" style={{ fontSize: Math.round(size * 0.7) }}>
-            <span className="text-foreground">kaushal</span>
-            <span className="text-primary">stack</span>
+            <span className="text-foreground">Kaushal</span>
+            <span className="text-primary">Stack</span>
           </span>
           {tagline && (
             <span
-              className="uppercase text-muted-foreground tracking-[0.18em] mt-1"
-              style={{ fontSize: Math.max(8, Math.round(size * 0.28)) }}
+              // Playfair Display Italic — small payload (loaded once in
+              // index.css), gives the tag a hand-set editorial feel that
+              // contrasts with the sans-serif wordmark above it.
+              style={{
+                fontFamily: '"Playfair Display", Georgia, serif',
+                fontStyle: 'italic',
+                fontWeight: 500,
+                fontSize: Math.max(10, Math.round(size * 0.36)),
+                lineHeight: 1.1,
+                marginTop: 2,
+                letterSpacing: '0.01em',
+              }}
+              className="text-muted-foreground"
             >
-              skills for AI agents
+              Your AI Onboarding Partner
             </span>
           )}
         </span>
