@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, GitPullRequest } from 'lucide-react';
+import { Menu, X, GitPullRequest, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Logo from '@/components/Logo.jsx';
 import NotificationBell from '@/components/NotificationBell.jsx';
@@ -39,8 +39,18 @@ const Header = () => {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          <Link to="/" className="flex items-center">
+          <Link to="/" className="flex items-center gap-2.5">
             <Logo size={30} />
+            {/* Tagline pill — hidden below sm so the header stays clean on
+                mobile (logo + hamburger). On larger screens it sits to the
+                right of the wordmark in a small primary-tinted chip. */}
+            <span
+              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20 whitespace-nowrap"
+              aria-label="Your AI Onboarding Partner"
+            >
+              <Sparkles className="w-2.5 h-2.5" />
+              Your AI Onboarding Partner
+            </span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
