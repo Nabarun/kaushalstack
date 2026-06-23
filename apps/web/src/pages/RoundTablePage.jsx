@@ -771,19 +771,15 @@ export default function RoundTablePage() {
       if (!res.ok) throw new Error(data.error || `Couldn't read that file (${res.status})`);
       const specText = (data.text || '').trim();
       if (!specText) throw new Error('No text found in that file.');
-      setRtUploadStage('recommending');
-      const rres = await fetch('/api/recommend', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // cap for the embedding model; full spec still rides on uploadedSpec.
-        body: JSON.stringify({ query: specText.slice(0, 8000), size: 6 }),
-      });
-      const rdata = await rres.json().catch(() => ({}));
-      const team = rdata.skills || [];
-      const title = (specText.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean) || file.name).slice(0, 100);
+      // We deliberately DO NOT recommend a team or auto-run the round table
+      // here. The user wanted to land on a quiet "ready to verify" state with
+      // the spec attached and a sensible default prompt. Team recommendation
+      // is deferred to submit (see run()), so the user can edit the prompt
+      // first and only pay the recommend round-trip when they're ready.
       setActiveChat(null);
-      setDraftTeam(team.slice(0, TEAM_SIZE_MAX));
+      setDraftTeam([]);
       setUploadedSpec({ text: specText, filename: file.name });
-      setPrompt(title);
+      setPrompt('Verify the spec');
     } catch (err) {
       setRtUploadError(err.message);
     } finally {
@@ -1120,9 +1116,43 @@ export default function RoundTablePage() {
 
     // Team for follow-ups stays locked to the existing chat's team — the
     // model can't sensibly switch personas mid-conversation.
-    const teamForRun = isFollowUp
+    let teamForRun = isFollowUp
       ? activeChat.team.slice(0, TEAM_SIZE_MAX)
       : draftTeam.slice(0, TEAM_SIZE_MAX);
+
+    // Spec-seeded chats arrive without a team — uploadSpecHere intentionally
+    // skipped recommend so the user could see the attached spec + edit the
+    // prompt first. Recommend lazily at submit time, off the spec text so
+    // the picked specialists match the actual content (not whatever default
+    // prompt the user kept). Use the centered upload loader for visibility.
+    if (!isFollowUp && teamForRun.length === 0 && seedFromUpload) {
+      setRtUploadError('');
+      setRtUploading(true);
+      setRtUploadStage('recommending');
+      setRtUploadFilename(uploadedSpec.filename || 'spec');
+      try {
+        const rres = await fetch('/api/recommend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: uploadedSpec.text.slice(0, 8000), size: 6 }),
+        });
+        const rdata = await rres.json().catch(() => ({}));
+        const team = (rdata.skills || []).slice(0, TEAM_SIZE_MAX);
+        if (team.length === 0) {
+          setRtUploadError('Could not match any specialists to this spec — try editing the spec or the prompt.');
+          return;
+        }
+        setDraftTeam(team);
+        teamForRun = team;
+      } catch (err) {
+        setRtUploadError(`Specialist recommendation failed: ${err.message}`);
+        return;
+      } finally {
+        setRtUploading(false);
+        setRtUploadStage('idle');
+        setRtUploadFilename('');
+      }
+    }
 
     if (teamForRun.length === 0 || limitReached) return;
 
@@ -1806,6 +1836,36 @@ export default function RoundTablePage() {
                   </div>
                 </motion.div>
               )}
+              {/* Round-table run loader — visible the whole time the model
+                  is generating responses. The left-rail viz already cycles
+                  agents and the top bar has a "thinking" pill, but the main
+                  canvas was empty during runs; users couldn't tell the
+                  click had registered. A centered card here covers that. */}
+              {loading && !rtUploading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex flex-col items-center justify-center text-center"
+                  style={{ minHeight: 180, padding: '24px 20px' }}
+                >
+                  <div style={{ position: 'relative', width: 48, height: 48, marginBottom: 14 }}>
+                    <Loader2 style={{ width: 48, height: 48, color: '#5b8dee' }} className="animate-spin" />
+                    <Sparkles style={{
+                      position: 'absolute', top: '50%', left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: 18, height: 18, color: '#5b8dee',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#c8ccd8', marginBottom: 4 }}>
+                    The round table is thinking…
+                  </div>
+                  <div style={{ fontSize: 11, color: '#5a607a' }}>
+                    {(activeChat?.team || draftTeam || []).length} specialists are weighing in. ~10–30 seconds.
+                  </div>
+                </motion.div>
+              )}
+
               {/* Prior turns transcript — collapsed view of older turns in
                   this chat. The focus carousel below always shows the latest
                   turn; prior turns get a compact "T1: query — N responses"
