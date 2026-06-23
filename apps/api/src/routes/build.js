@@ -2,7 +2,8 @@ import { Router } from 'express';
 import fs from 'node:fs/promises';
 import { ZipArchive } from 'archiver';
 import logger from '../utils/logger.js';
-import { sessionDir, safeResolve, readSessionResult } from '../builder/workspace.js';
+import path from 'node:path';
+import { sessionDir, safeResolve, readSessionResult, fileManifest } from '../builder/workspace.js';
 import { ANANYA_SKILL_ID } from '../builder/creative-registry.js';
 import { handle } from './creative-http.js';
 
@@ -21,17 +22,39 @@ const router = Router({ strict: true });
 // text/event-stream) to get live progress.
 router.post('/build', (req, res) => handle(req, res, ANANYA_SKILL_ID));
 
-// GET /build/:id/result — recovery path. Returns the persisted result for a
-// session that has finished (the SSE stream may have dropped before the
-// client received the `done` event). 404 means the run is either still
-// in-flight or never wrote a sidecar (e.g. the agent threw before completing).
+// GET /build/:id/result — recovery path. 200 with the result when the agent
+// has finished, 404 + a progress payload while it's still running. The
+// payload gives the UI something better than "try again in 30s" — it shows
+// how many files the agent has written and when it last touched the
+// workspace, so the user can see actual forward motion.
 router.get('/build/:id/result', async (req, res) => {
     const id = req.params.id;
     if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ error: 'invalid session id' });
     try {
         const result = await readSessionResult(id);
-        if (!result) return res.status(404).json({ error: 'result not ready' });
-        res.json(result);
+        if (result) return res.json(result);
+
+        // No final result yet — try to read the workspace as a liveness signal.
+        const manifest = await fileManifest(id).catch(() => []);
+        if (!manifest.length) {
+            return res.status(404).json({ error: 'result not ready', workspace_exists: false });
+        }
+        const dir = await sessionDir(id);
+        let latestMtime = 0;
+        let latestPath  = null;
+        for (const f of manifest) {
+            try {
+                const st = await fs.stat(path.join(dir, f.path));
+                if (st.mtimeMs > latestMtime) { latestMtime = st.mtimeMs; latestPath = f.path; }
+            } catch { /* file gone between manifest and stat — ignore */ }
+        }
+        return res.status(404).json({
+            error: 'result not ready',
+            workspace_exists: true,
+            files_written: manifest.length,
+            latest_file: latestPath,
+            last_activity_ms_ago: latestMtime ? Date.now() - latestMtime : null,
+        });
     } catch (err) {
         logger.error(`build result read error session=${id}: ${err.message}`);
         res.status(500).json({ error: err.message });

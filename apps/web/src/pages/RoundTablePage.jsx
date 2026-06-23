@@ -556,7 +556,26 @@ export default function RoundTablePage() {
           try {
             const r = await fetch(`/api/build/${sessionId}/result`);
             if (r.status === 404) {
-              setState(p => ({ ...p, recoveryNote: 'Maya is still running — try again in ~30s' }));
+              // Server enriches the 404 with workspace state when the agent
+              // is still working — show real progress instead of a flat
+              // "try again". When the workspace is empty, the agent likely
+              // hasn't started writing yet (or never came back at all).
+              const info = await r.json().catch(() => ({}));
+              let note;
+              if (!info.workspace_exists) {
+                note = 'Still spinning up — give it 30s and check again.';
+              } else {
+                const files = info.files_written || 0;
+                const secs  = info.last_activity_ms_ago != null
+                  ? Math.max(0, Math.round(info.last_activity_ms_ago / 1000))
+                  : null;
+                const latest = info.latest_file ? ` · ${info.latest_file}` : '';
+                const ago = secs != null
+                  ? (secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`)
+                  : 'just now';
+                note = `${files} file${files === 1 ? '' : 's'} written · last activity ${ago}${latest}`;
+              }
+              setState(p => ({ ...p, recoveryNote: note }));
               resolve();
               return;
             }
