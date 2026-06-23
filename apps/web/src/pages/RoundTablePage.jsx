@@ -331,6 +331,16 @@ export default function RoundTablePage() {
   const [activeChat, setActiveChat] = useState(null);   // current chat object
   const [draftTeam, setDraftTeam]   = useState(initTeam.slice(0, TEAM_SIZE_MAX));
 
+  // 1:1 agent thread state — one open at a time, keyed by agent_name.
+  // `threadOpenFor` is the agent_name whose drilled-in chat is expanded;
+  // null means closed. `threadInput`/`threadSending` are the textarea
+  // value + in-flight indicator; cleared on close or successful send.
+  const [threadOpenFor, setThreadOpenFor] = useState(null);
+  const [threadInput, setThreadInput]     = useState('');
+  const [threadSending, setThreadSending] = useState(false);
+  const [threadError, setThreadError]     = useState('');
+  const AGENT_THREAD_TURN_CAP = 10;
+
   // Tool-action states — scoped to the active chat, reset on chat change.
   // `build` = Ananya app, `mockup` = Maya screens, `email` = Kavya campaign,
   // `social` = Tara social posts. The `progress` field holds the most recent
@@ -661,6 +671,46 @@ export default function RoundTablePage() {
       persistSpec(result);
     } catch (err) {
       setSpec(s => ({ ...s, status: 'error', error: err.message }));
+    }
+  }
+
+  // Per-agent 1:1 thread: send the user's message to the backend, append the
+  // resulting transcript onto both the active chat object and the cached
+  // chats list so reload + revisit show the same thread.
+  async function sendAgentThreadMessage(agentName, message) {
+    const chatId = activeChat?.id;
+    if (!chatId || !agentName || !message.trim()) return;
+    setThreadError('');
+    setThreadSending(true);
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch(`/api/roundtable/chats/${chatId}/agent-threads/${encodeURIComponent(agentName)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: message.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || `Reply failed (${res.status})`);
+      const nextThread = Array.isArray(data.thread) ? data.thread : [];
+      // Patch both the active chat and the cached chats list so the new
+      // 1:1 turns survive switching between chats or reloading.
+      const patchAgentThreads = (chat) => {
+        if (!chat || chat.id !== chatId) return chat;
+        return {
+          ...chat,
+          agent_threads: { ...(chat.agent_threads || {}), [agentName]: nextThread },
+        };
+      };
+      setActiveChat(prev => patchAgentThreads(prev));
+      setChats(prev => prev.map(patchAgentThreads));
+      setThreadInput('');
+    } catch (err) {
+      setThreadError(err.message);
+    } finally {
+      setThreadSending(false);
     }
   }
 
@@ -1834,6 +1884,187 @@ export default function RoundTablePage() {
                     <p style={{ fontSize: 14, color: '#c8ccd8', lineHeight: 1.8, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
                       {focusedResponse.text}
                     </p>
+
+                    {/* 1:1 follow-up thread with this specific agent. The
+                        toggle button opens an inline chat below the response;
+                        the thread is persisted on the chat row so it survives
+                        navigation and reload. */}
+                    {(() => {
+                      const agentName = focusedResponse.name;
+                      const thread = (activeChat?.agent_threads?.[agentName] || []);
+                      const userTurnsUsed = thread.filter(t => t.role === 'user').length;
+                      const capped = userTurnsUsed >= AGENT_THREAD_TURN_CAP;
+                      const open   = threadOpenFor === agentName;
+
+                      if (!open) {
+                        return (
+                          <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <button
+                              onClick={() => {
+                                setThreadOpenFor(agentName);
+                                setThreadInput('');
+                                setThreadError('');
+                              }}
+                              style={{
+                                background: `${focusedColor}12`,
+                                border: `1px solid ${focusedColor}40`,
+                                color: focusedColor,
+                                borderRadius: 8,
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <MessageSquare style={{ width: 12, height: 12 }} />
+                              {thread.length > 0
+                                ? `Continue 1:1 with ${agentName} (${userTurnsUsed}/${AGENT_THREAD_TURN_CAP})`
+                                : `Ask ${agentName} a follow-up`}
+                            </button>
+                            {thread.length > 0 && (
+                              <span style={{ fontSize: 11, color: '#5a607a' }}>
+                                {Math.ceil(thread.length / 2)} message{Math.ceil(thread.length / 2) === 1 ? '' : 's'} saved
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{
+                          marginTop: 18,
+                          background: '#0a0c12',
+                          border: `1px solid ${focusedColor}33`,
+                          borderRadius: 10,
+                          padding: 14,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <MessageSquare style={{ width: 13, height: 13, color: focusedColor }} />
+                              <span style={{ fontSize: 11, fontFamily: 'monospace', color: focusedColor, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                                1:1 with {agentName}
+                              </span>
+                              <span style={{ fontSize: 10, color: '#5a607a' }}>
+                                {userTurnsUsed}/{AGENT_THREAD_TURN_CAP} turns
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => { setThreadOpenFor(null); setThreadError(''); }}
+                              title="Hide thread"
+                              style={{ background: 'none', border: 'none', color: '#5a607a', cursor: 'pointer', padding: 2, display: 'inline-flex' }}
+                            >
+                              <X style={{ width: 14, height: 14 }} />
+                            </button>
+                          </div>
+
+                          {thread.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+                              {thread.map((t, i) => (
+                                <div key={i} style={{
+                                  alignSelf: t.role === 'user' ? 'flex-end' : 'flex-start',
+                                  maxWidth: '85%',
+                                  background: t.role === 'user' ? '#12141c' : `${focusedColor}10`,
+                                  border: `1px solid ${t.role === 'user' ? '#1e2130' : `${focusedColor}33`}`,
+                                  borderRadius: 8,
+                                  padding: '8px 12px',
+                                  fontSize: 12.5,
+                                  color: '#c8ccd8',
+                                  lineHeight: 1.6,
+                                  whiteSpace: 'pre-wrap',
+                                }}>
+                                  <div style={{ fontSize: 9, color: t.role === 'user' ? '#5a607a' : focusedColor, fontFamily: 'monospace', marginBottom: 3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                    {t.role === 'user' ? 'You' : agentName}
+                                  </div>
+                                  {t.text}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 12, color: '#5a607a', marginBottom: 12, fontStyle: 'italic' }}>
+                              Ask {agentName} something they didn't cover in the round table.
+                            </div>
+                          )}
+
+                          {capped ? (
+                            <div style={{
+                              fontSize: 11,
+                              color: '#d4b27d',
+                              background: '#1a1408',
+                              border: '1px solid #4d3811',
+                              borderRadius: 6,
+                              padding: '6px 10px',
+                            }}>
+                              Thread is full ({AGENT_THREAD_TURN_CAP} turns). Start a fresh round table to keep branching.
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'flex-end',
+                                gap: 8,
+                                background: '#12141c',
+                                border: `1px solid ${threadSending ? `${focusedColor}55` : '#1e2130'}`,
+                                borderRadius: 8,
+                                padding: '8px 10px',
+                              }}>
+                                <textarea
+                                  value={threadInput}
+                                  onChange={e => setThreadInput(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                      e.preventDefault();
+                                      if (!threadSending && threadInput.trim()) {
+                                        sendAgentThreadMessage(agentName, threadInput);
+                                      }
+                                    }
+                                  }}
+                                  placeholder={`Ask ${agentName} anything…`}
+                                  rows={2}
+                                  disabled={threadSending}
+                                  style={{
+                                    flex: 1,
+                                    background: 'transparent',
+                                    border: 'none',
+                                    outline: 'none',
+                                    color: '#e8eaf0',
+                                    fontSize: 12.5,
+                                    fontFamily: 'inherit',
+                                    resize: 'none',
+                                    lineHeight: 1.4,
+                                    maxHeight: '4.2em',
+                                    overflowY: 'auto',
+                                  }}
+                                />
+                                <button
+                                  onClick={() => sendAgentThreadMessage(agentName, threadInput)}
+                                  disabled={threadSending || !threadInput.trim()}
+                                  style={{
+                                    background: threadSending || !threadInput.trim() ? '#1e2130' : focusedColor,
+                                    border: 'none',
+                                    borderRadius: 6,
+                                    width: 30,
+                                    height: 30,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: threadSending || !threadInput.trim() ? 'not-allowed' : 'pointer',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {threadSending ? <Loader2 style={{ width: 12, height: 12, color: '#fff' }} className="animate-spin" /> : <Send style={{ width: 12, height: 12, color: '#fff' }} />}
+                                </button>
+                              </div>
+                              {threadError && (
+                                <div style={{ fontSize: 11, color: '#f06b6b', marginTop: 6 }}>{threadError}</div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </motion.div>
                 ) : null}
               </AnimatePresence>

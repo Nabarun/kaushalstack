@@ -72,6 +72,12 @@ const CHAT_FIELDS = [
     // uploading a draft spec. Lets Aisha produce a COMBINED spec (upload + the
     // round table's review) and survives reloads.
     { type: 'json',     name: 'uploaded_spec', maxSize: 200000 },
+    // agent_threads: { [agent_name]: [{ role: 'user'|'assistant', text, ts }] }
+    // Per-agent 1:1 follow-up threads — the user can drill into any single
+    // agent's response and chat with just them. Each agent's thread is
+    // capped at AGENT_THREAD_TURN_CAP (in the route below) so a runaway
+    // user can't bloat the row. 500KB ≈ 16 agents × 20 turns × ~1.5KB.
+    { type: 'json',     name: 'agent_threads', maxSize: 500000 },
     { type: 'json',     name: 'tool_results', maxSize: 600000 },
     { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
     { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
@@ -477,6 +483,209 @@ router.post('/roundtable', async (req, res) => {
     }
 });
 
+// ── Per-agent 1:1 follow-up threads ─────────────────────────────────────────
+//
+// The user can drill into any single agent's round-table response and chat
+// with just that agent. Each agent's thread is stored on the chat row as
+// agent_threads[<agent_name>] = [{ role, text, ts }, …]. The route below
+// rebuilds the prompt from: the agent's persona, the original round-table
+// query + their response, and the running 1:1 transcript.
+
+const AGENT_THREAD_TURN_CAP = 10;       // user turns per agent (each turn = 1 user + 1 assistant)
+const AGENT_THREAD_MSG_MAX  = 4000;     // chars per user message
+
+function buildAgentThreadPrompt({ agent, originalQuery, originalResponse, thread, message }) {
+    const systemPrompt = `You are ${agent.agent_name} — ${agent.name} (${agent.category}).
+Skills: ${agent.associated_tech_skills || 'general'}
+Background: ${(agent.description || '').slice(0, 240)}
+
+You just participated in a round-table discussion with the user and a few peers from your platform. The user now wants to follow up with YOU specifically — one-on-one. Stay in character, draw on the original discussion, and keep the conversation grounded in your specific domain.
+
+Rules:
+- 3-5 sentences per response, no more
+- Be practical and specific — no generic advice
+- Use natural first-person speech fitting your role
+- Reference your earlier round-table answer when relevant; don't repeat it verbatim
+- If the user asks something outside your domain, say so briefly and suggest who on the team would know better`;
+
+    // Transcript: original RT framing, then prior 1:1 turns, then the new
+    // user message. Plain prose so any provider/model can read it without
+    // needing structured-messages mode.
+    const priorTranscript = (thread || []).map(t => {
+        const tag = t.role === 'user' ? 'User' : agent.agent_name;
+        return `${tag}: ${t.text}`;
+    }).join('\n\n');
+
+    const userPrompt = `Round table context — the user originally asked:
+"${originalQuery}"
+
+Your round-table response was:
+"${originalResponse || '(no recorded response — answer from your persona alone)'}"
+
+${priorTranscript ? `Conversation so far:\n\n${priorTranscript}\n\n` : ''}User's next message:
+"${message}"
+
+Reply as ${agent.agent_name}, in plain prose (no JSON, no markdown headers).`;
+
+    return { systemPrompt, userPrompt };
+}
+
+// Look up an agent by name across the chat's domain team + tech team. We
+// match agent_name first (the canonical display name in responses) and fall
+// back to name (the underlying skill name).
+function findAgentByName(chat, agentName) {
+    const haystacks = [
+        ...(Array.isArray(chat.team) ? chat.team : []),
+        ...(Array.isArray(chat.tech_team) ? chat.tech_team : []),
+    ];
+    return haystacks.find(a => a?.agent_name === agentName || a?.name === agentName) || null;
+}
+
+// Find this agent's most recent RT response across all turns (domain + tech).
+// Lets the 1:1 reference what they actually said in the discussion instead
+// of starting from a blank slate.
+function findAgentLatestResponse(chat, agentName) {
+    const allTurns = [
+        ...(Array.isArray(chat.turns) ? chat.turns : []),
+        ...(Array.isArray(chat.tech_turns) ? chat.tech_turns : []),
+    ];
+    for (let i = allTurns.length - 1; i >= 0; i--) {
+        const t = allTurns[i];
+        const r = (t.responses || []).find(r => r?.name === agentName);
+        if (r?.text) return { text: r.text, query: t.query };
+    }
+    // Legacy chats: only top-level responses present.
+    const r = Array.isArray(chat.responses) ? chat.responses.find(r => r?.name === agentName) : null;
+    return r?.text ? { text: r.text, query: chat.query } : null;
+}
+
+router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) => {
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const chatId = req.params.id;
+    const agentName = decodeURIComponent(req.params.agentName || '').trim();
+    if (!agentName) return res.status(400).json({ error: 'agent name is required' });
+
+    const message = String(req.body?.message || '').trim().slice(0, AGENT_THREAD_MSG_MAX);
+    if (!message) return res.status(400).json({ error: 'message is required' });
+
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI not configured' });
+
+    let chat;
+    try {
+        chat = await pb.collection('roundtable_chats').getOne(chatId);
+    } catch {
+        return res.status(404).json({ error: 'chat not found' });
+    }
+    if (chat.user_id !== userId) return res.status(403).json({ error: 'not your chat' });
+
+    const agent = findAgentByName(chat, agentName);
+    if (!agent) return res.status(404).json({ error: `agent ${agentName} is not part of this chat` });
+
+    const existingThreads = (chat.agent_threads && typeof chat.agent_threads === 'object') ? chat.agent_threads : {};
+    const thread = Array.isArray(existingThreads[agentName]) ? existingThreads[agentName].slice() : [];
+    const userTurnsSoFar = thread.filter(t => t.role === 'user').length;
+    if (userTurnsSoFar >= AGENT_THREAD_TURN_CAP) {
+        return res.status(409).json({
+            error: 'thread_full',
+            detail: `This 1:1 with ${agentName} has hit the ${AGENT_THREAD_TURN_CAP}-turn cap. Start a new round table to keep branching this thread.`,
+            cap: AGENT_THREAD_TURN_CAP,
+        });
+    }
+
+    const original = findAgentLatestResponse(chat, agentName);
+    const userBYOK = await getUserBYOK(userId);
+    const usingUserKey = !!userBYOK;
+    const SERVER_PROVIDER = 'openai';
+    const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
+
+    let providerInUse = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
+    let keyInUse      = usingUserKey ? userBYOK.key : OPENAI_API_KEY;
+    let modelInUse    = usingUserKey
+        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
+        : SERVER_DEFAULT_MODEL;
+    let fellBackToServer = false;
+
+    const { systemPrompt, userPrompt } = buildAgentThreadPrompt({
+        agent,
+        originalQuery: original?.query || chat.query || '',
+        originalResponse: original?.text || '',
+        thread,
+        message,
+    });
+
+    let reply;
+    try {
+        reply = await chatComplete(providerInUse, {
+            key: keyInUse,
+            model: modelInUse,
+            systemPrompt,
+            userPrompt,
+        });
+    } catch (err) {
+        // Same soft-fall policy as /roundtable: any BYOK failure (auth,
+        // quota, network) silently retries on the server's gpt-4o-mini so
+        // the user gets a reply instead of a dead-end.
+        const isBYOKFailure = usingUserKey && (
+            err.status === 401 || err.status === 429 || err.status === 504 ||
+            err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
+        );
+        if (!isBYOKFailure) {
+            const causeMsg = err.cause?.message || err.cause?.code || err.message;
+            logger.error(`agent-thread call failed for ${agentName}: ${err.message} | cause=${causeMsg}`);
+            return res.status(500).json({ error: 'Agent reply failed' });
+        }
+        const causeMsg = err.cause?.message || err.cause?.code || err.message;
+        logger.warn(`agent-thread BYOK failed (provider=${providerInUse}, cause=${causeMsg}) — falling back to server gpt-4o-mini`);
+        providerInUse = SERVER_PROVIDER;
+        keyInUse      = OPENAI_API_KEY;
+        modelInUse    = SERVER_DEFAULT_MODEL;
+        fellBackToServer = true;
+        try {
+            reply = await chatComplete(providerInUse, {
+                key: keyInUse,
+                model: modelInUse,
+                systemPrompt,
+                userPrompt,
+            });
+        } catch (fallbackErr) {
+            logger.error(`agent-thread fallback also failed: ${fallbackErr.message}`);
+            return res.status(500).json({ error: 'Agent reply failed (BYOK + server fallback both failed)' });
+        }
+    }
+
+    const trimmed = (reply || '').trim();
+    if (!trimmed) return res.status(502).json({ error: 'empty reply from model' });
+
+    const now = new Date().toISOString();
+    const userTurn      = { role: 'user',      text: message, ts: now };
+    const assistantTurn = { role: 'assistant', text: trimmed, ts: now };
+    const nextThread    = [...thread, userTurn, assistantTurn];
+    const nextThreads   = { ...existingThreads, [agentName]: nextThread };
+
+    try {
+        await pb.collection('roundtable_chats').update(chatId, { agent_threads: nextThreads });
+    } catch (err) {
+        // Persistence failure shouldn't lose the reply we already paid for —
+        // surface it to the client; the UI will show it for the rest of
+        // this session even if reload won't have it.
+        logger.warn(`agent-thread persist failed for chat ${chatId}: ${err.message}`);
+    }
+
+    logger.info(`agent-thread: chat=${chatId} agent=${agentName} turn=${userTurnsSoFar + 1} (${usingUserKey && !fellBackToServer ? 'user-byok' : 'server'})`);
+
+    res.json({
+        agent_name: agentName,
+        message: assistantTurn,
+        user_message: userTurn,
+        thread: nextThread,
+        turns_used: userTurnsSoFar + 1,
+        turns_cap: AGENT_THREAD_TURN_CAP,
+        byok_fell_back: fellBackToServer,
+    });
+});
+
 router.get('/roundtable/usage', async (req, res) => {
     const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
@@ -527,6 +736,10 @@ router.get('/roundtable/chats', async (req, res) => {
                     tech_turns: Array.isArray(c.tech_turns) ? c.tech_turns : [],
                     // { text, filename } when this chat was seeded from an upload.
                     uploaded_spec: c.uploaded_spec || null,
+                    // { [agent_name]: [{role, text, ts}] } — per-agent 1:1
+                    // follow-up threads. Empty object on chats that haven't
+                    // used the drill-in feature.
+                    agent_threads: c.agent_threads && typeof c.agent_threads === 'object' ? c.agent_threads : {},
                     tool_results: c.tool_results || {},
                     created: c.created,
                 };
