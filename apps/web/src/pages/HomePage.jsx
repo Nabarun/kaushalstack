@@ -331,13 +331,25 @@ const HomePage = () => {
       setSelectedPhase(phaseOverride);
     }
 
+    // If a spec is attached, the recommend uses the spec text (not the typed
+    // prompt) so specialists match the actual content. The typed prompt
+    // becomes the displayed query on the result card and ends up riding
+    // through to the round-table page on "Open in Round Table".
+    const spec = attachedSpec;
+    const recommendInput = spec ? spec.text.slice(0, 8000) : text;
+    const displayText = spec ? `📎 ${spec.filename} · ${text}` : text;
+
     setInput('');
-    setMessages(prev => [...prev, { type: 'user', text, phase }]);
+    setMessages(prev => [...prev, { type: 'user', text: displayText, phase }]);
     setChatLoading(true);
 
-    const team = await recommendTeam(text, phase, teamSize);
-    setMessages(prev => [...prev, { type: 'result', skills: team, query: text, phase }]);
+    const team = await recommendTeam(recommendInput, phase, teamSize);
+    setMessages(prev => [...prev, {
+      type: 'result', skills: team, query: text, phase,
+      ...(spec ? { uploadedSpec: spec } : {}),
+    }]);
     setChatLoading(false);
+    setAttachedSpec(null);   // consume once — fresh prompt next round
     setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   };
 
@@ -347,11 +359,15 @@ const HomePage = () => {
   const fileInputRef = useRef(null);
   const [uploading, setUploading]   = useState(false);
   const [uploadError, setUploadError] = useState('');
+  // Attached-spec state. Holds { text, filename } between the upload moment
+  // and the user's submit click. Mirrors the round-table page: we attach the
+  // spec quietly, prefill the prompt with "Verify the spec", and defer the
+  // team recommendation to submit so the user can edit the prompt first.
+  const [attachedSpec, setAttachedSpec] = useState(null);
   async function uploadSpec(file) {
     if (!file || uploading) return;
     setUploadError('');
     setUploading(true);
-    setMessages(prev => [...prev, { type: 'user', text: `📎 ${file.name}`, phase: selectedPhase }]);
     try {
       const fd = new FormData(); fd.append('file', file);
       const res = await fetch('/api/spec/upload', { method: 'POST', body: fd });
@@ -359,11 +375,11 @@ const HomePage = () => {
       if (!res.ok) throw new Error(data.error || `Couldn't read that file (${res.status})`);
       const specText = (data.text || '').trim();
       if (!specText) throw new Error('No text found in that file.');
-      // Cap the text used for recommendation — the embedding model has a token
-      // limit. The full spec still rides on uploadedSpec for the round table.
-      const team = await recommendTeam(specText.slice(0, 8000), selectedPhase, teamSize);
-      const title = (specText.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean) || file.name).slice(0, 100);
-      setMessages(prev => [...prev, { type: 'result', skills: team, query: title, phase: selectedPhase, uploadedSpec: { text: specText, filename: file.name } }]);
+      // Attach + prefill. No recommend, no result card — the user lands on
+      // a quiet "ready to verify" state and decides when to submit.
+      setAttachedSpec({ text: specText, filename: file.name });
+      setInput('Verify the spec');
+      setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 30);
     } catch (err) {
       setUploadError(err.message);
     } finally {
@@ -460,6 +476,16 @@ const HomePage = () => {
                   {/* Split-hero prompt input. Tap targets: textarea is min-h-12 (48px)
                       and the send button is 44×44, both above iOS's 44pt minimum. */}
                   <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
+                    {attachedSpec && (
+                      <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-md bg-primary/8 border border-primary/20 text-xs">
+                        <Paperclip className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <span className="text-primary font-medium truncate flex-1">{attachedSpec.filename}</span>
+                        <span className="text-muted-foreground hidden sm:inline">attached · submit to review</span>
+                        <button onClick={() => setAttachedSpec(null)} title="Remove" className="text-muted-foreground hover:text-foreground shrink-0">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-end gap-2">
                       <textarea
                         ref={inputRef}
@@ -593,6 +619,16 @@ const HomePage = () => {
             {isEmpty && !showSplitHero && (
               <div className="mb-8">
                 <div className="bg-card rounded-2xl border-2 shadow-lg px-4 py-3 sm:px-5 sm:py-4 focus-within:border-primary transition-colors">
+                  {attachedSpec && (
+                    <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-md bg-primary/8 border border-primary/20 text-xs">
+                      <Paperclip className="w-3.5 h-3.5 text-primary shrink-0" />
+                      <span className="text-primary font-medium truncate flex-1">{attachedSpec.filename}</span>
+                      <span className="text-muted-foreground hidden sm:inline">attached · submit to review</span>
+                      <button onClick={() => setAttachedSpec(null)} title="Remove" className="text-muted-foreground hover:text-foreground shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex items-end gap-2 sm:gap-3">
                     <textarea
                       ref={inputRef}
