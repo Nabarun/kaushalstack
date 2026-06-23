@@ -556,7 +556,12 @@ export async function runCreativeAgent({
         err.status = 400;
         throw err;
     }
-    if (query.length > 2000) {
+    // The 2000-char cap predates the spec-upload flow. When Aisha or the user
+    // sends a spec to Maya/Ananya, the spec text IS the query — uploaded specs
+    // cap at 60KB (UPLOAD_TEXT_CAP) and generated specs run a few KB too.
+    // Same prompt-budget concern as before: bump to 100KB to comfortably hold
+    // a spec, still bounded so a runaway caller can't stuff arbitrary payload.
+    if (query.length > 100000) {
         const err = new Error('query too long');
         err.status = 400;
         throw err;
