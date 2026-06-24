@@ -145,7 +145,7 @@ export default function GrowthBusinessDetailPage() {
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>
                                 <CardTitle className="text-base">Competitors</CardTitle>
-                                <CardDescription className="text-xs">Websites + RSS feeds + Google News mentions. Last 30 days is scanned.</CardDescription>
+                                <CardDescription className="text-xs">Websites + RSS feeds + Google News mentions. Last 7 days is scanned.</CardDescription>
                             </div>
                             <Button size="sm" variant="ghost" onClick={addCompetitor}><Plus className="w-4 h-4 mr-1" /> Add</Button>
                         </CardHeader>

@@ -181,7 +181,7 @@ export default function GrowthReportDetailPage() {
                                             ))}
                                         </ul>
                                     ) : (
-                                        <div className="text-xs text-muted-foreground">Nothing in the last 30 days (or no feed exposed).</div>
+                                        <div className="text-xs text-muted-foreground">Nothing in the last 7 days (or no feed exposed).</div>
                                     )}
                                 </div>
                             ))}

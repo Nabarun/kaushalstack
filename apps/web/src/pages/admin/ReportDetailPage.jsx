@@ -172,7 +172,7 @@ export default function ReportDetailPage() {
                                         ))}
                                     </ul>
                                 ) : (
-                                    <div className="text-xs text-zinc-500">Nothing in the last 30 days (or no feed exposed).</div>
+                                    <div className="text-xs text-zinc-500">Nothing in the last 7 days (or no feed exposed).</div>
                                 )}
                             </div>
                         ))}

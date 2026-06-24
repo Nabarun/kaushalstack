@@ -58,8 +58,8 @@ function buildPrompt(business, team, scans, competitors) {
         const hp = s.homepage ? `Homepage: ${s.homepage.title || ''}\nDesc: ${s.homepage.description || ''}\nH1s: ${(s.homepage.headings || []).join(' | ')}` : '';
         const items = s.recent_items.length
             ? s.recent_items.map(i => `- [${i.published || 'n/a'}] ${i.title} — ${i.link}${i.description ? `\n  ${i.description}` : ''}`).join('\n')
-            : '(no items from the last 30 days, or no feed exposed)';
-        return [head, focusLine, sourceLine, hp, `\nRecent items (last 30 days):\n${items}`].filter(Boolean).join('\n');
+            : '(no items from the last 7 days, or no feed exposed)';
+        return [head, focusLine, sourceLine, hp, `\nRecent items (last 7 days):\n${items}`].filter(Boolean).join('\n');
     }).join('\n\n');
 
     const monthlyRevenue = Number(business.monthly_revenue) || 0;
@@ -67,7 +67,7 @@ function buildPrompt(business, team, scans, competitors) {
         ? `Business monthly revenue baseline: $${monthlyRevenue.toLocaleString()} (use this to compute dollar-denominated lift estimates).`
         : `Business monthly revenue baseline: not provided (express lift as a percentage range only; do not invent a dollar amount).`;
 
-    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 30 days and produce ONE concise growth report — plus an honest estimate of the financial upside if the owner acts on the recommendations.
+    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 7 days and produce ONE concise growth report — plus an honest estimate of the financial upside if the owner acts on the recommendations.
 
 The team assigned to this business:
 ${teamRoster}
@@ -79,13 +79,13 @@ Website: ${business.website_url}
 Description: ${business.description || '(none)'}
 ${revenueLine}
 
-Competitor scans (last 30 days):
+Competitor scans (last 7 days):
 
 ${competitorBlocks}
 
 Return JSON of the shape:
 {
-  "summary": "3-5 sentence executive summary of what competitors did in the last 30 days",
+  "summary": "3-5 sentence executive summary of what competitors did in the last 7 days",
   "findings": [
     { "competitor": "name", "what_changed": "...", "evidence": "url or page title", "significance": "low|medium|high" }
   ],

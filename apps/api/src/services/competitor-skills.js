@@ -40,7 +40,7 @@ function watcherFromCompetitor(c, business) {
     const name = `${c.name} Watcher`.slice(0, 200);
     const description = c.focus
         ? `Monitors ${c.name} (${c.website}) for ${business.name}. Focus: ${c.focus}`
-        : `Monitors ${c.name} (${c.website}) for ${business.name} — surfaces what changed in the last 30 days.`;
+        : `Monitors ${c.name} (${c.website}) for ${business.name} — surfaces what changed in the last 7 days.`;
     return {
         name,
         agent_name: name,

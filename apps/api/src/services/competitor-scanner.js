@@ -9,7 +9,7 @@ import logger from '../utils/logger.js';
 const USER_AGENT = 'Mozilla/5.0 (compatible; KaushalStackGrowthBot/1.0; +https://kaushalstack.com)';
 const FETCH_TIMEOUT_MS = 6000;            // single-request timeout
 const PER_COMPETITOR_BUDGET_MS = 25000;   // hard wall-clock cap per competitor
-const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const RSS_CANDIDATE_PATHS = [
     '/rss', '/feed', '/feed/', '/rss.xml', '/atom.xml',
     '/blog/rss', '/blog/feed', '/news/rss', '/news/feed',
