@@ -1,13 +1,19 @@
 import logger from '../utils/logger.js';
 
-// Pragmatic scanner: fetch competitor homepage + try common RSS endpoints.
-// Returns recent items (title + link + pubDate) from the last ~24h where the
-// feed exposes timestamps. Social platforms (X/IG/LinkedIn) are intentionally
-// out of scope — they need paid API access or anti-bot bypassing.
+// Pragmatic scanner: fetch competitor homepage + try common RSS endpoints,
+// with a Google News RSS fallback when the site itself can't be reached.
+// Returns recent items (title + link + pubDate) from the last DEFAULT_WINDOW_MS
+// where the feed exposes timestamps. Social platforms (X/IG/LinkedIn) are
+// intentionally out of scope — they need paid API access or anti-bot bypassing.
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; KaushalStackGrowthBot/1.0; +https://kaushalstack.com)';
 const FETCH_TIMEOUT_MS = 15000;
-const RSS_CANDIDATE_PATHS = ['/rss', '/feed', '/feed/', '/rss.xml', '/atom.xml', '/blog/rss', '/blog/feed', '/news/rss'];
+const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const RSS_CANDIDATE_PATHS = [
+    '/rss', '/feed', '/feed/', '/rss.xml', '/atom.xml',
+    '/blog/rss', '/blog/feed', '/news/rss', '/news/feed',
+    '/index.xml', '/feeds/posts/default',
+];
 
 async function timedFetch(url, init = {}) {
     const ctrl = new AbortController();
@@ -105,7 +111,33 @@ function isRecent(iso, sinceMs) {
     return Number.isFinite(t) && t >= sinceMs;
 }
 
-export async function scanCompetitor(competitor, { since = Date.now() - 24 * 60 * 60 * 1000 } = {}) {
+async function tryGoogleNews(competitorName, competitorWebsite, since) {
+    if (!competitorName) return null;
+    try {
+        // Bias the query toward the company by name + domain so we don't grab
+        // generic news for ambiguous brand names. Falls back to name-only.
+        let host = '';
+        try { host = new URL(competitorWebsite).hostname.replace(/^www\./, ''); } catch {}
+        const q = host
+            ? `"${competitorName}" OR site:${host}`
+            : `"${competitorName}"`;
+        const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+        const res = await timedFetch(url);
+        if (!res.ok) return null;
+        const text = await res.text();
+        const items = parseRss(text, url);
+        if (!items.length) return null;
+        return {
+            feed_url: url,
+            all_items: items.slice(0, 30),
+            recent_items: items.filter(it => isRecent(it.published, since)).slice(0, 20),
+        };
+    } catch {
+        return null;
+    }
+}
+
+export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_WINDOW_MS } = {}) {
     const out = {
         name: competitor.name,
         website: competitor.website,
@@ -114,23 +146,33 @@ export async function scanCompetitor(competitor, { since = Date.now() - 24 * 60 
         feed_url: null,
         recent_items: [],
         all_items: [],
-        error: null,
+        source: null,        // 'homepage_rss' | 'direct_rss' | 'google_news'
+        notice: null,        // soft note when we used a fallback
+        error: null,         // hard error only when nothing at all worked
     };
+
     let homepageHtml = '';
+    let homepageFailed = false;
+    let homepageErr = null;
+
     try {
         const res = await timedFetch(competitor.website);
         if (!res.ok) throw new Error(`status ${res.status}`);
         homepageHtml = await res.text();
         out.homepage = summarizeHomepage(homepageHtml);
-        out.ok = true;
     } catch (err) {
-        out.error = `homepage fetch failed: ${err.message}`;
-        return out;
+        homepageFailed = true;
+        homepageErr = err.message;
     }
 
-    const linked = extractRssLinks(homepageHtml, competitor.website);
+    // RSS discovery: links declared in the homepage HTML (if we got it) +
+    // common path conventions. Try common paths even when the homepage fails
+    // — some sites block bots at /, but the feed endpoint stays open.
+    const linkedFromHomepage = homepageHtml
+        ? extractRssLinks(homepageHtml, competitor.website)
+        : [];
     const candidates = [...new Set([
-        ...linked,
+        ...linkedFromHomepage,
         ...RSS_CANDIDATE_PATHS.map(p => toUrl(p, competitor.website)).filter(Boolean),
     ])];
 
@@ -140,10 +182,39 @@ export async function scanCompetitor(competitor, { since = Date.now() - 24 * 60 
             out.feed_url = url;
             out.all_items = items.slice(0, 30);
             out.recent_items = items.filter(it => isRecent(it.published, since)).slice(0, 20);
-            break;
+            out.source = linkedFromHomepage.includes(url) ? 'homepage_rss' : 'direct_rss';
+            out.ok = true;
+            if (homepageFailed) {
+                out.notice = `homepage unreachable (${homepageErr}); using RSS feed at ${url}`;
+            }
+            return out;
         }
     }
 
+    // Last resort: Google News RSS. Works even when the competitor's own
+    // infrastructure blocks us, and is free + no API key required.
+    const news = await tryGoogleNews(competitor.name, competitor.website, since);
+    if (news && (news.recent_items.length || news.all_items.length)) {
+        out.feed_url = news.feed_url;
+        out.all_items = news.all_items;
+        out.recent_items = news.recent_items;
+        out.source = 'google_news';
+        out.ok = true;
+        out.notice = homepageFailed
+            ? `homepage + RSS unreachable (${homepageErr || 'no feed'}); using Google News mentions instead`
+            : `no RSS feed exposed; using Google News mentions instead`;
+        return out;
+    }
+
+    // Nothing worked.
+    if (homepageFailed) {
+        out.error = `homepage fetch failed: ${homepageErr}; no RSS or Google News fallback succeeded`;
+    } else {
+        // Homepage loaded but no feed and no news — we still have the
+        // homepage summary, which is something. Mark ok=true.
+        out.ok = true;
+        out.notice = 'no feed exposed and no recent news mentions found';
+    }
     return out;
 }
 

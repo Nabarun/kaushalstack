@@ -91,7 +91,7 @@ export default function GrowthPartnerPage() {
                         </Card>
                         <Card>
                             <CardHeader><CardTitle className="text-base">3. Get a daily growth report</CardTitle></CardHeader>
-                            <CardContent className="text-sm text-muted-foreground">Each day at your chosen hour, the team scans the last 24h and ships you findings + recommendations.</CardContent>
+                            <CardContent className="text-sm text-muted-foreground">Each day at your chosen hour, the team scans the last 30 days of competitor activity and ships you findings + recommendations.</CardContent>
                         </Card>
                     </div>
                 </div>

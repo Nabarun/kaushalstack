@@ -103,6 +103,7 @@ export default function GrowthReportDetailPage() {
                                             {s.website} <ExternalLink className="w-3 h-3" />
                                         </a>
                                     </div>
+                                    {s.notice && <div className="text-[11px] text-amber-600 mb-1">{s.notice}</div>}
                                     {!s.ok ? (
                                         <div className="text-xs text-rose-600">Scan failed: {s.error}</div>
                                     ) : s.recent_items?.length ? (
@@ -114,7 +115,7 @@ export default function GrowthReportDetailPage() {
                                             ))}
                                         </ul>
                                     ) : (
-                                        <div className="text-xs text-muted-foreground">Nothing in the last 24h (or no feed exposed).</div>
+                                        <div className="text-xs text-muted-foreground">Nothing in the last 30 days (or no feed exposed).</div>
                                     )}
                                 </div>
                             ))}
