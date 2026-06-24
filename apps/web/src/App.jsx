@@ -1,12 +1,14 @@
 
 import React from 'react';
-import { Route, Routes, BrowserRouter as Router } from 'react-router-dom';
+import { Route, Routes, BrowserRouter as Router, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/contexts/AuthContext.jsx';
+import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
 import ScrollToTop from '@/components/ScrollToTop.jsx';
 import Header from '@/components/Header.jsx';
 import Footer from '@/components/Footer.jsx';
 import ProtectedRoute from '@/components/ProtectedRoute.jsx';
+import AdminProtectedRoute from '@/components/admin/AdminProtectedRoute.jsx';
 import HomePage from '@/pages/HomePage.jsx';
 import SignupPage from '@/pages/SignupPage.jsx';
 import SigninPage from '@/pages/SigninPage.jsx';
@@ -21,15 +23,34 @@ import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
 import DevelopersPage from '@/pages/DevelopersPage.jsx';
+import AdminLoginPage from '@/pages/admin/AdminLoginPage.jsx';
+import AdminLayout from '@/pages/admin/AdminLayout.jsx';
+import BusinessesPage from '@/pages/admin/BusinessesPage.jsx';
+import BusinessDetailPage from '@/pages/admin/BusinessDetailPage.jsx';
+import ReportDetailPage from '@/pages/admin/ReportDetailPage.jsx';
+
+function SiteChrome({ children }) {
+  const { pathname } = useLocation();
+  const isAdmin = pathname.startsWith('/admin');
+  if (isAdmin) {
+    return <main className="flex-1">{children}</main>;
+  }
+  return (
+    <div className="flex flex-col min-h-screen">
+      <Header />
+      <main className="flex-1">{children}</main>
+      <Footer />
+    </div>
+  );
+}
 
 function App() {
   return (
     <Router>
       <AuthProvider>
-        <ScrollToTop />
-        <div className="flex flex-col min-h-screen">
-          <Header />
-          <main className="flex-1">
+        <AdminAuthProvider>
+          <ScrollToTop />
+          <SiteChrome>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/signup" element={<SignupPage />} />
@@ -66,14 +87,31 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route 
-                path="/profile" 
+              <Route
+                path="/profile"
                 element={
                   <ProtectedRoute>
                     <UserProfilePage />
                   </ProtectedRoute>
-                } 
+                }
               />
+
+              {/* Admin area — own login, own chrome */}
+              <Route path="/admin/login" element={<AdminLoginPage />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminProtectedRoute>
+                    <AdminLayout />
+                  </AdminProtectedRoute>
+                }
+              >
+                <Route index element={<BusinessesPage />} />
+                <Route path="businesses" element={<BusinessesPage />} />
+                <Route path="businesses/:id" element={<BusinessDetailPage />} />
+                <Route path="reports/:id" element={<ReportDetailPage />} />
+              </Route>
+
               <Route path="*" element={
                 <div className="min-h-screen flex items-center justify-center">
                   <div className="text-center">
@@ -84,10 +122,9 @@ function App() {
                 </div>
               } />
             </Routes>
-          </main>
-          <Footer />
-        </div>
-        <Toaster />
+          </SiteChrome>
+          <Toaster />
+        </AdminAuthProvider>
       </AuthProvider>
     </Router>
   );

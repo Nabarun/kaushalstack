@@ -17,6 +17,7 @@ import mockupRouter from './mockup.js';
 import creativeRouter from './creative.js';
 import hostingerRouter from './hostinger.js';
 import specRouter from './spec.js';
+import adminRouter from './admin/index.js';
 
 const router = Router();
 
@@ -43,6 +44,7 @@ export default () => {
     router.use('/', creativeRouter);
     router.use('/', hostingerRouter);
     router.use('/', specRouter);
+    router.use('/', adminRouter);
 
     return router;
 };
