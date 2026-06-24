@@ -18,6 +18,7 @@ import creativeRouter from './creative.js';
 import hostingerRouter from './hostinger.js';
 import specRouter from './spec.js';
 import adminRouter from './admin/index.js';
+import meBusinessesRouter from './me-businesses.js';
 
 const router = Router();
 
@@ -45,6 +46,7 @@ export default () => {
     router.use('/', hostingerRouter);
     router.use('/', specRouter);
     router.use('/', adminRouter);
+    router.use('/', meBusinessesRouter);
 
     return router;
 };

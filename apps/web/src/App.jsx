@@ -16,8 +16,10 @@ import UserProfilePage from '@/pages/UserProfilePage.jsx';
 import SkillsPage from '@/pages/SkillsPage.jsx';
 import LeaderboardPage from '@/pages/LeaderboardPage.jsx';
 import MembersPage from '@/pages/MembersPage.jsx';
-import AboutPage from '@/pages/AboutPage.jsx';
 import RoundTablePage from '@/pages/RoundTablePage.jsx';
+import GrowthPartnerPage from '@/pages/GrowthPartnerPage.jsx';
+import GrowthBusinessDetailPage from '@/pages/GrowthBusinessDetailPage.jsx';
+import GrowthReportDetailPage from '@/pages/GrowthReportDetailPage.jsx';
 import BuildPage from '@/pages/BuildPage.jsx';
 import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
@@ -68,8 +70,24 @@ function App() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
-              <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/growth-partner" element={<GrowthPartnerPage />} />
+              <Route
+                path="/growth-partner/:id"
+                element={
+                  <ProtectedRoute>
+                    <GrowthBusinessDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/growth-partner/reports/:id"
+                element={
+                  <ProtectedRoute>
+                    <GrowthReportDetailPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/developers"
                 element={
