@@ -11,7 +11,7 @@ const Footer = () => {
   const { pathname } = useLocation();
   if (FULL_BLEED_ROUTES.has(pathname)) return null;
   return (
-    <footer className="bg-secondary text-secondary-foreground mt-24">
+    <footer className="bg-secondary text-secondary-foreground mt-24 print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div>

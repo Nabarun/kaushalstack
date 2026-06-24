@@ -19,7 +19,7 @@ export default function AdminLayout() {
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 flex">
-            <aside className="w-60 border-r border-zinc-800 bg-zinc-900/40 p-4 flex flex-col">
+            <aside className="w-60 border-r border-zinc-800 bg-zinc-900/40 p-4 flex flex-col print:hidden">
                 <Link to="/admin/businesses" className="flex items-center gap-2 mb-6">
                     <Shield className="w-5 h-5" />
                     <span className="font-semibold">Admin</span>

@@ -52,16 +52,22 @@ function buildPrompt(business, team, scans, competitors) {
         return [head, focusLine, sourceLine, hp, `\nRecent items (last 30 days):\n${items}`].filter(Boolean).join('\n');
     }).join('\n\n');
 
-    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 30 days and produce ONE concise growth report.
+    const monthlyRevenue = Number(business.monthly_revenue) || 0;
+    const revenueLine = monthlyRevenue > 0
+        ? `Business monthly revenue baseline: $${monthlyRevenue.toLocaleString()} (use this to compute dollar-denominated lift estimates).`
+        : `Business monthly revenue baseline: not provided (express lift as a percentage range only; do not invent a dollar amount).`;
+
+    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 30 days and produce ONE concise growth report — plus an honest estimate of the financial upside if the owner acts on the recommendations.
 
 The team assigned to this business:
 ${teamRoster}
 
-Speak to the business owner. Be specific. Cite competitor names. Avoid generic "consider doing X" filler — if nothing new is happening, say so. When a competitor block includes a "Focus for this competitor" line, weight your findings and recommendations for that competitor toward that focus area. When a "Source" line says google_news, treat the items as third-party news mentions rather than first-party announcements. Output strict JSON only.`;
+Speak to the business owner. Be specific. Cite competitor names. Avoid generic "consider doing X" filler — if nothing new is happening, say so. When a competitor block includes a "Focus for this competitor" line, weight your findings and recommendations for that competitor toward that focus area. When a "Source" line says google_news, treat the items as third-party news mentions rather than first-party announcements. For the revenue impact estimate: be conservative, explain your assumptions, set confidence honestly (low if the scan is thin or the competitors aren't doing much), and never invent a dollar amount without a baseline. Output strict JSON only.`;
 
     const user = `Business: ${business.name}
 Website: ${business.website_url}
 Description: ${business.description || '(none)'}
+${revenueLine}
 
 Competitor scans (last 30 days):
 
@@ -74,11 +80,25 @@ Return JSON of the shape:
     { "competitor": "name", "what_changed": "...", "evidence": "url or page title", "significance": "low|medium|high" }
   ],
   "recommendations": [
-    { "action": "concrete thing the business should do", "rationale": "why, tied to a competitor finding", "owner_agent": "agent name from the roster (or empty)" }
-  ]
+    {
+      "action": "concrete thing the business should do",
+      "rationale": "why, tied to a competitor finding",
+      "owner_agent": "agent name from the roster (or empty)",
+      "estimated_impact": "one-line qualitative + rough quantitative impact, e.g. '+5-8% trial signups in Q1 if landing-page positioning matches Acme's new framing'"
+    }
+  ],
+  "revenue_impact": {
+    "estimated_monthly_lift_pct_low": <number, e.g. 3>,
+    "estimated_monthly_lift_pct_high": <number, e.g. 8>,
+    "estimated_monthly_lift_dollars_low": <number or null when baseline is missing>,
+    "estimated_monthly_lift_dollars_high": <number or null when baseline is missing>,
+    "time_horizon_months": <number, typically 3 to 12>,
+    "confidence": "low|medium|high",
+    "reasoning": "2-3 sentences on assumptions, what drives the range, and what would tighten the confidence"
+  }
 }
 
-If there's nothing notable, return empty arrays and say so in the summary. Do not invent items that are not in the scan data.`;
+If there's nothing notable, return empty arrays and a revenue_impact with 0/0 lift and confidence=low. Do not invent items that are not in the scan data.`;
 
     return { system, user };
 }
@@ -198,8 +218,11 @@ export async function runGrowthReportForBusiness(business) {
         const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
         const recs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
         const summary = typeof parsed.summary === 'string' ? parsed.summary : '';
+        const revenueImpact = parsed.revenue_impact && typeof parsed.revenue_impact === 'object'
+            ? parsed.revenue_impact
+            : null;
         const recsText = recs.map((r, i) =>
-            `${i + 1}. ${r.action || ''}${r.owner_agent ? ` — owner: ${r.owner_agent}` : ''}\n   Rationale: ${r.rationale || ''}`
+            `${i + 1}. ${r.action || ''}${r.owner_agent ? ` — owner: ${r.owner_agent}` : ''}\n   Rationale: ${r.rationale || ''}${r.estimated_impact ? `\n   Estimated impact: ${r.estimated_impact}` : ''}`
         ).join('\n\n');
 
         const keyPath = fellBackToServer
@@ -212,10 +235,11 @@ export async function runGrowthReportForBusiness(business) {
             status: 'completed',
             summary,
             recommendations: recsText,
-            findings: { scans: compact, findings, recommendations: recs, key_path: keyPath },
+            findings: { scans: compact, findings, recommendations: recs, revenue_impact: revenueImpact, key_path: keyPath },
         });
 
-        logger.info(`growth-report: business=${business.name} report=${finalRecord.id} findings=${findings.length} recs=${recs.length} key=${keyPath}`);
+        const liftHi = revenueImpact?.estimated_monthly_lift_pct_high;
+        logger.info(`growth-report: business=${business.name} report=${finalRecord.id} findings=${findings.length} recs=${recs.length} lift_hi=${liftHi ?? 'n/a'}% key=${keyPath}`);
         return finalRecord;
     } catch (err) {
         logger.error(`growth-report failed for business ${business.id}: ${err.message}`);

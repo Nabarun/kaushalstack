@@ -2,11 +2,28 @@ import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Download, TrendingUp } from 'lucide-react';
 
 const SIG_COLOR = { high: 'text-rose-400', medium: 'text-amber-400', low: 'text-zinc-400' };
+const CONF_COLOR = { high: 'text-emerald-400', medium: 'text-amber-400', low: 'text-zinc-400' };
+
+function formatMoneyRange(lo, hi) {
+    const fmt = (n) => `$${Math.round(Number(n)).toLocaleString()}`;
+    if (lo == null && hi == null) return null;
+    if (lo == null) return fmt(hi);
+    if (hi == null || lo === hi) return fmt(lo);
+    return `${fmt(lo)} – ${fmt(hi)}`;
+}
+function formatPctRange(lo, hi) {
+    const fmt = (n) => `${Number(n).toFixed(Number.isInteger(Number(n)) ? 0 : 1)}%`;
+    if (lo == null && hi == null) return null;
+    if (lo == null) return fmt(hi);
+    if (hi == null || lo === hi) return fmt(lo);
+    return `${fmt(lo)} – ${fmt(hi)}`;
+}
 
 export default function ReportDetailPage() {
     const { id } = useParams();
@@ -32,22 +49,63 @@ export default function ReportDetailPage() {
     const findings = report.findings?.findings || [];
     const recs = report.findings?.recommendations || [];
     const scans = report.findings?.scans || [];
+    const revenue = report.findings?.revenue_impact || null;
+    const pctRange = revenue ? formatPctRange(revenue.estimated_monthly_lift_pct_low, revenue.estimated_monthly_lift_pct_high) : null;
+    const dollarRange = revenue ? formatMoneyRange(revenue.estimated_monthly_lift_dollars_low, revenue.estimated_monthly_lift_dollars_high) : null;
 
     return (
         <>
             <Helmet><title>Growth report · Admin</title></Helmet>
             <div className="mb-6">
-                <Link to={`/admin/businesses/${report.business_id}`} className="text-sm text-zinc-400 hover:text-white inline-flex items-center gap-1">
-                    <ArrowLeft className="w-4 h-4" /> Back to business
-                </Link>
+                <div className="flex items-center justify-between print:hidden">
+                    <Link to={`/admin/businesses/${report.business_id}`} className="text-sm text-zinc-400 hover:text-white inline-flex items-center gap-1">
+                        <ArrowLeft className="w-4 h-4" /> Back to business
+                    </Link>
+                    <Button variant="outline" size="sm" onClick={() => window.print()} className="bg-zinc-900 border-zinc-700 hover:bg-zinc-800">
+                        <Download className="w-4 h-4 mr-1" /> Download PDF
+                    </Button>
+                </div>
                 <h1 className="text-2xl font-semibold mt-2">Growth report — {new Date(report.created).toLocaleString()}</h1>
                 <div className={`text-xs mt-1 ${report.status === 'completed' ? 'text-emerald-400' : report.status === 'failed' ? 'text-rose-400' : 'text-amber-400'}`}>
                     Status: {report.status}{report.error ? ` — ${report.error}` : ''}
                 </div>
                 {report.findings?.key_path && (
-                    <div className="text-xs text-zinc-500 mt-1">Generated via {report.findings.key_path}</div>
+                    <div className="text-xs text-zinc-500 mt-1 print:hidden">Generated via {report.findings.key_path}</div>
                 )}
             </div>
+
+            {revenue && (pctRange || dollarRange) && (
+                <Card className="bg-emerald-950/20 border-emerald-900 mb-4">
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-emerald-400" />
+                            Projected revenue impact
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 mb-3">
+                            {dollarRange && (
+                                <div>
+                                    <div className="text-3xl font-bold text-emerald-400">{dollarRange}<span className="text-base font-normal text-zinc-400"> / month</span></div>
+                                    <div className="text-xs text-zinc-400 mt-0.5">if you act on the recommendations below</div>
+                                </div>
+                            )}
+                            {pctRange && (
+                                <div className="text-2xl font-semibold">{pctRange}<span className="text-sm font-normal text-zinc-400"> monthly lift</span></div>
+                            )}
+                            {revenue.time_horizon_months ? (
+                                <div className="text-sm"><span className="text-zinc-400">Horizon:</span> <span className="font-medium">{revenue.time_horizon_months} months</span></div>
+                            ) : null}
+                            {revenue.confidence ? (
+                                <div className="text-sm"><span className="text-zinc-400">Confidence:</span> <span className={`font-medium ${CONF_COLOR[revenue.confidence] || ''}`}>{revenue.confidence}</span></div>
+                            ) : null}
+                        </div>
+                        {revenue.reasoning && (
+                            <p className="text-sm text-zinc-300 leading-relaxed">{revenue.reasoning}</p>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {report.summary && (
                 <Card className="bg-zinc-900 border-zinc-800 mb-4">
@@ -82,6 +140,7 @@ export default function ReportDetailPage() {
                             <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-md p-3">
                                 <div className="text-sm font-medium">{i + 1}. {r.action}</div>
                                 <div className="text-xs text-zinc-400 mt-1">{r.rationale}</div>
+                                {r.estimated_impact && <div className="text-xs text-emerald-400 mt-1">Estimated impact: {r.estimated_impact}</div>}
                                 {r.owner_agent && <div className="text-xs text-zinc-500 mt-1">Owner: {r.owner_agent}</div>}
                             </div>
                         ))}

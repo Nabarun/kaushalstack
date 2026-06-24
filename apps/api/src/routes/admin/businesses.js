@@ -38,6 +38,13 @@ function normalizeHour(input) {
     return Math.min(23, Math.max(0, Math.floor(n)));
 }
 
+function normalizeRevenue(input) {
+    if (input === '' || input === null || input === undefined) return 0;
+    const n = Number(input);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+}
+
 router.use('/admin/businesses', requireAdmin);
 
 router.get('/admin/businesses', async (req, res) => {
@@ -75,6 +82,7 @@ router.post('/admin/businesses', async (req, res) => {
             competitors: normalizeCompetitors(req.body?.competitors),
             schedule_hour: normalizeHour(req.body?.schedule_hour),
             active: req.body?.active !== false,
+            monthly_revenue: normalizeRevenue(req.body?.monthly_revenue),
         };
         const record = await pb.collection('businesses').create(data);
         syncCompetitorSkills(record).catch(err => logger.warn(`competitor sync (create) failed: ${err.message}`));
@@ -95,6 +103,7 @@ router.patch('/admin/businesses/:id', async (req, res) => {
     if (Array.isArray(req.body?.competitors))       patch.competitors = normalizeCompetitors(req.body.competitors);
     if (req.body?.schedule_hour !== undefined)      patch.schedule_hour = normalizeHour(req.body.schedule_hour);
     if (typeof req.body?.active === 'boolean')      patch.active = req.body.active;
+    if (req.body?.monthly_revenue !== undefined)    patch.monthly_revenue = normalizeRevenue(req.body.monthly_revenue);
     try {
         const record = await pb.collection('businesses').update(req.params.id, patch);
         if (Array.isArray(req.body?.competitors)) {

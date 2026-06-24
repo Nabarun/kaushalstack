@@ -27,6 +27,7 @@ export default function BusinessDetailPage() {
     const [description, setDescription] = useState('');
     const [scheduleHour, setScheduleHour] = useState(6);
     const [active, setActive] = useState(true);
+    const [monthlyRevenue, setMonthlyRevenue] = useState('');
     const [competitors, setCompetitors] = useState([]);
 
     const load = async () => {
@@ -44,6 +45,7 @@ export default function BusinessDetailPage() {
             setDescription(biz.description || '');
             setScheduleHour(typeof biz.schedule_hour === 'number' ? biz.schedule_hour : 6);
             setActive(biz.active !== false);
+            setMonthlyRevenue(biz.monthly_revenue ? String(biz.monthly_revenue) : '');
             setCompetitors(Array.isArray(biz.competitors) ? biz.competitors : []);
             setTeam(t.items || []);
             setReports(r.items || []);
@@ -65,6 +67,7 @@ export default function BusinessDetailPage() {
             await adminApi.updateBusiness(id, {
                 name, website_url: websiteUrl, description,
                 schedule_hour: scheduleHour, active,
+                monthly_revenue: monthlyRevenue === '' ? 0 : Number(monthlyRevenue),
                 competitors: competitors.filter(c => c.name && c.website),
             });
             toast.success('Saved — competitor team updated.');
@@ -129,6 +132,11 @@ export default function BusinessDetailPage() {
                                 <Switch checked={active} onCheckedChange={setActive} />
                                 <Label>{active ? 'Active' : 'Paused'}</Label>
                             </div>
+                        </div>
+                        <div>
+                            <Label>Monthly revenue ($, optional)</Label>
+                            <Input type="number" min="0" placeholder="e.g. 25000" value={monthlyRevenue} onChange={e => setMonthlyRevenue(e.target.value)} className="bg-zinc-950 border-zinc-800" />
+                            <p className="text-xs text-zinc-500 mt-1">Used to translate the report's revenue lift % into dollars.</p>
                         </div>
                     </CardContent>
                 </Card>

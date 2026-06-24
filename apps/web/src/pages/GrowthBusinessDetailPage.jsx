@@ -27,6 +27,7 @@ export default function GrowthBusinessDetailPage() {
     const [description, setDescription] = useState('');
     const [scheduleHour, setScheduleHour] = useState(6);
     const [active, setActive] = useState(true);
+    const [monthlyRevenue, setMonthlyRevenue] = useState('');
     const [competitors, setCompetitors] = useState([]);
 
     const load = async () => {
@@ -44,6 +45,7 @@ export default function GrowthBusinessDetailPage() {
             setDescription(biz.description || '');
             setScheduleHour(typeof biz.schedule_hour === 'number' ? biz.schedule_hour : 6);
             setActive(biz.active !== false);
+            setMonthlyRevenue(biz.monthly_revenue ? String(biz.monthly_revenue) : '');
             setCompetitors(Array.isArray(biz.competitors) ? biz.competitors : []);
             setTeamList(t.items || []);
             setReports(r.items || []);
@@ -65,6 +67,7 @@ export default function GrowthBusinessDetailPage() {
             await growthApi.update(id, {
                 name, website_url: websiteUrl, description,
                 schedule_hour: scheduleHour, active,
+                monthly_revenue: monthlyRevenue === '' ? 0 : Number(monthlyRevenue),
                 competitors: competitors.filter(c => c.name && c.website),
             });
             toast.success('Saved — competitor team updated automatically.');
@@ -118,6 +121,11 @@ export default function GrowthBusinessDetailPage() {
                             <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} /></div>
                             <div><Label>Website URL</Label><Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} /></div>
                             <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} className="min-h-[80px]" /></div>
+                            <div>
+                                <Label>Monthly revenue ($, optional)</Label>
+                                <Input type="number" min="0" placeholder="e.g. 25000" value={monthlyRevenue} onChange={e => setMonthlyRevenue(e.target.value)} />
+                                <p className="text-xs text-muted-foreground mt-1">Used to translate the report's revenue lift % into dollars. Left blank → % only.</p>
+                            </div>
                             <div className="flex items-center gap-4">
                                 <div className="flex-1">
                                     <Label>Daily run hour (UTC)</Label>

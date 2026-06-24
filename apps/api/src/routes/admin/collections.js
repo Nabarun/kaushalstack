@@ -14,6 +14,7 @@ const BUSINESS_FIELDS = [
     { type: 'number',   name: 'schedule_hour', required: false, min: 0, max: 23, onlyInt: true },
     { type: 'bool',     name: 'active',        required: false },
     { type: 'date',     name: 'last_run_at',   required: false },
+    { type: 'number',   name: 'monthly_revenue', required: false, min: 0 },
     { type: 'autodate', name: 'created',       onCreate: true, onUpdate: false },
     { type: 'autodate', name: 'updated',       onCreate: true, onUpdate: true },
 ];
