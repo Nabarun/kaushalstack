@@ -29,7 +29,7 @@ const UserProfilePage = () => {
     if (!user) return;
     try {
       const records = await pb.collection('skills').getList(1, 50, {
-        filter: `created_by = "${user.id}"`,
+        filter: `created_by = "${user.id}" && private != true`,
         sort: '-created',
         $autoCancel: false
       });

@@ -4,6 +4,7 @@ import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 import { scanAll } from './competitor-scanner.js';
 import { ensureReportsCollection } from '../routes/admin/collections.js';
+import { listCompetitorTeam, syncCompetitorSkills } from './competitor-skills.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERVER_PROVIDER = 'openai';
@@ -90,7 +91,19 @@ function safeJson(raw) {
 export async function runGrowthReportForBusiness(business) {
     await ensureReportsCollection();
     const competitors = Array.isArray(business.competitors) ? business.competitors : [];
-    const team = Array.isArray(business.team) ? business.team : [];
+
+    // Auto-team: synced competitor-watcher skills (private, scoped to this
+    // business). Sync on every run so the team stays in lock-step with the
+    // current competitor list. Falls back to business.team if sync produces
+    // nothing (e.g. failure or legacy row).
+    let team = [];
+    try {
+        const synced = await syncCompetitorSkills(business);
+        team = synced.length ? synced : await listCompetitorTeam(business.id);
+    } catch (err) {
+        logger.warn(`growth-report: team sync failed: ${err.message}`);
+        team = Array.isArray(business.team) ? business.team : [];
+    }
 
     const initial = await pb.collection('growth_reports').create({
         business_id: business.id,

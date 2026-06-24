@@ -29,6 +29,7 @@ async function loadCache() {
         while (true) {
             const result = await pb.collection('skills').getList(page, page_size, {
                 fields: 'id,name,description,category,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,phase,embedding',
+                filter: 'private != true',
             });
             for (const s of result.items) {
                 if (Array.isArray(s.embedding) && s.embedding.length > 0) {

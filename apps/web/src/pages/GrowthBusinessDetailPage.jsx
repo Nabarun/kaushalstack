@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 export default function GrowthBusinessDetailPage() {
     const { id } = useParams();
     const [business, setBusiness] = useState(null);
-    const [agents, setAgents] = useState([]);
+    const [team, setTeamList] = useState([]);
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -27,13 +27,16 @@ export default function GrowthBusinessDetailPage() {
     const [description, setDescription] = useState('');
     const [scheduleHour, setScheduleHour] = useState(6);
     const [active, setActive] = useState(true);
-    const [team, setTeam] = useState([]);
     const [competitors, setCompetitors] = useState([]);
 
     const load = async () => {
         setLoading(true);
         try {
-            const [b, a, r] = await Promise.all([growthApi.get(id), growthApi.agents(), growthApi.reports(id)]);
+            const [b, t, r] = await Promise.all([
+                growthApi.get(id),
+                growthApi.team(id).catch(() => ({ items: [] })),
+                growthApi.reports(id),
+            ]);
             const biz = b.item;
             setBusiness(biz);
             setName(biz.name || '');
@@ -41,9 +44,8 @@ export default function GrowthBusinessDetailPage() {
             setDescription(biz.description || '');
             setScheduleHour(typeof biz.schedule_hour === 'number' ? biz.schedule_hour : 6);
             setActive(biz.active !== false);
-            setTeam(Array.isArray(biz.team) ? biz.team : []);
             setCompetitors(Array.isArray(biz.competitors) ? biz.competitors : []);
-            setAgents(a.items || []);
+            setTeamList(t.items || []);
             setReports(r.items || []);
         } catch (err) {
             toast.error(`Failed to load: ${err.message}`);
@@ -53,13 +55,7 @@ export default function GrowthBusinessDetailPage() {
     };
     useEffect(() => { load(); }, [id]);
 
-    const teamIds = useMemo(() => new Set(team.map(t => t.id)), [team]);
-    const toggleAgent = (agent) => {
-        if (teamIds.has(agent.id)) setTeam(team.filter(t => t.id !== agent.id));
-        else setTeam([...team, { id: agent.id, agent_name: agent.agent_name, name: agent.name, category: agent.category }]);
-    };
-
-    const addCompetitor = () => setCompetitors([...competitors, { name: '', website: '', handles: '' }]);
+    const addCompetitor = () => setCompetitors([...competitors, { name: '', website: '', handles: '', focus: '' }]);
     const updateCompetitor = (i, patch) => setCompetitors(competitors.map((c, idx) => idx === i ? { ...c, ...patch } : c));
     const removeCompetitor = (i) => setCompetitors(competitors.filter((_, idx) => idx !== i));
 
@@ -69,9 +65,11 @@ export default function GrowthBusinessDetailPage() {
             await growthApi.update(id, {
                 name, website_url: websiteUrl, description,
                 schedule_hour: scheduleHour, active,
-                team, competitors: competitors.filter(c => c.name && c.website),
+                competitors: competitors.filter(c => c.name && c.website),
             });
-            toast.success('Saved');
+            toast.success('Saved — competitor team updated automatically.');
+            // Pick up freshly synced watchers
+            growthApi.team(id).then(t => setTeamList(t.items || [])).catch(() => {});
         } catch (err) {
             toast.error(`Save failed: ${err.message}`);
         } finally {
@@ -94,12 +92,6 @@ export default function GrowthBusinessDetailPage() {
 
     if (loading) return <div className="max-w-5xl mx-auto px-4 py-10 text-muted-foreground">Loading…</div>;
     if (!business) return <div className="max-w-5xl mx-auto px-4 py-10 text-muted-foreground">Not found.</div>;
-
-    const groupedAgents = agents.reduce((acc, a) => {
-        const k = a.category || 'Other';
-        (acc[k] ||= []).push(a);
-        return acc;
-    }, {});
 
     return (
         <>
@@ -173,29 +165,22 @@ export default function GrowthBusinessDetailPage() {
 
                 <Card className="mt-4">
                     <CardHeader>
-                        <CardTitle className="text-base">Team ({team.length} selected)</CardTitle>
-                        <CardDescription className="text-xs">Pick the specialists whose perspective should shape the growth report.</CardDescription>
+                        <CardTitle className="text-base">Competitor team</CardTitle>
+                        <CardDescription className="text-xs">One private agent is created per competitor when you save. They power the daily report — no manual team picking needed.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {Object.entries(groupedAgents).map(([category, list]) => (
-                                <div key={category}>
-                                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{category}</div>
-                                    <div className="space-y-1">
-                                        {list.map(a => {
-                                            const selected = teamIds.has(a.id);
-                                            return (
-                                                <button key={a.id} type="button" onClick={() => toggleAgent(a)}
-                                                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors border ${selected ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input hover:bg-muted'}`}>
-                                                    <div className="font-medium">{a.agent_name || a.name}</div>
-                                                    <div className={`text-xs truncate ${selected ? 'opacity-80' : 'text-muted-foreground'}`}>{a.name}</div>
-                                                </button>
-                                            );
-                                        })}
+                        {team.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Save a competitor list above to generate the team.</p>
+                        ) : (
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {team.map(a => (
+                                    <div key={a.id} className="border rounded-md p-3 bg-background">
+                                        <div className="text-sm font-medium">{a.agent_name || a.name}</div>
+                                        <div className="text-xs text-muted-foreground line-clamp-3 mt-1">{a.description}</div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 

@@ -44,6 +44,7 @@ router.post('/embed/run', async (req, res) => {
         while (true) {
             const result = await pb.collection('skills').getList(page, PAGE, {
                 fields: 'id,name,category,associated_tech_skills,description,embedding',
+                filter: 'private != true',
             });
 
             const unembed = result.items.filter(s => !Array.isArray(s.embedding) || s.embedding.length === 0);

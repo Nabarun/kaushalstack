@@ -50,6 +50,9 @@ export const adminApi = {
     listReports(businessId) {
         return fetch(`${API_BASE}/admin/businesses/${businessId}/reports`, { headers: headers() }).then(handle);
     },
+    team(businessId) {
+        return fetch(`${API_BASE}/admin/businesses/${businessId}/team`, { headers: headers() }).then(handle);
+    },
     getReport(id) {
         return fetch(`${API_BASE}/admin/reports/${id}`, { headers: headers() }).then(handle);
     },

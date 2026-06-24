@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 export default function BusinessDetailPage() {
     const { id } = useParams();
     const [business, setBusiness] = useState(null);
-    const [agents, setAgents] = useState([]);
+    const [team, setTeam] = useState([]);
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -27,15 +27,14 @@ export default function BusinessDetailPage() {
     const [description, setDescription] = useState('');
     const [scheduleHour, setScheduleHour] = useState(6);
     const [active, setActive] = useState(true);
-    const [team, setTeam] = useState([]);
     const [competitors, setCompetitors] = useState([]);
 
     const load = async () => {
         setLoading(true);
         try {
-            const [b, a, r] = await Promise.all([
+            const [b, t, r] = await Promise.all([
                 adminApi.getBusiness(id),
-                adminApi.listAgents(),
+                adminApi.team(id).catch(() => ({ items: [] })),
                 adminApi.listReports(id),
             ]);
             const biz = b.item;
@@ -45,9 +44,8 @@ export default function BusinessDetailPage() {
             setDescription(biz.description || '');
             setScheduleHour(typeof biz.schedule_hour === 'number' ? biz.schedule_hour : 6);
             setActive(biz.active !== false);
-            setTeam(Array.isArray(biz.team) ? biz.team : []);
             setCompetitors(Array.isArray(biz.competitors) ? biz.competitors : []);
-            setAgents(a.items || []);
+            setTeam(t.items || []);
             setReports(r.items || []);
         } catch (err) {
             toast.error(`Failed to load: ${err.message}`);
@@ -57,16 +55,7 @@ export default function BusinessDetailPage() {
     };
     useEffect(() => { load(); }, [id]);
 
-    const teamIds = useMemo(() => new Set(team.map(t => t.id)), [team]);
-    const toggleAgent = (agent) => {
-        if (teamIds.has(agent.id)) {
-            setTeam(team.filter(t => t.id !== agent.id));
-        } else {
-            setTeam([...team, { id: agent.id, agent_name: agent.agent_name, name: agent.name, category: agent.category }]);
-        }
-    };
-
-    const addCompetitor = () => setCompetitors([...competitors, { name: '', website: '', handles: '' }]);
+    const addCompetitor = () => setCompetitors([...competitors, { name: '', website: '', handles: '', focus: '' }]);
     const updateCompetitor = (i, patch) => setCompetitors(competitors.map((c, idx) => idx === i ? { ...c, ...patch } : c));
     const removeCompetitor = (i) => setCompetitors(competitors.filter((_, idx) => idx !== i));
 
@@ -76,9 +65,10 @@ export default function BusinessDetailPage() {
             await adminApi.updateBusiness(id, {
                 name, website_url: websiteUrl, description,
                 schedule_hour: scheduleHour, active,
-                team, competitors: competitors.filter(c => c.name && c.website),
+                competitors: competitors.filter(c => c.name && c.website),
             });
-            toast.success('Saved');
+            toast.success('Saved — competitor team updated.');
+            adminApi.team(id).then(t => setTeam(t.items || [])).catch(() => {});
         } catch (err) {
             toast.error(`Save failed: ${err.message}`);
         } finally {
@@ -101,12 +91,6 @@ export default function BusinessDetailPage() {
 
     if (loading) return <p className="text-zinc-400">Loading…</p>;
     if (!business) return <p className="text-zinc-400">Not found.</p>;
-
-    const groupedAgents = agents.reduce((acc, a) => {
-        const k = a.category || 'Other';
-        (acc[k] ||= []).push(a);
-        return acc;
-    }, {});
 
     return (
         <>
@@ -178,29 +162,22 @@ export default function BusinessDetailPage() {
 
             <Card className="bg-zinc-900 border-zinc-800 mt-4">
                 <CardHeader>
-                    <CardTitle className="text-base">Team ({team.length} selected)</CardTitle>
-                    <p className="text-xs text-zinc-500">Pick agents who shape the growth report perspective.</p>
+                    <CardTitle className="text-base">Competitor team</CardTitle>
+                    <p className="text-xs text-zinc-500">Auto-generated from the competitor list on save — one private watcher per competitor.</p>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {Object.entries(groupedAgents).map(([category, list]) => (
-                            <div key={category}>
-                                <div className="text-xs uppercase tracking-wide text-zinc-500 mb-1">{category}</div>
-                                <div className="space-y-1">
-                                    {list.map(a => {
-                                        const selected = teamIds.has(a.id);
-                                        return (
-                                            <button key={a.id} type="button" onClick={() => toggleAgent(a)}
-                                                className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selected ? 'bg-zinc-700 text-white' : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300'}`}>
-                                                <div className="font-medium">{a.agent_name || a.name}</div>
-                                                <div className="text-xs text-zinc-500 truncate">{a.name}</div>
-                                            </button>
-                                        );
-                                    })}
+                    {team.length === 0 ? (
+                        <p className="text-sm text-zinc-500">Add competitors and save to generate the team.</p>
+                    ) : (
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {team.map(a => (
+                                <div key={a.id} className="bg-zinc-950 border border-zinc-800 rounded-md p-3">
+                                    <div className="text-sm font-medium">{a.agent_name || a.name}</div>
+                                    <div className="text-xs text-zinc-500 line-clamp-3 mt-1">{a.description}</div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 

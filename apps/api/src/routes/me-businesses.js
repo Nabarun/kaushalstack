@@ -4,6 +4,7 @@ import pb from '../utils/pocketbaseClient.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { ensureBusinessesCollection, ensureReportsCollection } from './admin/collections.js';
 import { runGrowthReportForBusiness } from '../services/growth-report.js';
+import { syncCompetitorSkills, listCompetitorTeam } from '../services/competitor-skills.js';
 
 const router = Router();
 
@@ -99,6 +100,7 @@ router.post('/me/businesses', async (req, res) => {
             active: req.body?.active !== false,
         };
         const record = await pb.collection('businesses').create(data);
+        syncCompetitorSkills(record).catch(err => logger.warn(`competitor sync (create) failed: ${err.message}`));
         res.json({ item: record });
     } catch (err) {
         logger.error('me businesses create failed:', err.message);
@@ -123,10 +125,23 @@ router.patch('/me/businesses/:id', async (req, res) => {
     if (typeof req.body?.active === 'boolean')      patch.active = req.body.active;
     try {
         const record = await pb.collection('businesses').update(req.params.id, patch);
+        if (Array.isArray(req.body?.competitors)) {
+            syncCompetitorSkills(record).catch(err => logger.warn(`competitor sync (update) failed: ${err.message}`));
+        }
         res.json({ item: record });
     } catch (err) {
         logger.error('me businesses update failed:', err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/me/businesses/:id/team', async (req, res) => {
+    try {
+        await loadOwnedBusiness(req.userId, req.params.id);
+        const team = await listCompetitorTeam(req.params.id);
+        res.json({ items: team });
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -195,6 +210,7 @@ router.get('/me/agents', async (req, res) => {
     try {
         const list = await pb.collection('skills').getList(1, 200, {
             fields: 'id,name,agent_name,category,description',
+            filter: 'private != true',
             sort: 'category,name',
         });
         res.json({ items: list.items });

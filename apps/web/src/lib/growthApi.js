@@ -27,6 +27,7 @@ export const growthApi = {
     remove: (id)            => fetch(`${API_BASE}/me/businesses/${id}`, { method: 'DELETE', headers: headers() }).then(handle),
     runNow: (id)            => fetch(`${API_BASE}/me/businesses/${id}/run`, { method: 'POST', headers: headers() }).then(handle),
     reports:(businessId)    => fetch(`${API_BASE}/me/businesses/${businessId}/reports`, { headers: headers() }).then(handle),
+    team:   (businessId)    => fetch(`${API_BASE}/me/businesses/${businessId}/team`,    { headers: headers() }).then(handle),
     report: (id)            => fetch(`${API_BASE}/me/reports/${id}`,    { headers: headers() }).then(handle),
     agents: ()              => fetch(`${API_BASE}/me/agents`,           { headers: headers() }).then(handle),
 };

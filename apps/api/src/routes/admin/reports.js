@@ -60,6 +60,7 @@ router.get('/admin/agents', async (req, res) => {
     try {
         const list = await pb.collection('skills').getList(1, 200, {
             fields: 'id,name,agent_name,category,description',
+            filter: 'private != true',
             sort: 'category,name',
         });
         res.json({ items: list.items });

@@ -62,6 +62,7 @@ const SkillsPage = () => {
     }
     if (cat !== 'All') parts.push(`category = "${cat}"`);
     if (diff !== 'All') parts.push(`difficulty_level = "${diff}"`);
+    parts.push('private != true');
     return parts.join(' && ');
   }, []);
 

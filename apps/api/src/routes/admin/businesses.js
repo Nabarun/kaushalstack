@@ -3,6 +3,7 @@ import logger from '../../utils/logger.js';
 import pb from '../../utils/pocketbaseClient.js';
 import { requireAdmin } from './auth.js';
 import { ensureBusinessesCollection } from './collections.js';
+import { syncCompetitorSkills, listCompetitorTeam } from '../../services/competitor-skills.js';
 
 const router = Router();
 
@@ -76,6 +77,7 @@ router.post('/admin/businesses', async (req, res) => {
             active: req.body?.active !== false,
         };
         const record = await pb.collection('businesses').create(data);
+        syncCompetitorSkills(record).catch(err => logger.warn(`competitor sync (create) failed: ${err.message}`));
         res.json({ item: record });
     } catch (err) {
         logger.error('admin businesses create failed:', err.message);
@@ -95,9 +97,21 @@ router.patch('/admin/businesses/:id', async (req, res) => {
     if (typeof req.body?.active === 'boolean')      patch.active = req.body.active;
     try {
         const record = await pb.collection('businesses').update(req.params.id, patch);
+        if (Array.isArray(req.body?.competitors)) {
+            syncCompetitorSkills(record).catch(err => logger.warn(`competitor sync (update) failed: ${err.message}`));
+        }
         res.json({ item: record });
     } catch (err) {
         logger.error('admin businesses update failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/admin/businesses/:id/team', async (req, res) => {
+    try {
+        const team = await listCompetitorTeam(req.params.id);
+        res.json({ items: team });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
