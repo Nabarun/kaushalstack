@@ -140,24 +140,51 @@ async function tryGoogleNews(competitorName, competitorWebsite, since) {
 
 // Pick the first RSS candidate that returns items. Runs in parallel and
 // short-circuits as soon as one succeeds, so a single slow URL doesn't
-// hold up the others. Returns { url, items } | null.
-async function raceRssCandidates(candidates) {
-    if (candidates.length === 0) return null;
-    const promises = candidates.map(async (url) => {
-        const items = await tryRssAt(url);
-        if (items && items.length) return { url, items };
-        // Never resolves so Promise.any only sees the winners.
-        return new Promise(() => {});
+// hold up the others. Always settles — resolves on first hit, when all
+// candidates finish without a hit, or when the wall-clock ceiling fires.
+// Returns { url, items } | null.
+function raceRssCandidates(candidates) {
+    if (candidates.length === 0) return Promise.resolve(null);
+    return new Promise((resolve) => {
+        let done = false;
+        let remaining = candidates.length;
+        const finish = (val) => {
+            if (done) return;
+            done = true;
+            clearTimeout(ceiling);
+            resolve(val);
+        };
+        for (const url of candidates) {
+            tryRssAt(url)
+                .then((items) => {
+                    if (items && items.length) finish({ url, items });
+                })
+                .catch(() => {})
+                .finally(() => {
+                    remaining--;
+                    if (remaining === 0) finish(null);
+                });
+        }
+        const ceiling = setTimeout(() => finish(null), FETCH_TIMEOUT_MS + 2000);
     });
-    try {
-        return await Promise.any([
-            ...promises,
-            // Outer ceiling so Promise.any always terminates.
-            new Promise((_, reject) => setTimeout(() => reject(new Error('rss race timeout')), FETCH_TIMEOUT_MS + 2000)),
-        ]);
-    } catch {
-        return null;
-    }
+}
+
+// Hard wall-clock cap on the entire competitor scan. Even if some inner
+// step hangs against expectations, this resolves cleanly with a failure
+// row instead of leaving the report stuck in "running" forever.
+function withHardTimeout(promise, ms, label) {
+    return new Promise((resolve) => {
+        let done = false;
+        const t = setTimeout(() => {
+            if (done) return;
+            done = true;
+            resolve({ __timed_out: true, label });
+        }, ms);
+        promise.then(
+            (val) => { if (!done) { done = true; clearTimeout(t); resolve(val); } },
+            (err) => { if (!done) { done = true; clearTimeout(t); resolve({ __error: err?.message || String(err) }); } },
+        );
+    });
 }
 
 export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_WINDOW_MS } = {}) {
@@ -252,16 +279,23 @@ export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_
     return out;
 }
 
-// Run all competitor scans in parallel — each one is already wall-clock
-// bounded by PER_COMPETITOR_BUDGET_MS internally, so the total scan time
-// is roughly the slowest competitor instead of N × budget.
+// Run all competitor scans in parallel, each one with a hard wall-clock
+// timeout. Total scan time ≈ PER_COMPETITOR_BUDGET_MS regardless of N.
 export async function scanAll(competitors, opts) {
     return Promise.all(competitors.map(async (c) => {
-        try {
-            return await scanCompetitor(c, opts);
-        } catch (err) {
-            logger.warn(`scanCompetitor failed for ${c.website}: ${err.message}`);
-            return { name: c.name, website: c.website, ok: false, error: err.message };
+        const result = await withHardTimeout(
+            scanCompetitor(c, opts),
+            PER_COMPETITOR_BUDGET_MS,
+            `scanCompetitor("${c.name}")`,
+        );
+        if (result?.__timed_out) {
+            logger.warn(`scanCompetitor "${c.name}" hit hard timeout at ${PER_COMPETITOR_BUDGET_MS / 1000}s`);
+            return { name: c.name, website: c.website, ok: false, error: `scan exceeded ${PER_COMPETITOR_BUDGET_MS / 1000}s budget` };
         }
+        if (result?.__error) {
+            logger.warn(`scanCompetitor "${c.name}" failed: ${result.__error}`);
+            return { name: c.name, website: c.website, ok: false, error: result.__error };
+        }
+        return result;
     }));
 }
