@@ -27,19 +27,25 @@ function compactScan(scan) {
     };
 }
 
-function buildPrompt(business, team, scans) {
+function buildPrompt(business, team, scans, competitors) {
     const teamRoster = (team || [])
         .map(a => `- ${a.agent_name || a.name || a.id}${a.category ? ` (${a.category})` : ''}`)
         .join('\n') || '- (no specialists assigned)';
 
+    const focusByWebsite = new Map(
+        (competitors || []).map(c => [String(c.website || '').trim().toLowerCase(), String(c.focus || '').trim()])
+    );
+
     const competitorBlocks = scans.map(s => {
+        const focus = focusByWebsite.get(String(s.website || '').trim().toLowerCase()) || '';
         const head = `### ${s.name} — ${s.website}`;
-        if (!s.ok) return `${head}\n(scan failed: ${s.error || 'unknown'})`;
+        const focusLine = focus ? `Focus for this competitor: ${focus}` : '';
+        if (!s.ok) return [head, focusLine, `(scan failed: ${s.error || 'unknown'})`].filter(Boolean).join('\n');
         const hp = s.homepage ? `Homepage: ${s.homepage.title || ''}\nDesc: ${s.homepage.description || ''}\nH1s: ${(s.homepage.headings || []).join(' | ')}` : '';
         const items = s.recent_items.length
             ? s.recent_items.map(i => `- [${i.published || 'n/a'}] ${i.title} — ${i.link}${i.description ? `\n  ${i.description}` : ''}`).join('\n')
             : '(no items from the last 24h, or no feed exposed)';
-        return `${head}\n${hp}\n\nRecent items (24h):\n${items}`;
+        return [head, focusLine, hp, `\nRecent items (24h):\n${items}`].filter(Boolean).join('\n');
     }).join('\n\n');
 
     const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 24 hours and produce ONE concise growth report.
@@ -47,7 +53,7 @@ function buildPrompt(business, team, scans) {
 The team assigned to this business:
 ${teamRoster}
 
-Speak to the business owner. Be specific. Cite competitor names. Avoid generic "consider doing X" filler — if nothing new is happening, say so. Output strict JSON only.`;
+Speak to the business owner. Be specific. Cite competitor names. Avoid generic "consider doing X" filler — if nothing new is happening, say so. When a competitor block includes a "Focus for this competitor" line, weight your findings and recommendations for that competitor toward that focus area. Output strict JSON only.`;
 
     const user = `Business: ${business.name}
 Website: ${business.website_url}
@@ -128,7 +134,7 @@ export async function runGrowthReportForBusiness(business) {
             return noAi;
         }
 
-        const { system, user } = buildPrompt(business, team, compact);
+        const { system, user } = buildPrompt(business, team, compact, competitors);
 
         let raw;
         let fellBackToServer = false;

@@ -149,14 +149,22 @@ export default function GrowthBusinessDetailPage() {
                             </div>
                             <Button size="sm" variant="ghost" onClick={addCompetitor}><Plus className="w-4 h-4 mr-1" /> Add</Button>
                         </CardHeader>
-                        <CardContent className="space-y-2">
+                        <CardContent className="space-y-3">
                             {competitors.length === 0 && <p className="text-sm text-muted-foreground">Add at least one competitor for the daily scan to do anything.</p>}
                             {competitors.map((c, i) => (
-                                <div key={i} className="grid grid-cols-12 gap-2 items-start">
-                                    <Input placeholder="Name" value={c.name || ''} onChange={e => updateCompetitor(i, { name: e.target.value })} className="col-span-3" />
-                                    <Input placeholder="https://…" value={c.website || ''} onChange={e => updateCompetitor(i, { website: e.target.value })} className="col-span-5" />
-                                    <Input placeholder="@handle (optional)" value={c.handles || ''} onChange={e => updateCompetitor(i, { handles: e.target.value })} className="col-span-3" />
-                                    <Button size="icon" variant="ghost" onClick={() => removeCompetitor(i)} className="col-span-1"><Trash2 className="w-4 h-4" /></Button>
+                                <div key={i} className="border rounded-md p-3 space-y-2">
+                                    <div className="grid grid-cols-12 gap-2 items-start">
+                                        <Input placeholder="Name" value={c.name || ''} onChange={e => updateCompetitor(i, { name: e.target.value })} className="col-span-3" />
+                                        <Input placeholder="https://…" value={c.website || ''} onChange={e => updateCompetitor(i, { website: e.target.value })} className="col-span-5" />
+                                        <Input placeholder="@handle (optional)" value={c.handles || ''} onChange={e => updateCompetitor(i, { handles: e.target.value })} className="col-span-3" />
+                                        <Button size="icon" variant="ghost" onClick={() => removeCompetitor(i)} className="col-span-1"><Trash2 className="w-4 h-4" /></Button>
+                                    </div>
+                                    <Textarea
+                                        placeholder="What to focus on for this competitor — e.g. 'pricing changes, new feature launches, hiring signals'. Becomes part of the daily prompt."
+                                        value={c.focus || ''}
+                                        onChange={e => updateCompetitor(i, { focus: e.target.value })}
+                                        className="min-h-[60px] text-sm"
+                                    />
                                 </div>
                             ))}
                         </CardContent>

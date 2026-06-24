@@ -25,6 +25,7 @@ function normalizeCompetitors(input) {
             name: String(c?.name || '').trim().slice(0, 200),
             website: String(c?.website || '').trim().slice(0, 500),
             handles: String(c?.handles || '').trim().slice(0, 500),
+            focus: String(c?.focus || '').trim().slice(0, 2000),
         }))
         .filter(c => c.name && c.website);
 }
