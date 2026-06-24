@@ -9,6 +9,16 @@ import { listCompetitorTeam, syncCompetitorSkills } from './competitor-skills.js
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERVER_PROVIDER = 'openai';
 const SERVER_MODEL = 'gpt-4o-mini';
+const LLM_TIMEOUT_MS = 60 * 1000; // cap each model call so a stuck request
+                                  // can't blow the report's wall clock
+
+function withTimeout(promise, ms, label) {
+    let timer;
+    const t = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms / 1000}s budget`)), ms);
+    });
+    return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+}
 
 function compactScan(scan) {
     return {
@@ -19,11 +29,11 @@ function compactScan(scan) {
         feed_url: scan.feed_url,
         source: scan.source || undefined,
         notice: scan.notice || undefined,
-        recent_items: (scan.recent_items || []).slice(0, 15).map(i => ({
+        recent_items: (scan.recent_items || []).slice(0, 8).map(i => ({
             title: i.title,
             link: i.link,
             published: i.published,
-            description: i.description?.slice(0, 240),
+            description: i.description?.slice(0, 150),
         })),
         recent_count: (scan.recent_items || []).length,
         error: scan.error || undefined,
@@ -113,6 +123,7 @@ function safeJson(raw) {
 
 export async function runGrowthReportForBusiness(business) {
     await ensureReportsCollection();
+    const reportStarted = Date.now();
     const competitors = Array.isArray(business.competitors) ? business.competitors : [];
 
     // Auto-team: synced competitor-watcher skills (private, scoped to this
@@ -175,24 +186,32 @@ export async function runGrowthReportForBusiness(business) {
         let raw;
         let fellBackToServer = false;
         try {
-            raw = await chatComplete(primaryProvider, {
-                key: primaryKey,
-                model: primaryModel,
-                userPrompt: user,
-                cachedPrefix: system,
-                jsonMode: true,
-            });
+            raw = await withTimeout(
+                chatComplete(primaryProvider, {
+                    key: primaryKey,
+                    model: primaryModel,
+                    userPrompt: user,
+                    cachedPrefix: system,
+                    jsonMode: true,
+                }),
+                LLM_TIMEOUT_MS,
+                `LLM call (${primaryProvider}/${primaryModel})`,
+            );
         } catch (err) {
             if (usingBYOK && OPENAI_API_KEY) {
                 logger.warn(`growth-report BYOK failed (provider=${primaryProvider} model=${primaryModel} cause=${err.message}) — falling back to server openai/${SERVER_MODEL}`);
                 try {
-                    raw = await chatComplete(SERVER_PROVIDER, {
-                        key: OPENAI_API_KEY,
-                        model: SERVER_MODEL,
-                        userPrompt: user,
-                        cachedPrefix: system,
-                        jsonMode: true,
-                    });
+                    raw = await withTimeout(
+                        chatComplete(SERVER_PROVIDER, {
+                            key: OPENAI_API_KEY,
+                            model: SERVER_MODEL,
+                            userPrompt: user,
+                            cachedPrefix: system,
+                            jsonMode: true,
+                        }),
+                        LLM_TIMEOUT_MS,
+                        `LLM fallback (${SERVER_PROVIDER}/${SERVER_MODEL})`,
+                    );
                     fellBackToServer = true;
                 } catch (fbErr) {
                     logger.error(`growth-report fallback also failed for business ${business.id}: ${fbErr.message}`);
@@ -239,7 +258,8 @@ export async function runGrowthReportForBusiness(business) {
         });
 
         const liftHi = revenueImpact?.estimated_monthly_lift_pct_high;
-        logger.info(`growth-report: business=${business.name} report=${finalRecord.id} findings=${findings.length} recs=${recs.length} lift_hi=${liftHi ?? 'n/a'}% key=${keyPath}`);
+        const elapsedSec = Math.round((Date.now() - reportStarted) / 1000);
+        logger.info(`growth-report: business=${business.name} report=${finalRecord.id} findings=${findings.length} recs=${recs.length} lift_hi=${liftHi ?? 'n/a'}% key=${keyPath} elapsed=${elapsedSec}s`);
         return finalRecord;
     } catch (err) {
         logger.error(`growth-report failed for business ${business.id}: ${err.message}`);

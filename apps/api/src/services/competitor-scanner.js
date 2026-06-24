@@ -7,8 +7,8 @@ import logger from '../utils/logger.js';
 // intentionally out of scope — they need paid API access or anti-bot bypassing.
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; KaushalStackGrowthBot/1.0; +https://kaushalstack.com)';
-const FETCH_TIMEOUT_MS = 8000;            // single-request timeout
-const PER_COMPETITOR_BUDGET_MS = 30000;   // hard wall-clock cap per competitor
+const FETCH_TIMEOUT_MS = 6000;            // single-request timeout
+const PER_COMPETITOR_BUDGET_MS = 25000;   // hard wall-clock cap per competitor
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RSS_CANDIDATE_PATHS = [
     '/rss', '/feed', '/feed/', '/rss.xml', '/atom.xml',
@@ -252,16 +252,16 @@ export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_
     return out;
 }
 
+// Run all competitor scans in parallel — each one is already wall-clock
+// bounded by PER_COMPETITOR_BUDGET_MS internally, so the total scan time
+// is roughly the slowest competitor instead of N × budget.
 export async function scanAll(competitors, opts) {
-    const results = [];
-    for (const c of competitors) {
+    return Promise.all(competitors.map(async (c) => {
         try {
-            const r = await scanCompetitor(c, opts);
-            results.push(r);
+            return await scanCompetitor(c, opts);
         } catch (err) {
             logger.warn(`scanCompetitor failed for ${c.website}: ${err.message}`);
-            results.push({ name: c.name, website: c.website, ok: false, error: err.message });
+            return { name: c.name, website: c.website, ok: false, error: err.message };
         }
-    }
-    return results;
+    }));
 }
