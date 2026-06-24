@@ -7,7 +7,8 @@ import logger from '../utils/logger.js';
 // intentionally out of scope — they need paid API access or anti-bot bypassing.
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; KaushalStackGrowthBot/1.0; +https://kaushalstack.com)';
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 8000;            // single-request timeout
+const PER_COMPETITOR_BUDGET_MS = 30000;   // hard wall-clock cap per competitor
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RSS_CANDIDATE_PATHS = [
     '/rss', '/feed', '/feed/', '/rss.xml', '/atom.xml',
@@ -137,7 +138,31 @@ async function tryGoogleNews(competitorName, competitorWebsite, since) {
     }
 }
 
+// Pick the first RSS candidate that returns items. Runs in parallel and
+// short-circuits as soon as one succeeds, so a single slow URL doesn't
+// hold up the others. Returns { url, items } | null.
+async function raceRssCandidates(candidates) {
+    if (candidates.length === 0) return null;
+    const promises = candidates.map(async (url) => {
+        const items = await tryRssAt(url);
+        if (items && items.length) return { url, items };
+        // Never resolves so Promise.any only sees the winners.
+        return new Promise(() => {});
+    });
+    try {
+        return await Promise.any([
+            ...promises,
+            // Outer ceiling so Promise.any always terminates.
+            new Promise((_, reject) => setTimeout(() => reject(new Error('rss race timeout')), FETCH_TIMEOUT_MS + 2000)),
+        ]);
+    } catch {
+        return null;
+    }
+}
+
 export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_WINDOW_MS } = {}) {
+    const started = Date.now();
+    const elapsed = () => Date.now() - started;
     const out = {
         name: competitor.name,
         website: competitor.website,
@@ -155,6 +180,7 @@ export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_
     let homepageFailed = false;
     let homepageErr = null;
 
+    logger.info(`scanCompetitor: "${competitor.name}" (${competitor.website}) — fetching homepage`);
     try {
         const res = await timedFetch(competitor.website);
         if (!res.ok) throw new Error(`status ${res.status}`);
@@ -163,58 +189,66 @@ export async function scanCompetitor(competitor, { since = Date.now() - DEFAULT_
     } catch (err) {
         homepageFailed = true;
         homepageErr = err.message;
+        logger.info(`scanCompetitor: "${competitor.name}" homepage failed — ${err.message}`);
     }
 
     // RSS discovery: links declared in the homepage HTML (if we got it) +
-    // common path conventions. Try common paths even when the homepage fails
-    // — some sites block bots at /, but the feed endpoint stays open.
-    const linkedFromHomepage = homepageHtml
-        ? extractRssLinks(homepageHtml, competitor.website)
-        : [];
-    const candidates = [...new Set([
-        ...linkedFromHomepage,
-        ...RSS_CANDIDATE_PATHS.map(p => toUrl(p, competitor.website)).filter(Boolean),
-    ])];
-
-    for (const url of candidates) {
-        const items = await tryRssAt(url);
-        if (items && items.length) {
-            out.feed_url = url;
-            out.all_items = items.slice(0, 30);
-            out.recent_items = items.filter(it => isRecent(it.published, since)).slice(0, 20);
-            out.source = linkedFromHomepage.includes(url) ? 'homepage_rss' : 'direct_rss';
+    // common path conventions. Race them in parallel so the slowest URL
+    // doesn't dominate. Even when the homepage fails, common paths may work
+    // because the feed endpoint isn't bot-blocked.
+    if (elapsed() < PER_COMPETITOR_BUDGET_MS) {
+        const linkedFromHomepage = homepageHtml
+            ? extractRssLinks(homepageHtml, competitor.website)
+            : [];
+        const candidates = [...new Set([
+            ...linkedFromHomepage,
+            ...RSS_CANDIDATE_PATHS.map(p => toUrl(p, competitor.website)).filter(Boolean),
+        ])];
+        logger.info(`scanCompetitor: "${competitor.name}" — racing ${candidates.length} RSS candidates`);
+        const winner = await raceRssCandidates(candidates);
+        if (winner) {
+            out.feed_url = winner.url;
+            out.all_items = winner.items.slice(0, 30);
+            out.recent_items = winner.items.filter(it => isRecent(it.published, since)).slice(0, 20);
+            out.source = linkedFromHomepage.includes(winner.url) ? 'homepage_rss' : 'direct_rss';
             out.ok = true;
             if (homepageFailed) {
-                out.notice = `homepage unreachable (${homepageErr}); using RSS feed at ${url}`;
+                out.notice = `homepage unreachable (${homepageErr}); using RSS feed at ${winner.url}`;
             }
+            logger.info(`scanCompetitor: "${competitor.name}" RSS hit at ${winner.url} (${out.recent_items.length} recent items, ${elapsed()}ms total)`);
             return out;
         }
+    } else {
+        logger.warn(`scanCompetitor: "${competitor.name}" exceeded budget before RSS, skipping`);
     }
 
     // Last resort: Google News RSS. Works even when the competitor's own
     // infrastructure blocks us, and is free + no API key required.
-    const news = await tryGoogleNews(competitor.name, competitor.website, since);
-    if (news && (news.recent_items.length || news.all_items.length)) {
-        out.feed_url = news.feed_url;
-        out.all_items = news.all_items;
-        out.recent_items = news.recent_items;
-        out.source = 'google_news';
-        out.ok = true;
-        out.notice = homepageFailed
-            ? `homepage + RSS unreachable (${homepageErr || 'no feed'}); using Google News mentions instead`
-            : `no RSS feed exposed; using Google News mentions instead`;
-        return out;
+    if (elapsed() < PER_COMPETITOR_BUDGET_MS) {
+        logger.info(`scanCompetitor: "${competitor.name}" — trying Google News fallback`);
+        const news = await tryGoogleNews(competitor.name, competitor.website, since);
+        if (news && (news.recent_items.length || news.all_items.length)) {
+            out.feed_url = news.feed_url;
+            out.all_items = news.all_items;
+            out.recent_items = news.recent_items;
+            out.source = 'google_news';
+            out.ok = true;
+            out.notice = homepageFailed
+                ? `homepage + RSS unreachable (${homepageErr || 'no feed'}); using Google News mentions instead`
+                : `no RSS feed exposed; using Google News mentions instead`;
+            logger.info(`scanCompetitor: "${competitor.name}" Google News hit (${out.recent_items.length} recent items, ${elapsed()}ms total)`);
+            return out;
+        }
     }
 
     // Nothing worked.
     if (homepageFailed) {
         out.error = `homepage fetch failed: ${homepageErr}; no RSS or Google News fallback succeeded`;
     } else {
-        // Homepage loaded but no feed and no news — we still have the
-        // homepage summary, which is something. Mark ok=true.
         out.ok = true;
         out.notice = 'no feed exposed and no recent news mentions found';
     }
+    logger.info(`scanCompetitor: "${competitor.name}" — done (${elapsed()}ms, ok=${out.ok}, source=${out.source})`);
     return out;
 }
 
