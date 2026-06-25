@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, ExternalLink, Download, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Download, TrendingUp, Globe } from 'lucide-react';
 
 const SIG_COLOR = { high: 'text-rose-400', medium: 'text-amber-400', low: 'text-zinc-400' };
 const CONF_COLOR = { high: 'text-emerald-400', medium: 'text-amber-400', low: 'text-zinc-400' };
@@ -52,6 +52,10 @@ export default function ReportDetailPage() {
     const revenue = report.findings?.revenue_impact || null;
     const pctRange = revenue ? formatPctRange(revenue.estimated_monthly_lift_pct_low, revenue.estimated_monthly_lift_pct_high) : null;
     const dollarRange = revenue ? formatMoneyRange(revenue.estimated_monthly_lift_dollars_low, revenue.estimated_monthly_lift_dollars_high) : null;
+    const market = report.findings?.market_opportunity || null;
+    const tamRange = market?.tam ? formatMoneyRange(market.tam.low_dollars, market.tam.high_dollars) : null;
+    const samRange = market?.sam ? formatMoneyRange(market.sam.low_dollars, market.sam.high_dollars) : null;
+    const somRange = market?.som ? formatMoneyRange(market.som.low_dollars, market.som.high_dollars) : null;
 
     return (
         <>
@@ -103,6 +107,37 @@ export default function ReportDetailPage() {
                         {revenue.reasoning && (
                             <p className="text-sm text-zinc-300 leading-relaxed">{revenue.reasoning}</p>
                         )}
+                    </CardContent>
+                </Card>
+            )}
+
+            {market && (tamRange || samRange || somRange) && (
+                <Card className="bg-indigo-950/20 border-indigo-900 mb-4">
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <Globe className="w-4 h-4 text-indigo-400" />
+                            Market opportunity (TAM / SAM / SOM)
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid sm:grid-cols-3 gap-3 mb-3">
+                            {[
+                                { label: 'TAM', range: tamRange, scope: market.tam?.scope, note: 'annual, total category' },
+                                { label: 'SAM', range: samRange, scope: market.sam?.scope, note: 'annual, serviceable' },
+                                { label: 'SOM', range: somRange, scope: market.som?.scope, note: `obtainable${market.som?.horizon_years ? `, ${market.som.horizon_years}y horizon` : ''}` },
+                            ].map((b, i) => b.range ? (
+                                <div key={i} className="bg-zinc-950 border border-indigo-900 rounded-md p-3">
+                                    <div className="text-xs uppercase tracking-wide text-indigo-400 font-semibold">{b.label}</div>
+                                    <div className="text-lg font-bold text-indigo-200 mt-0.5">{b.range}</div>
+                                    <div className="text-xs text-zinc-400 mt-0.5">{b.note}</div>
+                                    {b.scope && <div className="text-xs text-zinc-500 mt-1 italic">{b.scope}</div>}
+                                </div>
+                            ) : null)}
+                        </div>
+                        {market.confidence && (
+                            <div className="text-sm mb-1"><span className="text-zinc-400">Confidence:</span> <span className={`font-medium ${CONF_COLOR[market.confidence] || ''}`}>{market.confidence}</span></div>
+                        )}
+                        {market.reasoning && <p className="text-sm text-zinc-300 leading-relaxed">{market.reasoning}</p>}
                     </CardContent>
                 </Card>
             )}
