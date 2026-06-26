@@ -50,9 +50,15 @@ const DEFAULT_EXAMPLES = [
 const POWERED_APPS = [
   {
     name: 'ReFunction Rehab',
-    description: 'Physiotherapy clinic in Bangalore',
+    description: 'Physiotherapy clinic in Bangalore — site, design, daily growth report.',
     url: 'https://refunctionrehab.in/',
     domain: 'refunctionrehab.in',
+  },
+  {
+    name: 'Himalaya ENTP',
+    description: 'Entrepreneurship community — platform, event design, and weekly competitor intel.',
+    url: 'https://himalayaentp.com/',
+    domain: 'himalayaentp.com',
   },
 ];
 
@@ -982,17 +988,17 @@ const HomePage = () => {
           </div>
         </section>
 
-        {/* ── Powered by kaushalstack ── */}
+        {/* ── AI Growth Partners ── */}
         <section className="py-20 bg-muted/20 border-t">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <div className="inline-flex items-center gap-2 mb-4">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-sm font-medium text-primary">Built with our community</span>
+                <TrendingUp className="w-5 h-5 text-primary" />
+                <span className="text-sm font-medium text-primary">Live partnerships</span>
               </div>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">Powered by kaushalstack</h2>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">We are AI growth partners</h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Real products built using AI agent teams assembled on kaushalstack
+                Real businesses we power as their always-on AI growth team — from <strong className="text-foreground">ReFunction Rehab</strong> to <strong className="text-foreground">himalayaentp.com</strong>.
               </p>
             </div>
 
