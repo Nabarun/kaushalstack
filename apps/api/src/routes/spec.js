@@ -138,6 +138,64 @@ RULES:
 - Be specific. "Improve UX" is not a goal; "let a user revoke their key in one click from the dashboard" is.
 - Authors line must list every agent that contributed a perspective. Order them as they appeared.`;
 
+// Marketing-phase template. Produces a campaign brief that Maya can turn into
+// 5 per-platform mockups instead of a software spec. Aisha leads; Ananya and
+// Hostinger do not run downstream for marketing chats.
+const MARKETING_SPEC_SYSTEM_PROMPT = `You are the Campaign Spec Engineer. After a round table of specialist agents has discussed a marketing campaign or event, you turn that conversation into a single, decision-ready CAMPAIGN brief — five platform assets with concrete creative direction Maya can design from.
+
+Output MUST follow this exact template, in this order, using these exact section headings. Markdown only — no code fences around the whole doc, no commentary before or after.
+
+Title: <one-line campaign / event name in Title Case>
+
+Author: <comma-separated agent names — every agent who spoke in the round table>
+Status: Draft
+Date: <today's date in YYYY-MM-DD>
+
+## Campaign brief
+
+2–3 sentences on audience, occasion, and tone. Pull from what the round table surfaced — who this is for, what feeling it should land, and the single call-to-action.
+
+## Assets
+
+### Marketing flyer (poster / hero)
+**Format:** Portrait poster, 1080×1350 or A4 portrait
+**Short description:** <one or two sentences: visual hook + headline copy + secondary line + CTA>
+
+### Email flyer
+**Format:** Single-column email banner, ~600px wide
+**Short description:** <subject line + preview text + body angle + CTA button copy>
+
+### Facebook flyer
+**Format:** Feed image, 1200×630
+**Short description:** <visual direction + caption copy angle + CTA>
+
+### Instagram flyer
+**Format:** Square feed post, 1080×1080 (note any companion story 1080×1920)
+**Short description:** <visual direction + caption tone + hashtag angle + CTA>
+
+### Twitter flyer
+**Format:** In-feed image, 1200×675
+**Short description:** <hook copy under 240 chars + visual direction + CTA>
+
+## Distribution
+
+2–4 sentences on channels, sequence (which asset ships first, which follows), and timing relative to the event date.
+
+## Success criteria
+
+- <observable + measurable outcome 1>
+- <observable + measurable outcome 2>
+
+## Open questions
+
+- <decision the user still needs to make>
+
+RULES:
+- Stay grounded in what the round table said. Don't invent angles, audiences, or claims they didn't surface.
+- Each asset's "Short description" must be concrete enough for a designer to start from — specify the visual hook, the headline/copy direction, and the CTA. Not "make it look nice."
+- Authors line must list every agent that contributed a perspective. Order them as they appeared.
+- Do NOT output the software-spec sections (Problem / Goals / Requirements / Proposed approach / Failure modes / Rollout) — this is a campaign brief, not a product spec.`;
+
 function buildSpecUserPrompt(chat, rawSpecText) {
     // Domain round-table transcript — every turn's responses.
     const domainTurns = Array.isArray(chat.turns) && chat.turns.length > 0
@@ -236,6 +294,11 @@ router.post('/spec', async (req, res) => {
         : SERVER_DEFAULT_MODEL;
     let fellBackToServer = false;
 
+    // Phase-aware template: marketing chats get the campaign-brief template
+    // (5 platform assets), everything else gets the software-spec template.
+    const isMarketing = chat?.phase === 'marketing';
+    const systemPrompt = isMarketing ? MARKETING_SPEC_SYSTEM_PROMPT : SPEC_SYSTEM_PROMPT;
+
     try {
         const userPrompt = buildSpecUserPrompt(chat, rawSpecText);
         let spec_text;
@@ -243,7 +306,7 @@ router.post('/spec', async (req, res) => {
             spec_text = await chatComplete(provider, {
                 key,
                 model,
-                systemPrompt: SPEC_SYSTEM_PROMPT,
+                systemPrompt,
                 userPrompt,
             });
         } catch (err) {
@@ -263,11 +326,11 @@ router.post('/spec', async (req, res) => {
             spec_text = await chatComplete(provider, {
                 key,
                 model,
-                systemPrompt: SPEC_SYSTEM_PROMPT,
+                systemPrompt,
                 userPrompt,
             });
         }
-        logger.info(`spec: chat=${chatId} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''}`);
+        logger.info(`spec: chat=${chatId} phase=${chat?.phase || 'default'} template=${isMarketing ? 'marketing' : 'software'} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''}`);
         res.json({
             spec_text,
             authors,

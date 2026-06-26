@@ -79,9 +79,15 @@ const CHAT_FIELDS = [
     // user can't bloat the row. 500KB ≈ 16 agents × 20 turns × ~1.5KB.
     { type: 'json',     name: 'agent_threads', maxSize: 500000 },
     { type: 'json',     name: 'tool_results', maxSize: 600000 },
+    // phase scopes the chat to one of ideation | execution | marketing. Drives
+    // spec template choice (marketing → 5-asset campaign brief, others →
+    // software spec) and the pipeline strip (marketing hides Ananya/Hostinger).
+    { type: 'text',     name: 'phase',        max: 20 },
     { type: 'autodate', name: 'created',      onCreate: true,  onUpdate: false },
     { type: 'autodate', name: 'updated',      onCreate: true,  onUpdate: true  },
 ];
+
+const VALID_PHASES = new Set(['ideation', 'execution', 'marketing']);
 
 async function ensureChatsCollection() {
     if (chatsCollectionReady) return;
@@ -165,7 +171,7 @@ async function incrementUsage(userId) {
     }
 }
 
-async function saveChat(userId, query, team, responses, uploadedSpec = null) {
+async function saveChat(userId, query, team, responses, uploadedSpec = null, phase = null) {
     try {
         return await pb.collection('roundtable_chats').create({
             user_id: userId,
@@ -177,6 +183,7 @@ async function saveChat(userId, query, team, responses, uploadedSpec = null) {
             turns: [{ query, responses }],
             // present only when the chat was seeded from an uploaded draft spec.
             ...(uploadedSpec ? { uploaded_spec: uploadedSpec } : {}),
+            ...(phase && VALID_PHASES.has(phase) ? { phase } : {}),
         });
     } catch (err) {
         // Surface PB field-level validation errors — without this, "Failed to
@@ -300,7 +307,8 @@ function trimPriorTurns(turns) {
 const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
 router.post('/roundtable', async (req, res) => {
-    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput } = req.body || {};
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput, phase: rawPhase } = req.body || {};
+    const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
     // Normalize an uploaded draft spec (only honored when creating a new chat).
     let uploadedSpec = null;
     if (uploadedSpecInput && typeof uploadedSpecInput === 'object' && typeof uploadedSpecInput.text === 'string' && uploadedSpecInput.text.trim()) {
@@ -457,7 +465,7 @@ router.post('/roundtable', async (req, res) => {
                         } else throw err;
                     }
                 } else {
-                    const saved = await saveChat(userId, query, team, parsed.responses, uploadedSpec);
+                    const saved = await saveChat(userId, query, team, parsed.responses, uploadedSpec, phase);
                     chatId = saved?.id || null;
                 }
             }

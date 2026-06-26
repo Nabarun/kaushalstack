@@ -791,7 +791,7 @@ const HomePage = () => {
                               transition={{ delay: 0.7, duration: 0.4, type: 'spring', stiffness: 220 }}
                             >
                               <button
-                                onClick={() => navigate('/roundtable', { state: { team: msg.skills, query: msg.query, uploadedSpec: msg.uploadedSpec } })}
+                                onClick={() => navigate('/roundtable', { state: { team: msg.skills, query: msg.query, uploadedSpec: msg.uploadedSpec, phase: msg.phase } })}
                                 className="group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
                                 style={{
                                   background: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)',

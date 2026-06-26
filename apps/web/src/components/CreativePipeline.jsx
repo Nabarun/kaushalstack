@@ -69,6 +69,7 @@ function ErrorBlock({ title, message, accent, onRetry, pendingSessionId, onRecov
 
 export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
+  phase,                // 'ideation' | 'execution' | 'marketing' | null — marketing hides Ananya + Hostinger
   spec, mockup, build, deploy, hostinger,
   generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
   uploadedSpec, sendUploadedToMaya,
@@ -79,7 +80,13 @@ export default function CreativePipeline({
   hostingerToken, setHostingerToken, setHostinger,
   describeProgress, buildWillInheritDesign,
 }) {
-  const has = key => members.some(m => m.key === key);
+  // For marketing-phase chats, the pipeline ends at Maya — there's no website
+  // to build or deploy. Drop Ananya + Hostinger before any downstream logic
+  // (gating, default-selected step, avatar row, etc.) reads `members`.
+  const visibleMembers = phase === 'marketing'
+    ? members.filter(m => m.key !== 'ananya' && m.key !== 'hostinger')
+    : members;
+  const has = key => visibleMembers.some(m => m.key === key);
 
   // Auto-dim stages whose work the spec doesn't call for. Aisha is always
   // lit (she IS the spec). Maya dims if no design/UI keywords; Ananya dims
@@ -119,12 +126,12 @@ export default function CreativePipeline({
 
   // Default selection: the furthest unlocked stage that still has work to do,
   // else the last completed stage, else the first avatar. A manual click wins.
-  const firstActionable = members.find(m => !lockedFor[m.key] && statusFor[m.key] !== 'done');
-  const lastDone = [...members].reverse().find(m => statusFor[m.key] === 'done');
-  const computedDefault = (firstActionable || lastDone || members[0])?.key;
+  const firstActionable = visibleMembers.find(m => !lockedFor[m.key] && statusFor[m.key] !== 'done');
+  const lastDone = [...visibleMembers].reverse().find(m => statusFor[m.key] === 'done');
+  const computedDefault = (firstActionable || lastDone || visibleMembers[0])?.key;
 
   const [selected, setSelected] = useState(null);
-  const effective = selected && members.some(m => m.key === selected) ? selected : computedDefault;
+  const effective = selected && visibleMembers.some(m => m.key === selected) ? selected : computedDefault;
 
   // Per-avatar visual status badge.
   const badgeFor = (m) => {
@@ -144,7 +151,7 @@ export default function CreativePipeline({
     >
       {/* ── Avatar row ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 8, marginBottom: 18 }}>
-        {members.map((m, i) => {
+        {visibleMembers.map((m, i) => {
           const badge = badgeFor(m);
           const isSel = effective === m.key;
           const dim   = badge.kind === 'locked';
@@ -159,7 +166,7 @@ export default function CreativePipeline({
               )}
               <button
                 onClick={() => setSelected(m.key)}
-                title={dim ? `Waiting for ${members[i - 1]?.name || 'the previous step'}` : notNeeded ? `${m.role} — the spec doesn't call for this stage. Click to run anyway.` : m.role}
+                title={dim ? `Waiting for ${visibleMembers[i - 1]?.name || 'the previous step'}` : notNeeded ? `${m.role} — the spec doesn't call for this stage. Click to run anyway.` : m.role}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer', padding: 4,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 92,

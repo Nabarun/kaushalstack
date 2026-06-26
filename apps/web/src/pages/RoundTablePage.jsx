@@ -304,6 +304,7 @@ export default function RoundTablePage() {
   const initTeam  = location.state?.team || [];
   const initQuery = location.state?.query || '';
   const initUploadedSpec = location.state?.uploadedSpec || null;
+  const initPhase = location.state?.phase || null;
 
   // The uploaded draft spec, when the user arrived (or uploaded here) from a
   // spec file. Drives the review-framed round table + Aisha's combine/as-is.
@@ -1182,7 +1183,7 @@ export default function RoundTablePage() {
           team: teamForRun,
           ...(isFollowUp
             ? { chat_id: activeChat.id, prior_turns: activeChat.turns }
-            : (seedFromUpload ? { uploaded_spec: uploadedSpec } : {})),
+            : { ...(seedFromUpload ? { uploaded_spec: uploadedSpec } : {}), ...(initPhase ? { phase: initPhase } : {}) }),
         }),
       });
 
@@ -2280,6 +2281,7 @@ export default function RoundTablePage() {
                 return (
                   <CreativePipeline
                     members={members}
+                    phase={activeChat?.phase || initPhase || null}
                     spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
                     generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
                     uploadedSpec={uploadedSpec} sendUploadedToMaya={sendUploadedToMaya}
