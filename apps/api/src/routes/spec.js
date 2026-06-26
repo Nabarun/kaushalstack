@@ -157,29 +157,25 @@ Date: <today's date in YYYY-MM-DD>
 
 ## Assets
 
-### Marketing flyer (poster / hero)
-**Format:** Portrait poster, 1080×1350 or A4 portrait
-**Short description:** <one or two sentences: visual hook + headline copy + secondary line + CTA>
-
-### Email flyer
-**Format:** Single-column email banner, ~600px wide
-**Short description:** <subject line + preview text + body angle + CTA button copy>
-
-### Facebook flyer
-**Format:** Feed image, 1200×630
-**Short description:** <visual direction + caption copy angle + CTA>
-
-### LinkedIn flyer
-**Format:** Shared image, 1200×627
-**Short description:** <professional angle + headline copy + CTA — tone calibrated for business audience>
-
-### Instagram flyer
+### Instagram
 **Format:** Square feed post, 1080×1080 (note any companion story 1080×1920)
 **Short description:** <visual direction + caption tone + hashtag angle + CTA>
 
-### Twitter flyer
+### Facebook
+**Format:** Feed image, 1200×630
+**Short description:** <visual direction + caption copy angle + CTA>
+
+### X (Twitter)
 **Format:** In-feed image, 1200×675
 **Short description:** <hook copy under 240 chars + visual direction + CTA>
+
+### LinkedIn
+**Format:** Shared image, 1200×627
+**Short description:** <professional / B2B angle + headline copy + CTA>
+
+### Email
+**Format:** Single-column email banner, ~600px wide
+**Short description:** <subject line + preview text + body angle + CTA button copy>
 
 ## Distribution
 
