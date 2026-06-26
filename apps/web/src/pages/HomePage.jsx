@@ -56,7 +56,7 @@ const POWERED_APPS = [
   },
   {
     name: 'Himalaya ENTP',
-    description: 'Entrepreneurship community — platform, event design, and weekly competitor intel.',
+    description: 'Heavy-duty tippers, trailers, tractor bodies & custom fabrication — built with precision.',
     url: 'https://himalayaentp.com/',
     domain: 'himalayaentp.com',
   },
