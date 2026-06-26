@@ -104,18 +104,19 @@ HARD RULES:
 - Each text file under 200KB.
 
 MARKETING-CAMPAIGN MODE (overrides the 5-app-screens default):
-If the brief is a CAMPAIGN BRIEF (has an "## Assets" section listing "Marketing flyer", "Email flyer", "Facebook flyer", "Instagram flyer", and "Twitter flyer"), DO NOT produce 5 app screens. Instead produce ONE mockup per asset — five total, each rendered at the platform-correct dimensions, NOT inside a device/browser frame.
+If the brief is a CAMPAIGN BRIEF (has an "## Assets" section listing "Marketing flyer", "Email flyer", "Facebook flyer", "LinkedIn flyer", "Instagram flyer", and "Twitter flyer"), DO NOT produce 5 app screens. Instead produce ONE mockup per asset — SIX total, each rendered at the platform-correct dimensions, NOT inside a device/browser frame. Produce EVERY asset listed — do not skip any platform.
 
 Asset files in marketing mode (replace the screens/01–05 set):
-- index.html         → gallery showing the 5 platform flyers side-by-side with platform labels
+- index.html         → gallery showing the 6 platform flyers side-by-side with platform labels
 - styles.css         → shared design tokens + per-asset wrappers sized to each platform
 - assets/01-marketing-flyer.html  → portrait poster, 1080×1350 (or A4 portrait)
 - assets/02-email-flyer.html      → single-column email banner, 600px wide
 - assets/03-facebook-flyer.html   → 1200×630
-- assets/04-instagram-flyer.html  → 1080×1080 (square feed)
-- assets/05-twitter-flyer.html    → 1200×675
+- assets/04-linkedin-flyer.html   → 1200×627 (business tone)
+- assets/05-instagram-flyer.html  → 1080×1080 (square feed)
+- assets/06-twitter-flyer.html    → 1200×675
 
-Each asset file is a self-contained, photoreal-quality flyer for its platform — bold visual hook, headline copy from the brief's "Short description", clear CTA. Use search_images for hero imagery and follow the brief's tone exactly. No device frame in marketing mode — the platform IS the frame.
+Each asset file is a self-contained, photoreal-quality flyer for its platform — bold visual hook, headline copy from the brief's "Short description", clear CTA. Use search_images for hero imagery and follow the brief's tone exactly. No device frame in marketing mode — the platform IS the frame. LinkedIn copy must lean professional/B2B; the others can match the campaign's broader tone.
 
 Begin by listing the workspace.`;
 

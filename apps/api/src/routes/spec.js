@@ -169,6 +169,10 @@ Date: <today's date in YYYY-MM-DD>
 **Format:** Feed image, 1200×630
 **Short description:** <visual direction + caption copy angle + CTA>
 
+### LinkedIn flyer
+**Format:** Shared image, 1200×627
+**Short description:** <professional angle + headline copy + CTA — tone calibrated for business audience>
+
 ### Instagram flyer
 **Format:** Square feed post, 1080×1080 (note any companion story 1080×1920)
 **Short description:** <visual direction + caption tone + hashtag angle + CTA>
