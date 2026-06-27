@@ -2293,22 +2293,24 @@ export default function RoundTablePage() {
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
                 if (!allResponsesIn || loading) return null;
                 const members = [
-                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',   accent: '#9b6cf0', theme: 'warm' },
-                  { key: 'maya',      name: 'Maya',      role: 'Landing Page Designer', accent: '#b07ef8', theme: 'warm' },
-                  { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',    accent: '#5b8dee', theme: 'warm' },
-                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer', accent: '#9b6cf0', theme: 'cool' },
+                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',           accent: '#9b6cf0', theme: 'warm' },
+                  { key: 'maya',      name: 'Maya',      role: 'Landing Page Designer',   accent: '#b07ef8', theme: 'warm' },
+                  { key: 'tara',      name: 'Tara',      role: 'Social Campaign Designer', accent: '#e070c2', theme: 'warm', parallelWith: 'maya' },
+                  { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',            accent: '#5b8dee', theme: 'warm' },
+                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',         accent: '#9b6cf0', theme: 'cool' },
                 ];
                 return (
                   <CreativePipeline
                     members={members}
                     phase={activeChat?.phase || initPhase || null}
-                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger}
+                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger} social={social}
                     generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
                     uploadedSpec={uploadedSpec} sendUploadedToMaya={sendUploadedToMaya}
                     tech={tech} conveneTechTeam={conveneTechTeam}
-                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy}
+                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy} triggerSocial={triggerSocial}
                     recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
                     recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}
+                    recoverSocial={() => recoverPending({ setState: setSocial, toolKey: 'social' })}
                     saveHostingerToken={saveHostingerToken}
                     showHostingerLogin={showHostingerLogin} setShowHostingerLogin={setShowHostingerLogin}
                     hostingerToken={hostingerToken} setHostingerToken={setHostingerToken} setHostinger={setHostinger}
@@ -2346,37 +2348,9 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Social Posts — Tara is now treated as a pure executor (parallel
-                  to Maya/Ananya/Hostinger), so her panel always shows after the
-                  round table completes, regardless of whether she was a
-                  deliberator. The trigger routes to /api/social by skill id,
-                  which works whether or not she was a round-table contributor. */}
-              {(() => {
-                if (!activeChat) return null;
-                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!allResponsesIn || loading) return null;
-                return (
-                  <CreativeToolPanel
-                    status={social.status}
-                    result={social.result}
-                    error={social.error}
-                    pendingSessionId={social.pendingSessionId}
-                    recoveryNote={social.recoveryNote}
-                    onRecover={() => recoverPending({ setState: setSocial, toolKey: 'social' })}
-                    progressLabel={describeProgress(social.progress)}
-                    color="#e070c2"
-                    Icon={Megaphone}
-                    label="Social"
-                    idleHeadline="Round table done · Tara can post this"
-                    idleBlurb="Generate all four platforms in parallel — Instagram, Facebook, LinkedIn, and X — each rendered inside its own platform UI chrome with captions, hashtags, and asset specs."
-                    idleCta="Design 4-platform campaign"
-                    runningHeadline="Tara is composing across 4 platforms…"
-                    runningBlurb="Drafting captions for IG, FB, LinkedIn, and X in parallel; fetching shared hero photos; rendering per-platform chrome. 2–3 minutes."
-                    doneLabel="Posts ready"
-                    onTrigger={triggerSocial}
-                  />
-                );
-              })()}
+              {/* Tara's standalone panel was removed — she's now an avatar
+                  inside CreativePipeline above (parallel to Maya), so her
+                  section renders inline when you click her avatar there. */}
             </div>
 
             {/* Dot nav at bottom (within active chat) */}

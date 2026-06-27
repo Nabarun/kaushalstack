@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Palette, Hammer, Rocket, Server, Globe, LogIn, ExternalLink,
-  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles, Paperclip,
+  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles, Paperclip, Megaphone,
 } from 'lucide-react';
 import { avatarUrl } from '@/lib/avatar';
 
@@ -68,14 +68,14 @@ function ErrorBlock({ title, message, accent, onRetry, pendingSessionId, onRecov
 }
 
 export default function CreativePipeline({
-  members,              // [{ key, name, role, accent, theme }] present in the team, in pipeline order
+  members,              // [{ key, name, role, accent, theme, parallelWith? }] present in the team, in pipeline order
   phase,                // 'ideation' | 'execution' | 'marketing' | null — marketing hides Ananya + Hostinger
-  spec, mockup, build, deploy, hostinger,
+  spec, mockup, build, deploy, hostinger, social,
   generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
   uploadedSpec, sendUploadedToMaya,
   tech, conveneTechTeam,
-  triggerMockup, triggerBuild, triggerDeploy,
-  recoverMockup, recoverBuild,
+  triggerMockup, triggerBuild, triggerDeploy, triggerSocial,
+  recoverMockup, recoverBuild, recoverSocial,
   saveHostingerToken, showHostingerLogin, setShowHostingerLogin,
   hostingerToken, setHostingerToken, setHostinger,
   describeProgress, buildWillInheritDesign,
@@ -97,13 +97,15 @@ export default function CreativePipeline({
   const DESIGN_RX = /\b(design|ui|ux|mockup|screen|page|layout|wireframe|interface|prototype|figma|font|palette|landing|app|website|web app|frontend|visual|brand)\b/;
   const BUILD_RX  = /\b(build|implement|code|develop|html|css|javascript|react|api|backend|frontend|database|deploy|ship|app|website|widget|tool|form|component)\b/;
   const DEPLOY_RX = /\b(deploy|deployment|host|hosting|hostinger|publish|launch|go[- ]live|production|domain|dns|ssl|vps|server|cloudflare|netlify|vercel)\b/;
+  const SOCIAL_RX = /\b(social|instagram|insta|facebook|linkedin|twitter|tweet|x\b|post|reel|story|carousel|campaign|hashtag)\b/;
   const stageRelevant = specText ? {
     aisha:     true,
     maya:      DESIGN_RX.test(specText),
+    tara:      SOCIAL_RX.test(specText),
     ananya:    BUILD_RX.test(specText),
     hostinger: DEPLOY_RX.test(specText),
   } : {
-    aisha: true, maya: true, ananya: true, hostinger: true,  // before spec exists, show all bright
+    aisha: true, maya: true, tara: true, ananya: true, hostinger: true,  // before spec exists, show all bright
   };
 
   // Gating — each downstream agent waits for the previous one to finish.
@@ -114,12 +116,14 @@ export default function CreativePipeline({
   const lockedFor = {
     aisha:     false,
     maya:      has('aisha') && spec?.status !== 'done',
+    tara:      has('aisha') && spec?.status !== 'done',  // parallel to Maya — same gating
     ananya:    has('maya') && mockup.status !== 'done',
     hostinger: build.status !== 'done',
   };
   const statusFor = {
     aisha:     spec?.status || 'idle',
     maya:      mockup.status,
+    tara:      social?.status || 'idle',
     ananya:    build.status,
     hostinger: deploy.status,
   };
@@ -161,9 +165,18 @@ export default function CreativePipeline({
           const visualOpacity = dim ? 0.4 : notNeeded ? 0.55 : 1;
           return (
             <React.Fragment key={m.key}>
-              {i > 0 && (
-                <div style={{ alignSelf: 'center', color: '#2a2e3f', fontSize: 18, margin: '0 -2px', marginBottom: 20 }}>→</div>
-              )}
+              {i > 0 && (() => {
+                // Members tagged with `parallelWith: <prevKey>` render with a
+                // `+` connector instead of `→` to signal they run in parallel
+                // with the previous stage (e.g. Tara + Maya both branch off Aisha).
+                const prev = visibleMembers[i - 1];
+                const isParallel = m.parallelWith && m.parallelWith === prev?.key;
+                return (
+                  <div style={{ alignSelf: 'center', color: isParallel ? '#5a607a' : '#2a2e3f', fontSize: 18, margin: '0 -2px', marginBottom: 20, fontWeight: isParallel ? 600 : 400 }}>
+                    {isParallel ? '+' : '→'}
+                  </div>
+                );
+              })()}
               <button
                 onClick={() => setSelected(m.key)}
                 title={dim ? `Waiting for ${visibleMembers[i - 1]?.name || 'the previous step'}` : notNeeded ? `${m.role} — the spec doesn't call for this stage. Click to run anyway.` : m.role}
@@ -223,6 +236,7 @@ export default function CreativePipeline({
           >
             {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
             {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
+            {effective === 'tara'      && <TaraSection {...{ social, triggerSocial, recoverSocial, describeProgress, locked: lockedFor.tara }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
               <HostingerSection {...{
@@ -469,6 +483,73 @@ function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress, l
       </div>
       <button onClick={triggerMockup} style={btn(accent)}>
         <Palette style={{ width: 14, height: 14 }} /> Design Landing Page
+      </button>
+    </>
+  );
+}
+
+// ── Tara — design social posts (parallel to Maya) ───────────────────
+// Same shape as MayaSection (locked / running / done / error / idle states)
+// but reads from `social` state and renders the 4-platform campaign output.
+function TaraSection({ social, triggerSocial, recoverSocial, describeProgress, locked }) {
+  const accent = '#e070c2';
+  if (locked && social?.status !== 'done') {
+    return (
+      <>
+        <Tag color="#5a607a" icon={Lock}>Waiting for Aisha</Tag>
+        <div style={{ fontSize: 13, color: '#8a91a8', lineHeight: 1.65 }}>
+          Tara works from the same spec as Maya. Generate (or accept) Aisha's spec first, then come back here.
+        </div>
+      </>
+    );
+  }
+  if (social?.status === 'running') {
+    const live = describeProgress(social.progress);
+    return (
+      <div className="flex items-center gap-3">
+        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+          <Megaphone style={{ width: 22, height: 22, color: accent }} />
+        </motion.div>
+        <div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Tara is composing across 4 platforms…</div>
+          <div style={{ fontSize: 11, color: live ? accent : '#5a607a', marginTop: 2 }}>
+            {live || 'Drafting captions for IG, FB, LinkedIn, and X in parallel; fetching shared hero photos; rendering per-platform chrome. 2–3 minutes.'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (social?.status === 'done' && social.result) {
+    return (
+      <>
+        <Tag color="#5cc28a" icon={CheckCircle2}>Posts ready</Tag>
+        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{social.result.summary}</div>
+        <FileList files={social.result.files} maxHeight={180} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {social.result.preview_url && (
+            <a href={apiHref(social.result.preview_url)} target="_blank" rel="noopener noreferrer" style={btn(accent)}>
+              <Eye style={{ width: 14, height: 14 }} /> Preview
+            </a>
+          )}
+          <a href={apiHref(social.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
+            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+          </a>
+        </div>
+      </>
+    );
+  }
+  if (social?.status === 'error') {
+    return <ErrorBlock title="Social campaign generation failed" message={social.error} accent={accent} onRetry={triggerSocial} pendingSessionId={social.pendingSessionId} onRecover={recoverSocial} recoveryNote={social.recoveryNote} />;
+  }
+  // idle
+  return (
+    <>
+      <Tag color={accent}>Tara can post this</Tag>
+      <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+        Generate all four platforms in parallel — Instagram, Facebook, LinkedIn, and X — each rendered inside its own platform UI chrome with captions, hashtags, and asset specs.
+      </div>
+      <button onClick={triggerSocial} style={btn(accent)}>
+        <Megaphone style={{ width: 14, height: 14 }} /> Design 4-platform campaign
       </button>
     </>
   );
