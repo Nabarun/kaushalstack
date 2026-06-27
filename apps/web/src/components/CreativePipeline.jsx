@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Palette, Hammer, Rocket, Server, Globe, LogIn, ExternalLink,
-  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles, Paperclip, Megaphone,
+  Download, Eye, CheckCircle2, AlertCircle, Lock, Sparkles, Paperclip, Megaphone, Mail,
 } from 'lucide-react';
 import { avatarUrl } from '@/lib/avatar';
 
@@ -70,12 +70,12 @@ function ErrorBlock({ title, message, accent, onRetry, pendingSessionId, onRecov
 export default function CreativePipeline({
   members,              // [{ key, name, role, accent, theme, parallelWith? }] present in the team, in pipeline order
   phase,                // 'ideation' | 'execution' | 'marketing' | null — marketing hides Ananya + Hostinger
-  spec, mockup, build, deploy, hostinger, social,
+  spec, mockup, build, deploy, hostinger, social, email,
   generateSpec, setSpec, saveSpecEdits, sendSpecToMaya,
   uploadedSpec, sendUploadedToMaya,
   tech, conveneTechTeam,
-  triggerMockup, triggerBuild, triggerDeploy, triggerSocial,
-  recoverMockup, recoverBuild, recoverSocial,
+  triggerMockup, triggerBuild, triggerDeploy, triggerSocial, triggerEmail,
+  recoverMockup, recoverBuild, recoverSocial, recoverEmail,
   saveHostingerToken, showHostingerLogin, setShowHostingerLogin,
   hostingerToken, setHostingerToken, setHostinger,
   describeProgress, buildWillInheritDesign,
@@ -98,14 +98,16 @@ export default function CreativePipeline({
   const BUILD_RX  = /\b(build|implement|code|develop|html|css|javascript|react|api|backend|frontend|database|deploy|ship|app|website|widget|tool|form|component)\b/;
   const DEPLOY_RX = /\b(deploy|deployment|host|hosting|hostinger|publish|launch|go[- ]live|production|domain|dns|ssl|vps|server|cloudflare|netlify|vercel)\b/;
   const SOCIAL_RX = /\b(social|instagram|insta|facebook|linkedin|twitter|tweet|x\b|post|reel|story|carousel|campaign|hashtag)\b/;
+  const EMAIL_RX  = /\b(email|newsletter|inbox|preheader|subject\s+line|mailing\s+list|drip|onboarding|launch\s+email|announcement\s+email|email\s+campaign|email\s+blast)\b/;
   const stageRelevant = specText ? {
     aisha:     true,
     maya:      DESIGN_RX.test(specText),
     tara:      SOCIAL_RX.test(specText),
+    kavya:     EMAIL_RX.test(specText),
     ananya:    BUILD_RX.test(specText),
     hostinger: DEPLOY_RX.test(specText),
   } : {
-    aisha: true, maya: true, tara: true, ananya: true, hostinger: true,  // before spec exists, show all bright
+    aisha: true, maya: true, tara: true, kavya: true, ananya: true, hostinger: true,  // before spec exists, show all bright
   };
 
   // Gating — each downstream agent waits for the previous one to finish.
@@ -117,6 +119,7 @@ export default function CreativePipeline({
     aisha:     false,
     maya:      has('aisha') && spec?.status !== 'done',
     tara:      has('aisha') && spec?.status !== 'done',  // parallel to Maya — same gating
+    kavya:     has('aisha') && spec?.status !== 'done',  // parallel to Maya — same gating
     ananya:    has('maya') && mockup.status !== 'done',
     hostinger: build.status !== 'done',
   };
@@ -124,6 +127,7 @@ export default function CreativePipeline({
     aisha:     spec?.status || 'idle',
     maya:      mockup.status,
     tara:      social?.status || 'idle',
+    kavya:     email?.status || 'idle',
     ananya:    build.status,
     hostinger: deploy.status,
   };
@@ -237,6 +241,7 @@ export default function CreativePipeline({
             {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
             {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
             {effective === 'tara'      && <TaraSection {...{ social, triggerSocial, recoverSocial, describeProgress, locked: lockedFor.tara }} />}
+            {effective === 'kavya'     && <KavyaSection {...{ email, triggerEmail, recoverEmail, describeProgress, locked: lockedFor.kavya }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
             {effective === 'hostinger' && (
               <HostingerSection {...{
@@ -550,6 +555,72 @@ function TaraSection({ social, triggerSocial, recoverSocial, describeProgress, l
       </div>
       <button onClick={triggerSocial} style={btn(accent)}>
         <Megaphone style={{ width: 14, height: 14 }} /> Design 4-platform campaign
+      </button>
+    </>
+  );
+}
+
+// ── Kavya — email campaign (parallel to Maya / Tara) ────────────────
+// Same state machine as MayaSection / TaraSection; reads from `email` state.
+function KavyaSection({ email, triggerEmail, recoverEmail, describeProgress, locked }) {
+  const accent = '#f0a04b';
+  if (locked && email?.status !== 'done') {
+    return (
+      <>
+        <Tag color="#5a607a" icon={Lock}>Waiting for Aisha</Tag>
+        <div style={{ fontSize: 13, color: '#8a91a8', lineHeight: 1.65 }}>
+          Kavya works from the same spec as Maya and Tara. Generate (or accept) Aisha's spec first, then come back here.
+        </div>
+      </>
+    );
+  }
+  if (email?.status === 'running') {
+    const live = describeProgress(email.progress);
+    return (
+      <div className="flex items-center gap-3">
+        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+          <Mail style={{ width: 22, height: 22, color: accent }} />
+        </motion.div>
+        <div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Kavya is drafting…</div>
+          <div style={{ fontSize: 11, color: live ? accent : '#5a607a', marginTop: 2 }}>
+            {live || 'Choosing a frame, writing copy, inlining CSS, fetching a hero photo. 1–2 minutes.'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (email?.status === 'done' && email.result) {
+    return (
+      <>
+        <Tag color="#5cc28a" icon={CheckCircle2}>Email ready</Tag>
+        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{email.result.summary}</div>
+        <FileList files={email.result.files} maxHeight={180} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {email.result.preview_url && (
+            <a href={apiHref(email.result.preview_url)} target="_blank" rel="noopener noreferrer" style={btn(accent)}>
+              <Eye style={{ width: 14, height: 14 }} /> Preview
+            </a>
+          )}
+          <a href={apiHref(email.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
+            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+          </a>
+        </div>
+      </>
+    );
+  }
+  if (email?.status === 'error') {
+    return <ErrorBlock title="Email generation failed" message={email.error} accent={accent} onRetry={triggerEmail} pendingSessionId={email.pendingSessionId} onRecover={recoverEmail} recoveryNote={email.recoveryNote} />;
+  }
+  // idle
+  return (
+    <>
+      <Tag color={accent}>Kavya can draft this</Tag>
+      <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+        Generate a send-ready HTML email — subject-line variants, preheader, plain-text fallback, all inside a Gmail-frame preview.
+      </div>
+      <button onClick={triggerEmail} style={btn(accent)}>
+        <Mail style={{ width: 14, height: 14 }} /> Design Email Campaign
       </button>
     </>
   );

@@ -160,11 +160,11 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // — they probably don't want a marketing specialist crashing the team.
     const phaseAllowsMarketingPins = (phase === 'marketing' || phase == null);
 
-    // Kavya pins for email-shaped queries.
-    if (phaseAllowsMarketingPins && isEmailCampaignQuery(query)) {
-        const kavya = scored.find(s => s.id === KAVYA_SKILL_ID) || getSkillById(KAVYA_SKILL_ID);
-        if (kavya) pins.push(kavya);
-    }
+    // Kavya is no longer pinned either — like Tara, she's been promoted to a
+    // pure executor (parallel to Maya), rendered as her own avatar inside
+    // CreativePipeline. Her email-campaign panel renders downstream of the
+    // round table regardless of team membership.
+    //
     // Tara is no longer pinned into the round table — she's been promoted to a
     // pure executor (parallel to Maya/Ananya/Hostinger) and her social-posts
     // panel renders downstream of the round table regardless of team membership.

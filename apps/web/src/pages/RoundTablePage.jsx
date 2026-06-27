@@ -2296,6 +2296,7 @@ export default function RoundTablePage() {
                   { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',           accent: '#9b6cf0', theme: 'warm' },
                   { key: 'maya',      name: 'Maya',      role: 'Landing Page Designer',   accent: '#b07ef8', theme: 'warm' },
                   { key: 'tara',      name: 'Tara',      role: 'Social Campaign Designer', accent: '#e070c2', theme: 'warm', parallelWith: 'maya' },
+                  { key: 'kavya',     name: 'Kavya',     role: 'Email Campaign Designer', accent: '#f0a04b', theme: 'warm', parallelWith: 'tara' },
                   { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',            accent: '#5b8dee', theme: 'warm' },
                   { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',         accent: '#9b6cf0', theme: 'cool' },
                 ];
@@ -2303,14 +2304,15 @@ export default function RoundTablePage() {
                   <CreativePipeline
                     members={members}
                     phase={activeChat?.phase || initPhase || null}
-                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger} social={social}
+                    spec={spec} mockup={mockup} build={build} deploy={deploy} hostinger={hostinger} social={social} email={email}
                     generateSpec={generateSpec} setSpec={setSpec} saveSpecEdits={saveSpecEdits} sendSpecToMaya={sendSpecToMaya}
                     uploadedSpec={uploadedSpec} sendUploadedToMaya={sendUploadedToMaya}
                     tech={tech} conveneTechTeam={conveneTechTeam}
-                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy} triggerSocial={triggerSocial}
+                    triggerMockup={triggerMockup} triggerBuild={triggerBuild} triggerDeploy={triggerDeploy} triggerSocial={triggerSocial} triggerEmail={triggerEmail}
                     recoverMockup={() => recoverPending({ setState: setMockup, toolKey: 'mockup' })}
                     recoverBuild={() =>  recoverPending({ setState: setBuild,  toolKey: 'build'  })}
                     recoverSocial={() => recoverPending({ setState: setSocial, toolKey: 'social' })}
+                    recoverEmail={() =>  recoverPending({ setState: setEmail,  toolKey: 'email'  })}
                     saveHostingerToken={saveHostingerToken}
                     showHostingerLogin={showHostingerLogin} setShowHostingerLogin={setShowHostingerLogin}
                     hostingerToken={hostingerToken} setHostingerToken={setHostingerToken} setHostinger={setHostinger}
@@ -2319,34 +2321,9 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Email Campaign — only when Kavya is in the team and all responses are in */}
-              {(() => {
-                if (!activeChat) return null;
-                const teamHasKavya   = activeChat.team?.some(s => s.id === KAVYA_SKILL_ID);
-                const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasKavya || !allResponsesIn || loading) return null;
-                return (
-                  <CreativeToolPanel
-                    status={email.status}
-                    result={email.result}
-                    error={email.error}
-                    pendingSessionId={email.pendingSessionId}
-                    recoveryNote={email.recoveryNote}
-                    onRecover={() => recoverPending({ setState: setEmail, toolKey: 'email' })}
-                    progressLabel={describeProgress(email.progress)}
-                    color="#f0a04b"
-                    Icon={Mail}
-                    label="Email"
-                    idleHeadline="Round table done · Kavya can draft this"
-                    idleBlurb="Generate a send-ready HTML email — subject-line variants, preheader, plain-text fallback, all inside a Gmail-frame preview."
-                    idleCta="Design Email Campaign"
-                    runningHeadline="Kavya is drafting…"
-                    runningBlurb="Choosing a frame, writing copy, inlining CSS, fetching a hero photo. 1–2 minutes."
-                    doneLabel="Email ready"
-                    onTrigger={triggerEmail}
-                  />
-                );
-              })()}
+              {/* Kavya's standalone panel was removed — she's now an avatar
+                  inside CreativePipeline above (parallel to Maya and Tara),
+                  so her section renders inline when you click her avatar. */}
 
               {/* Tara's standalone panel was removed — she's now an avatar
                   inside CreativePipeline above (parallel to Maya), so her
