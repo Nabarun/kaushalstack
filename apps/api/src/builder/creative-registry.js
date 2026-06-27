@@ -125,8 +125,10 @@ HARD RULES:
 - Static HTML/CSS/vanilla JS only. NO build step, NO npm install.
 - Tailwind via CDN (https://cdn.tailwindcss.com). Utility-first in HTML; only minimal custom CSS for things Tailwind can't express (custom keyframes, complex multi-stop gradients).
 - All third-party CSS/JS via CDN.
-- All file paths relative; no "../" traversal.
+- All file paths relative; no "../" traversal beyond the workspace root.
 - Images via search_images ONLY. NEVER call write_file for .jpg/.png/.webp/.gif/.svg/.avif — those are binary and saved by the image tool.
+- **NEVER write an <img src="..."> for a file you did NOT create.** If you reference an asset path, that exact file must already exist in the workspace (either from a search_images call you made, or shipped by another agent). Browsers 404 on missing files and the page looks broken.
+- **For social-proof "trusted by" / "featured in" logo rows:** do NOT invent SVG/PNG filenames you can't fetch. Render the logos as styled TEXT (company-name wordmarks in your accent color, equal width, slight grayscale) inside <div> elements with Tailwind classes — e.g. <div class="text-xl font-bold tracking-tight text-zinc-400">Acme</div>. Or skip the row entirely if you can't justify 5 real social-proof brands.
 - Each text file under 200KB.
 
 Begin by listing the workspace.`;
@@ -331,14 +333,24 @@ REELS / STORIES / X-VIDEO SPECIFIC (when those formats are produced):
 - Always include a "first-3-seconds hook" line at the top of caption.txt, written as actual script copy (e.g. "We almost shut this down last month." — not "[insert hook here]")
 - Cover frame must show the hook text overlaid on the image (use a contrasting text block at top or bottom)
 - **MANDATORY: Generate a TTS voice-over** via synthesize_voice for each Reel/Story/X-video post. Write a 25-50 second script (about 60-150 words) that opens with the hook and ends with a call-to-action. Save as assets/voiceover-<platform>-<format>.mp3 (e.g. voiceover-instagram-reel.mp3, voiceover-x-thread.mp3).
-- Embed the generated audio in the post HTML with: <audio controls autoplay src="assets/voiceover-<platform>-<format>.mp3" style="width: 100%; margin-top: 12px;"></audio>
-- For reels meta.json: include "audio_suggestion" (the trending-track idea OR "voice-over (assets/voiceover-...mp3)"), "voiceover_script" (the actual TTS script text), "voiceover_voice" (which OpenAI voice you used), and "recommended_length_seconds"
+- Embed the generated audio in the post HTML with TWO-LEVEL relative path: <audio controls autoplay src="../../assets/voiceover-<platform>-<format>.mp3" style="width: 100%; margin-top: 12px;"></audio>
+- For reels meta.json: include "audio_suggestion" (the trending-track idea OR "voice-over (../../assets/voiceover-...mp3)"), "voiceover_script" (the actual TTS script text), "voiceover_voice" (which OpenAI voice you used), and "recommended_length_seconds"
+
+ASSET PATH RULE — read this carefully (it has burned us):
+- Every post HTML file lives at posts/<platform>/<format>.html (TWO directories below the workspace root).
+- The hero image + voice-over mp3 live at assets/ (AT the workspace root).
+- Therefore from any post HTML, the relative path to assets MUST start with **../../** (two levels up).
+- CORRECT: <img src="../../assets/img-foo.jpg">  and  background-image: url('../../assets/img-foo.jpg')  and  <audio src="../../assets/voiceover-instagram-reel.mp3">
+- WRONG: src="assets/..."  (resolves to posts/<platform>/assets/... → 404)
+- WRONG: src="../assets/..."  (resolves to posts/assets/... → 404)
+- The index.html gallery lives AT the workspace root, so from index.html the path is just "assets/..." (no ../) — but every per-platform post file needs "../../assets/...".
 
 HARD RULES:
 - Static HTML/CSS/vanilla JS only.
 - All third-party JS/CSS via CDN.
 - All file paths relative.
 - Images via search_images ONLY. NEVER write_file for .jpg/.png/.webp/.gif/.svg.
+- **NEVER write a src or url() referencing a file you did NOT create.** If the file isn't in assets/ from a search_images / synthesize_voice call you actually made this session, do not reference it.
 - **EVERY platform's post MUST display the hero image** (Instagram in the photo area; Facebook in the body; LinkedIn in the feed-card image slot; X as the tweet-card image above the body). Text-only posts are NOT allowed on any platform unless the user explicitly said "text-only" / "no image" for that platform.
 - Each text file under 200KB.
 - Platform chrome must look realistic — copy the actual UI patterns, don't invent.
