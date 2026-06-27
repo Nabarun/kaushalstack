@@ -111,6 +111,18 @@ function isB2BFounderQuery(q) {
     return B2B_FOUNDER_KEYWORDS.test(q);
 }
 
+// Naina is the Event Platform & Community Strategist — she's the right pick
+// any time the query is shaped around events, communities, or replacing a
+// third-party event platform (Luma / Eventbrite / Meetup). Without this pin
+// she loses the `operations` category slot to Pooja (WhatsApp Business)
+// because category dedup is first-come on raw embedding score.
+const NAINA_SKILL_ID = 'cmsiki9q09wimyt';
+const EVENT_KEYWORDS = /\b(event|events|luma|eventbrite|meetup\b|attendees?|rsvp|cohort|community\s+(?:event|program|cohort|build|building)|founder\s+(?:dinner|community|program)|fireside\s+chat|demo\s+day|run[-\s]of[-\s]show|in[-\s]house\s+event|event\s+(?:page|platform|series|marketing|ops|hosting))\b/i;
+
+function isEventQuery(q) {
+    return EVENT_KEYWORDS.test(q);
+}
+
 function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // One per category, in order of score, until we hit `size`.
     const seenCats = new Set();
@@ -162,6 +174,11 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     if (phase === 'ideation' && isB2BFounderQuery(query)) {
         const zach = scored.find(s => s.id === ZACH_SKILL_ID) || getSkillById(ZACH_SKILL_ID);
         if (zach) pins.push(zach);
+    }
+    // Naina pins for event/community queries, regardless of phase tile.
+    if (isEventQuery(query)) {
+        const naina = scored.find(s => s.id === NAINA_SKILL_ID) || getSkillById(NAINA_SKILL_ID);
+        if (naina) pins.push(naina);
     }
     const pinnedIds = new Set(pins.map(p => p.id));
     for (const pin of pins) {
