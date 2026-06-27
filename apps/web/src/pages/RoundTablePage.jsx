@@ -2346,12 +2346,15 @@ export default function RoundTablePage() {
                 );
               })()}
 
-              {/* Social Posts — only when Tara is in the team and all responses are in */}
+              {/* Social Posts — Tara is now treated as a pure executor (parallel
+                  to Maya/Ananya/Hostinger), so her panel always shows after the
+                  round table completes, regardless of whether she was a
+                  deliberator. The trigger routes to /api/social by skill id,
+                  which works whether or not she was a round-table contributor. */}
               {(() => {
                 if (!activeChat) return null;
-                const teamHasTara    = activeChat.team?.some(s => s.id === TARA_SKILL_ID);
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
-                if (!teamHasTara || !allResponsesIn || loading) return null;
+                if (!allResponsesIn || loading) return null;
                 return (
                   <CreativeToolPanel
                     status={social.status}

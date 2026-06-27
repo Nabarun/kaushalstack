@@ -165,11 +165,10 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
         const kavya = scored.find(s => s.id === KAVYA_SKILL_ID) || getSkillById(KAVYA_SKILL_ID);
         if (kavya) pins.push(kavya);
     }
-    // Tara pins for social-media queries (Instagram / LinkedIn / Facebook / etc.).
-    if (phaseAllowsMarketingPins && isSocialMediaQuery(query)) {
-        const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
-        if (tara) pins.push(tara);
-    }
+    // Tara is no longer pinned into the round table — she's been promoted to a
+    // pure executor (parallel to Maya/Ananya/Hostinger) and her social-posts
+    // panel renders downstream of the round table regardless of team membership.
+    // Strategy / tone / audience for social queries is now Naina's territory.
     // Zach pins for ideation-phase B2B-SaaS-founder queries.
     if (phase === 'ideation' && isB2BFounderQuery(query)) {
         const zach = scored.find(s => s.id === ZACH_SKILL_ID) || getSkillById(ZACH_SKILL_ID);
