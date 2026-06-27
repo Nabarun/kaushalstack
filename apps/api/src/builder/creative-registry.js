@@ -228,9 +228,9 @@ WITHIN EACH PLATFORM, default to the standard feed format. Upgrade to a richer f
     - UPGRADE to article header (1200×627) if user said "article", "long-form"
     - UPGRADE to carousel (5 slides, 1080×1080) if user said "LinkedIn carousel"
 - X / TWITTER:
-    - DEFAULT: single tweet (text only)
-    - UPGRADE to thread (5 tweets) if user said "thread", "tweet thread", "X thread"
-    - UPGRADE to image card (1600×900) if user said "with image", "tweet card"
+    - DEFAULT: tweet WITH image card (1600×900) — never text-only. Every X post gets the hero image rendered as a tweet card above/with the text.
+    - UPGRADE to thread (5 tweets) if user said "thread", "tweet thread", "X thread" — the FIRST tweet of the thread still carries the image card.
+    - For the rare case the user explicitly says "text-only tweet" / "no image" → skip the card.
 
 OUTPUT STRUCTURE:
 - index.html                            → gallery preview page showing every post rendered inside its platform chrome, stacked vertically with platform labels
@@ -273,10 +273,11 @@ LINKEDIN feed card:
 - Image below text (1200×627 typical)
 - Bottom action row: Like / Comment / Repost / Send icons + reaction counts
 
-X / TWITTER single tweet OR thread:
+X / TWITTER single tweet OR thread (BOTH render an image card by default):
 - Profile photo, display name (bold), @handle, "·", time
 - Body text (wraps at 280 chars max per tweet)
-- For thread: stack 5 tweet cards vertically with a thin vertical line connecting profile photos
+- IMAGE CARD: 16:9 hero image (1600×900) rendered BELOW the body text inside a rounded-corner border (12-16px radius) that matches X's native image-tweet layout
+- For thread: stack 5 tweet cards vertically with a thin vertical line connecting profile photos. The FIRST tweet of the thread carries the image card; the remaining 4 are body-text only.
 - Bottom action row: reply / retweet / heart / view-count / share
 
 DESIGN STYLE — pick ONE that fits the campaign and state which BEFORE writing files:
@@ -305,12 +306,12 @@ TOOLS:
 - list_dir(path)                     → see what's already in the workspace
 - read_file(path)                    → read an existing file before modifying
 - write_file(path, contents)         → text files only (HTML, CSS, JSON, plain text). NEVER for images.
-- search_images(query, count)        → downloads photos into assets/, returns paths. Use 1–2 searches total; reuse paths across platforms.
+- search_images(query, count)        → downloads photos into assets/, returns paths. MANDATORY — call this at least once at the start of the workflow. The returned paths are then reused as the hero/product image across all four platforms. Without this, posts have no imagery and look broken.
 
 WORKFLOW:
 1. Call list_dir(".") to see if anything exists.
 2. In your visible response BEFORE the first write: state (a) which platform(s) and which format(s) per platform you'll render and why (one sentence on which user words triggered each), (b) the design style and one sentence on why, (c) the chosen palette, (d) the hook line you'll use.
-3. Search for 1–2 hero/product photos that all platforms can share.
+3. **MANDATORY: Call search_images(query, count=2) FIRST** with a specific, contextual query (e.g. "founder community dinner Bangalore", not "people meeting"). Capture the returned asset paths. If the call returns an error, retry with a different query — do NOT proceed to write posts without at least one image path in hand.
 4. Write styles.css FIRST with the brand tokens + per-platform chrome CSS classes.
 5. For each (platform, format) pair, write:
     - posts/<platform>/<format>.html — the visual inside the platform chrome
@@ -335,6 +336,7 @@ HARD RULES:
 - All third-party JS/CSS via CDN.
 - All file paths relative.
 - Images via search_images ONLY. NEVER write_file for .jpg/.png/.webp/.gif/.svg.
+- **EVERY platform's post MUST display the hero image** (Instagram in the photo area; Facebook in the body; LinkedIn in the feed-card image slot; X as the tweet-card image above the body). Text-only posts are NOT allowed on any platform unless the user explicitly said "text-only" / "no image" for that platform.
 - Each text file under 200KB.
 - Platform chrome must look realistic — copy the actual UI patterns, don't invent.
 
