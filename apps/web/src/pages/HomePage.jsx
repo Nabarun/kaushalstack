@@ -94,11 +94,14 @@ function extractUtteranceFromSkill(skill) {
   const section = skill.description.match(/##\s+When to pick[^\n]*\n+([\s\S]*?)(?=\n##\s|\n#\s|$)/);
   if (!section) return null;
   // First italic bullet — works for `- *prompt*` and `* *prompt*`.
-  const italic = section[1].match(/[-*]\s+\*([^*\n][^*]*)\*/);
+  // Anchor to line-start so mid-sentence asterisks (e.g. inline italics like
+  // *send* in a prose paragraph) don't get treated as bullet markers and
+  // capture a mangled sentence fragment.
+  const italic = section[1].match(/(?:^|\n)\s*[-*]\s+\*([^*\n][^*]*)\*/);
   if (italic) return italic[1].trim();
   // Fallback: any bulleted line, stripped of surrounding markdown / quote
   // characters. Catches the "quoted prompt" pattern some older skills use.
-  const any = section[1].match(/[-*]\s+([^\n]+)/);
+  const any = section[1].match(/(?:^|\n)\s*[-*]\s+([^\n]+)/);
   if (any) return any[1].replace(/^[*_"'`]+|[*_"'`]+$/g, '').trim();
   return null;
 }
