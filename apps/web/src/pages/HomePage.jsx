@@ -281,6 +281,10 @@ const HomePage = () => {
   // 5 most-recently-created skills, shown as a card row below the stats. Auto-refreshes
   // on every homepage load so the auto-extract pipeline's drops show up immediately.
   const [recentSkills, setRecentSkills] = useState([]);
+  // Per-phase recent skills for the "Try our newest agents" recommendations.
+  // Fetched as 3 parallel PB queries so each phase is guaranteed equal representation
+  // — without this, a streak of ideation drops crowds out execution/marketing.
+  const [recentByPhase, setRecentByPhase] = useState({ ideation: [], execution: [], marketing: [] });
   // null = search across all phases. Otherwise: 'ideation' | 'execution' | 'marketing'.
   const [selectedPhase, setSelectedPhase] = useState(null);
 
@@ -306,14 +310,27 @@ const HomePage = () => {
 
     // PocketBase direct read — `created` is the autodate field on the skills
     // collection. Fields list trims payload to what AgentCard actually renders.
-    // perPage=20 gives the phase-filtered suggestions enough headroom to land
-    // matches in Execution / Marketing tiles even when most recent drops are
-    // ideation-heavy; the "Just added" shelf below still slices to 5.
+    // perPage=20 powers the "Just added" shelf below (slices to 5).
     const recentFields = 'id,name,description,category,phase,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,created';
     fetch(`/pb/api/collections/skills/records?sort=-created&perPage=20&fields=${recentFields}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.items) setRecentSkills(d.items); })
       .catch(err => console.error('Failed to fetch recent skills:', err));
+
+    // Per-phase parallel fetches for the recommendation strip — guarantees
+    // 6 candidates per phase so the all-phase view can pick 2 of each and
+    // a phase-tile-selected view always has enough to fill the panel.
+    const phases = ['ideation', 'execution', 'marketing'];
+    Promise.all(phases.map(p =>
+      fetch(`/pb/api/collections/skills/records?sort=-created&perPage=6&filter=${encodeURIComponent(`phase='${p}'`)}&fields=${recentFields}`)
+        .then(r => r.ok ? r.json() : { items: [] })
+        .then(d => [p, d?.items || []])
+        .catch(() => [p, []])
+    )).then(results => {
+      const next = { ideation: [], execution: [], marketing: [] };
+      for (const [p, items] of results) next[p] = items;
+      setRecentByPhase(next);
+    });
   }, []);
 
   useEffect(() => {
@@ -686,32 +703,52 @@ const HomePage = () => {
               </div>
             )}
 
-            {/* Recommended suggestions — derived from the 5 most-recently-added
-                skills. Each pulls the first sample utterance out of that skill's
-                "When to pick" section, so clicking surfaces that exact agent.
-                If the phase tile is selected, filter to suggestions matching
-                that phase; otherwise show all five. Falls back to the hardcoded
-                examples until recent skills load. */}
+            {/* Recommended suggestions — pulled from the per-phase recent fetch
+                so each phase is equally represented (2 of each for the all-phase
+                view, up to 6 for a single-phase view). Each suggestion pulls the
+                first utterance out of that skill's "When to pick" section so
+                clicking surfaces that exact agent. Falls back to the hardcoded
+                static examples until the per-phase fetch lands. */}
             {isEmpty && !showSplitHero && (() => {
-              const recentSuggestions = recentSkills
-                .map(s => {
-                  const prompt = extractUtteranceFromSkill(s);
-                  if (!prompt) return null;
-                  return { phase: s.phase || 'ideation', prompt, agent: s.agent_name };
-                })
-                .filter(Boolean);
-              const phaseFiltered = selectedPhase
-                ? recentSuggestions.filter(e => e.phase === selectedPhase)
-                : recentSuggestions;
-              // Threshold is 1, not 2: even a single phase-matching recent
-              // agent should surface over the static fallback. The fetch
-              // window above is wide (20) so phases with sparse drops
-              // (Marketing especially) still have a shot at hitting.
-              const usingRecent = phaseFiltered.length >= 1;
-              // Cap at 6 to match the static fallback's visual density —
-              // matches the 2-col grid layout below.
+              const toSuggestion = (s) => {
+                const prompt = extractUtteranceFromSkill(s);
+                if (!prompt) return null;
+                return { phase: s.phase || 'ideation', prompt, agent: s.agent_name };
+              };
+              const phases = ['ideation', 'execution', 'marketing'];
+              const byPhaseSuggestions = Object.fromEntries(
+                phases.map(p => [p, (recentByPhase[p] || []).map(toSuggestion).filter(Boolean)])
+              );
+
+              let recentExamples;
+              if (selectedPhase) {
+                // Phase tile selected: show up to 6 from that phase only.
+                recentExamples = byPhaseSuggestions[selectedPhase].slice(0, 6);
+              } else {
+                // No tile selected: interleave 2 from each phase (i0, e0, m0, i1, e1, m1).
+                // If a phase has <2, top up from the remaining suggestions in order so
+                // the panel still feels full.
+                const slots = [];
+                for (let i = 0; i < 2; i++) {
+                  for (const p of phases) {
+                    if (byPhaseSuggestions[p][i]) slots.push(byPhaseSuggestions[p][i]);
+                  }
+                }
+                if (slots.length < 6) {
+                  const taken = new Set(slots);
+                  for (const p of phases) {
+                    for (const s of byPhaseSuggestions[p]) {
+                      if (slots.length >= 6) break;
+                      if (!taken.has(s)) { slots.push(s); taken.add(s); }
+                    }
+                  }
+                }
+                recentExamples = slots;
+              }
+
+              const usingRecent = recentExamples.length >= 1;
               const examples = usingRecent
-                ? phaseFiltered.slice(0, 6)
+                ? recentExamples
                 : (selectedPhase ? PHASE_EXAMPLES[selectedPhase] : DEFAULT_EXAMPLES);
               const heading = usingRecent
                 ? (selectedPhase
