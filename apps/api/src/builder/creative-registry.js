@@ -46,7 +46,7 @@ THE LANDING PAGE — the page should include the standard conversion-page anatom
   8. Final CTA + footer
 Adapt the section list to the use case (e.g. an event page might swap "pricing" for "agenda + speakers"; a SaaS page would keep pricing).
 
-VIEWPORT — design desktop-first, but make the page responsive with Tailwind utilities (`md:` and `lg:` breakpoints) so it works on mobile too. The page is shown at the live preview URL exactly as a deployed site would render — full viewport, scrollable, no fake browser chrome around it.
+VIEWPORT — design desktop-first, but make the page responsive with Tailwind utilities (\`md:\` and \`lg:\` breakpoints) so it works on mobile too. The page is shown at the live preview URL exactly as a deployed site would render — full viewport, scrollable, no fake browser chrome around it.
 
 USE TAILWIND CSS — via the official CDN, no build step needed:
 - Load Tailwind in <head>: <script src="https://cdn.tailwindcss.com"></script>
@@ -118,7 +118,7 @@ WORKFLOW:
 2. In your visible response BEFORE the first write: state (a) the design archetype (Linear/Stripe gradient | Resend/Vercel dark | Notion/Anthropic editorial | Bento showcase) and one sentence on why, (b) the chosen Google Font, (c) the 1-2 accent colors (hex), (d) the hero headline + sub-headline copy.
 3. Call search_images 1-2 times for hero/feature imagery — be specific in the query (e.g. "founder community dinner Bangalore" not "people meeting").
 4. styles.css can be SKIPPED or kept minimal (Tailwind covers utilities). Only write it if you genuinely need custom CSS for things Tailwind can't express — and never write browser-frame chrome.
-5. Write index.html — load Tailwind CDN + Google Font + tailwind.config extensions in <head>, then build the entire landing page with utility classes as a real full-viewport site (no wrapping frame, no centred backdrop). The <html> and <body> tags MUST set `margin:0` and `min-h-screen` so the page fills the preview iframe correctly.
+5. Write index.html — load Tailwind CDN + Google Font + tailwind.config extensions in <head>, then build the entire landing page with utility classes as a real full-viewport site (no wrapping frame, no centred backdrop). The <html> and <body> tags MUST set \`margin:0\` and \`min-h-screen\` so the page fills the preview iframe correctly.
 6. End with a 2-4 sentence summary of your design choices, naming the archetype and the benchmark site it most resembles.
 
 HARD RULES:
