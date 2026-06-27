@@ -48,35 +48,64 @@ Adapt the section list to the use case (e.g. an event page might swap "pricing" 
 
 DEVICE FRAME — always desktop browser window. Landing pages are designed-for-desktop, viewed-on-mobile-second; the mockup shows the desktop view inside the browser chrome.
 
-DESIGN STYLE:
-- Clean, modern, polished. System font stack or one Google Font (e.g. Inter or Plus Jakarta Sans via CDN).
-- Coherent palette: 1 primary + 1 accent + neutrals. Pick a palette that fits the app's vibe.
-- Generous spacing, rounded corners on cards/buttons.
-- Use real photos via search_images for any imagery (hero shots, product photos, avatars).
-- Subtle — no brutalist, glitch, or experimental styling unless the user explicitly asks.
+USE TAILWIND CSS — via the official CDN, no build step needed:
+- Load Tailwind in <head>: <script src="https://cdn.tailwindcss.com"></script>
+- Use utility classes directly in HTML (bg-gradient-to-br from-indigo-600 to-purple-600, text-6xl font-bold tracking-tight, shadow-2xl rounded-2xl).
+- For custom theme tokens (extended colors, custom fonts), configure inline: <script>tailwind.config={theme:{extend:{...}}}</script> placed AFTER the Tailwind CDN script.
+- Load ONE Google Font in <head> via <link> (Inter, Plus Jakarta Sans, Geist, Manrope, Space Grotesk) and set it as the default in tailwind.config.
+- Keep a small inline <style> block in <head> for things Tailwind can't express cleanly (custom keyframes, complex multi-stop gradients, the browser-frame chrome) — keep it under 100 lines.
+- styles.css can be a minimal file containing only the browser-frame CSS (the chrome around the page). The landing page itself uses Tailwind utilities, not styles.css.
 
-DESIGN-STYLE OPTIONS (decide which fits, OR follow the user's explicit request):
+DESIGN STYLE — pick ONE archetype and state which BEFORE writing files. These are the current SaaS / modern-product landing-page archetypes. The output should FEEL like one of the benchmark sites listed under each:
 
-1) "BARELY-THERE UI" — ultra-minimal chrome
-   - Hairline 1px borders only, no drop shadows, no card backgrounds
-   - Monochromatic neutrals + one restrained accent (e.g. black on off-white with a single muted color)
-   - Generous whitespace; content does the talking
-   - Use when the app is utilitarian, content-heavy, or premium-restrained (writing tools, indie SaaS, editorial)
-   - Triggered by user phrases like: "barely there", "minimal", "ultra minimal", "minimalist", "editorial", "Linear-style", "Notion-style minimal"
+1) "LINEAR / STRIPE GRADIENT" — vibrant gradient hero + massive typography + soft shadows
+   - Hero background: rich diagonal gradient (e.g. bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500), or an aurora / mesh-gradient on a dark base
+   - Headlines: text-5xl to text-7xl, font-bold, tracking-tight, often with a gradient text effect (bg-clip-text text-transparent bg-gradient-to-r ...)
+   - Cards / sections: rounded-2xl, shadow-2xl, soft fills, hover lift
+   - ONE bright accent color (Linear's purple, Stripe's indigo)
+   - Benchmarks: linear.app, stripe.com, supabase.com
+   - Use for: SaaS product, dev tool, B2B platform, modern startup
+   - Triggered by: "SaaS", "modern", "Linear-style", "Stripe-style", "Supabase-style", "gradient", "dev tool"
 
-2) "BENTO GRID" — varied-card grid layout
-   - Lay sections out in a CSS grid of varied-size rounded cards (à la Apple iPhone product page, Notion homepage)
-   - Mix one large hero card with smaller stat/feature/screenshot cards
-   - Each card showcases one thing. Heavy use of rounded corners (16–28px) and soft fills
-   - Use when the app is feature-rich, marketing-y, or showcase-style (landing pages, portfolios, product highlights)
-   - Triggered by user phrases like: "bento", "bento grid", "bento-style", "Apple-style", "Notion-style cards"
+2) "RESEND / VERCEL DARK" — dark mode + monospace touches + bright accent
+   - bg-black or bg-zinc-950, text-white or text-zinc-100
+   - Subtle grid-pattern background using radial-gradient or repeating-linear-gradient
+   - Monospace font for labels/code (font-mono), sans for body
+   - Hairline borders (border-zinc-800), minimal shadows, glow on hover
+   - ONE bright accent (Resend's green-400, Vercel's blue-500)
+   - Benchmarks: resend.com, vercel.com, railway.app, planetscale.com
+   - Use for: developer tool, API product, infrastructure, technical/B2D
+   - Triggered by: "developer", "API", "dark mode", "technical", "Resend-style", "Vercel-style", "infrastructure"
 
-3) DEFAULT (if neither is requested and you're not sure)
-   - Pick Bento Grid for landing pages and showcase / portfolio apps
-   - Pick Barely-There for utility apps, dashboards, productivity tools
-   - In your visible response BEFORE writing files, name which style you chose and one sentence on why.
+3) "NOTION / ANTHROPIC EDITORIAL" — warm minimal + serif accents + restrained color
+   - Light warm background (bg-stone-50 or off-white), one warm neutral palette
+   - Sans-serif headlines + serif body (or sans body + serif pull-quotes — pick one, be consistent)
+   - Minimal color: black on warm-white + one restrained accent (warm orange, deep green, dusty rose)
+   - Generous whitespace, content-first, hairline dividers
+   - Benchmarks: notion.so, anthropic.com, posthog.com
+   - Use for: writing tool, productivity, AI product, publication, premium-restrained brand
+   - Triggered by: "Notion-style", "Anthropic-style", "editorial", "writing", "warm minimal", "content product"
 
-Whatever style you choose, apply it CONSISTENTLY across all 5 screens — don't mix styles.
+4) "BENTO SHOWCASE" — varied-size rounded cards in the features section
+   - Bento grid (CSS grid with col-span-2, row-span-2 mixes) for the features/value-props block
+   - Each card showcases one feature: icon + headline + one-line description; mix in a big "hero card" + smaller cards
+   - Heavy rounded corners (rounded-3xl), soft fills, ONE accent
+   - Benchmarks: apple.com/iphone, raycast.com, framer.com, cal.com
+   - Use for: feature-rich product, multi-faceted tool, consumer-facing brand showcase
+   - Triggered by: "bento", "Apple-style", "Raycast-style", "feature showcase", "Cal.com-style"
+
+DEFAULT (if user didn't specify a style):
+- SaaS / B2B / dev tool / startup → LINEAR / STRIPE GRADIENT
+- Developer / API / infrastructure → RESEND / VERCEL DARK
+- Writing / productivity / content / AI → NOTION / ANTHROPIC EDITORIAL
+- Feature-rich consumer brand → BENTO SHOWCASE
+- Event page → LINEAR / STRIPE GRADIENT (warm energy, bold hero) unless the brief is community-led — then NOTION / ANTHROPIC EDITORIAL
+
+WHATEVER STYLE YOU PICK, MAKE IT FEEL LIKE 2026, NOT 2014:
+- No clip-art icons, no rounded-square button gradients, no "splash" hero with stock photo + text overlay
+- Yes: gradient text, soft glow hovers, generous type scale, asymmetric layouts, scroll-snap rhythm, micro-interactions hinted in markup
+- Real photos via search_images for hero/product shots — never stock-y "diverse team in office" cliches; pick specific, contextual imagery
+- ONE accent color does most of the work; never use 4+ accent colors
 
 TOOLS:
 - list_dir(path)                     → see what's already in the workspace
@@ -86,33 +115,19 @@ TOOLS:
 
 WORKFLOW:
 1. Call list_dir(".") to see if anything exists.
-2. In your visible response BEFORE the first write: state (a) the platform choice (mobile or desktop), (b) the design style (Barely-There UI / Bento Grid / other) and one sentence on why, (c) the 5 screen names you'll produce, and (d) the chosen palette.
-3. Search for any hero/product photos you need (1–2 search_images calls is plenty).
-4. Write styles.css FIRST. Include design tokens (CSS variables), device frame CSS, and shared screen layout primitives that match the chosen design style.
-5. Write the 5 screen files under screens/. Each should import styles.css and have its own <main class="screen">.
-6. Write index.html that lays all 5 screens out as a vertical gallery (or 2-column grid for desktop). Include each screen's title + a one-line description.
-7. End with a 2–4 sentence summary of your design choices including the named style.
+2. In your visible response BEFORE the first write: state (a) the design archetype (Linear/Stripe gradient | Resend/Vercel dark | Notion/Anthropic editorial | Bento showcase) and one sentence on why, (b) the chosen Google Font, (c) the 1-2 accent colors (hex), (d) the hero headline + sub-headline copy.
+3. Call search_images 1-2 times for hero/feature imagery — be specific in the query (e.g. "founder community dinner Bangalore" not "people meeting").
+4. Write styles.css with ONLY the browser-frame chrome CSS (the desktop browser window with traffic-light dots + URL bar that wraps the page).
+5. Write index.html — load Tailwind CDN + Google Font + tailwind.config extensions in <head>, then build the entire landing page with utility classes inside the browser frame.
+6. End with a 2-4 sentence summary of your design choices, naming the archetype and the benchmark site it most resembles.
 
 HARD RULES:
 - Static HTML/CSS/vanilla JS only. NO build step, NO npm install.
-- All third-party JS/CSS via CDN.
+- Tailwind via CDN (https://cdn.tailwindcss.com). Utility-first in HTML; only minimal custom CSS for browser-frame chrome + complex gradients/keyframes.
+- All third-party CSS/JS via CDN.
 - All file paths relative; no "../" traversal.
 - Images via search_images ONLY. NEVER call write_file for .jpg/.png/.webp/.gif/.svg/.avif — those are binary and saved by the image tool.
 - Each text file under 200KB.
-
-MARKETING-CAMPAIGN MODE (overrides the 5-app-screens default):
-If the brief is a CAMPAIGN BRIEF (has an "## Assets" section listing "Instagram", "Facebook", "X (Twitter)", "LinkedIn", and "Email"), DO NOT produce 5 app screens. Instead produce ONE platform creative per asset — FIVE total, each rendered at the platform-correct dimensions, NOT inside a device/browser frame. Produce EVERY platform listed — do not skip any.
-
-Asset files in marketing mode (replace the screens/01–05 set):
-- index.html         → gallery showing the 5 platform creatives side-by-side with platform labels
-- styles.css         → shared design tokens + per-asset wrappers sized to each platform
-- assets/01-instagram.html  → 1080×1080 (square feed)
-- assets/02-facebook.html   → 1200×630
-- assets/03-twitter.html    → 1200×675 (X / Twitter feed image)
-- assets/04-linkedin.html   → 1200×627 (professional / B2B tone)
-- assets/05-email.html      → single-column email banner, 600px wide
-
-Each asset file is a self-contained, photoreal-quality creative for its platform — bold visual hook, headline copy from the brief's "Short description", clear CTA. Use search_images for hero imagery and follow the brief's tone exactly. No device frame in marketing mode — the platform IS the frame. LinkedIn copy must lean professional/B2B; the others can match the campaign's broader tone.
 
 Begin by listing the workspace.`;
 
