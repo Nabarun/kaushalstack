@@ -71,8 +71,23 @@ export async function runAnthropicAgent({
     const tools = toAnthropicTools(TOOL_DEFINITIONS);
     const messages = [{ role: 'user', content: userMessage }];
 
+    // Cache the system prompt + tools. Both are stable across the entire run
+    // (system prompt is the agent's persona, tools are the workspace tool defs).
+    // First call pays ~25% extra for cache creation; subsequent calls read at
+    // ~10% of base input. With 20+ turns, this is a 25-35% latency + cost cut.
+    // The cache_control marker on the LAST item in `tools` extends caching to
+    // every tool def before it (Anthropic's "everything-up-to-this-mark" rule).
+    const cachedSystem = [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }];
+    const cachedTools  = tools.length > 0
+        ? [...tools.slice(0, -1), { ...tools[tools.length - 1], cache_control: { type: 'ephemeral' } }]
+        : tools;
+
     const trace = [];
     let finalText = '';
+    let cacheCreateTokens = 0;
+    let cacheReadTokens   = 0;
+    let inputTokens       = 0;
+    let outputTokens      = 0;
 
     for (let turn = 0; turn < maxTurns; turn++) {
         const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -85,8 +100,8 @@ export async function runAnthropicAgent({
             body: JSON.stringify({
                 model,
                 max_tokens: MAX_TOKENS,
-                system: systemPrompt,
-                tools,
+                system: cachedSystem,
+                tools: cachedTools,
                 messages,
             }),
         });
@@ -99,6 +114,12 @@ export async function runAnthropicAgent({
         const data = await r.json();
         const blocks = data.content || [];
         const stopReason = data.stop_reason;
+        // Accumulate cache + usage telemetry so we can verify cache is actually hitting.
+        const usage = data.usage || {};
+        cacheCreateTokens += usage.cache_creation_input_tokens || 0;
+        cacheReadTokens   += usage.cache_read_input_tokens     || 0;
+        inputTokens       += usage.input_tokens                || 0;
+        outputTokens      += usage.output_tokens               || 0;
 
         // Push the assistant message into history so any tool_result we add
         // next references it correctly.
@@ -141,6 +162,10 @@ export async function runAnthropicAgent({
         trace.push({ turn: maxTurns, kind: 'truncated' });
     }
 
-    logger.info(`anthropic-agent: session=${sessionId} model=${model} turns=${trace.length} tools=${trace.filter(t => t.kind === 'tool').length}`);
+    // Cache-hit ratio = cache_read / (cache_read + cache_create + uncached input).
+    // First turn always misses; turns 2..N should be ~100% if caching works.
+    const totalInput = cacheReadTokens + cacheCreateTokens + inputTokens;
+    const cacheHitPct = totalInput > 0 ? Math.round((cacheReadTokens / totalInput) * 100) : 0;
+    logger.info(`anthropic-agent: session=${sessionId} model=${model} turns=${trace.length} tools=${trace.filter(t => t.kind === 'tool').length} cache_hit=${cacheHitPct}% (read=${cacheReadTokens} create=${cacheCreateTokens} fresh_in=${inputTokens} out=${outputTokens})`);
     return { final: finalText, trace };
 }
