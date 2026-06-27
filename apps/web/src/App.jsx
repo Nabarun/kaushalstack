@@ -71,21 +71,28 @@ function App() {
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
               <Route path="/contact" element={<ContactPage />} />
-              <Route path="/growth-partner" element={<GrowthPartnerPage />} />
+              <Route
+                path="/growth-partner"
+                element={
+                  <AdminProtectedRoute>
+                    <GrowthPartnerPage />
+                  </AdminProtectedRoute>
+                }
+              />
               <Route
                 path="/growth-partner/:id"
                 element={
-                  <ProtectedRoute>
+                  <AdminProtectedRoute>
                     <GrowthBusinessDetailPage />
-                  </ProtectedRoute>
+                  </AdminProtectedRoute>
                 }
               />
               <Route
                 path="/growth-partner/reports/:id"
                 element={
-                  <ProtectedRoute>
+                  <AdminProtectedRoute>
                     <GrowthReportDetailPage />
-                  </ProtectedRoute>
+                  </AdminProtectedRoute>
                 }
               />
               <Route

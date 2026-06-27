@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import Logo from '@/components/Logo.jsx';
 import NotificationBell from '@/components/NotificationBell.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
+import { useAdminAuth } from '@/contexts/AdminAuthContext.jsx';
 import pb from '@/lib/pocketbaseClient';
 
 const Header = () => {
@@ -13,6 +14,7 @@ const Header = () => {
   const [pendingCount, setPendingCount] = useState(0);
   const location = useLocation();
   const { isAuthenticated, logout, currentUser } = useAuth();
+  const { isAdminAuthenticated } = useAdminAuth();
 
   useEffect(() => {
     if (!isAuthenticated) { setPendingCount(0); return; }
@@ -28,10 +30,13 @@ const Header = () => {
     { name: 'Skills', path: '/skills' },
     { name: 'Leaderboard', path: '/leaderboard' },
     { name: 'Members', path: '/members' },
-    { name: 'Growth Partner', path: '/growth-partner' },
+    // Growth Partner is admin-only — appended below if the admin session is active
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
+  if (isAdminAuthenticated) {
+    navLinks.splice(4, 0, { name: 'Growth Partner', path: '/growth-partner' });
+  }
 
   const isActive = (path) => location.pathname === path;
 
