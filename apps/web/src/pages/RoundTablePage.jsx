@@ -18,6 +18,18 @@ const HOSTINGER_SKILL_ID = 'hostingerdeploy';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
 import CreativePipeline from '@/components/CreativePipeline';
+import ReactMarkdown from 'react-markdown';
+
+// Dark-theme markdown components for agent responses (bullet points + bold).
+// Defined once so both render sites share identical styling.
+const AGENT_MD_COMPONENTS = {
+  ul: ({ node, ...props }) => <ul style={{ paddingLeft: 20, marginTop: 6, marginBottom: 6, listStyle: 'disc' }} {...props} />,
+  ol: ({ node, ...props }) => <ol style={{ paddingLeft: 20, marginTop: 6, marginBottom: 6 }} {...props} />,
+  li: ({ node, ...props }) => <li style={{ marginBottom: 4 }} {...props} />,
+  strong: ({ node, ...props }) => <strong style={{ color: '#f0f2f8', fontWeight: 700 }} {...props} />,
+  p: ({ node, ...props }) => <p style={{ marginTop: 4, marginBottom: 8 }} {...props} />,
+  code: ({ node, ...props }) => <code style={{ background: '#1a1d27', padding: '1px 5px', borderRadius: 3, fontSize: '0.9em' }} {...props} />,
+};
 
 // 10-slot palette so teams of 6 (hex viz) and 7–10 (grid viz) both have
 // distinct colors per slot. Slots 0–5 are the originals so existing screens
@@ -1942,9 +1954,11 @@ export default function RoundTablePage() {
                         </div>
                       </div>
                     </div>
-                    <p style={{ fontSize: 14, color: '#c8ccd8', lineHeight: 1.8, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                      {focusedResponse.text}
-                    </p>
+                    <div style={{ fontSize: 14, color: '#c8ccd8', lineHeight: 1.7 }}>
+                      <ReactMarkdown components={AGENT_MD_COMPONENTS}>
+                        {focusedResponse.text}
+                      </ReactMarkdown>
+                    </div>
 
                     {/* 1:1 follow-up thread with this specific agent. The
                         toggle button opens an inline chat below the response;
@@ -2034,12 +2048,18 @@ export default function RoundTablePage() {
                                   fontSize: 12.5,
                                   color: '#c8ccd8',
                                   lineHeight: 1.6,
-                                  whiteSpace: 'pre-wrap',
+                                  whiteSpace: t.role === 'user' ? 'pre-wrap' : 'normal',
                                 }}>
                                   <div style={{ fontSize: 9, color: t.role === 'user' ? '#5a607a' : focusedColor, fontFamily: 'monospace', marginBottom: 3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                                     {t.role === 'user' ? 'You' : agentName}
                                   </div>
-                                  {t.text}
+                                  {t.role === 'user' ? (
+                                    t.text
+                                  ) : (
+                                    <ReactMarkdown components={AGENT_MD_COMPONENTS}>
+                                      {t.text}
+                                    </ReactMarkdown>
+                                  )}
                                 </div>
                               ))}
                             </div>

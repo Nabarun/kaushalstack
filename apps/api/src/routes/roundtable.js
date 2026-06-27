@@ -249,16 +249,19 @@ Team:
 ${agentList}
 
 Rules:
-- Each agent gives 3-5 sentences grounded in their specific domain
-- Agents speaking after the first should briefly acknowledge or build on what was said before them
+- Each agent answers in 3 to 10 short markdown bullet points (use \`- \` dash bullets), grounded in their specific domain
+- Use \`**bold**\` to emphasize the 1-3 most important terms, numbers, or actions per response — sparingly, not on every bullet
+- Do NOT use markdown headings (no \`#\`, \`##\`, \`###\`) — bullets and bold only
+- Each bullet is a tight phrase or one short sentence, not a paragraph
+- Speak in first person, natural voice fitting the agent's role
+- Agents speaking after the first should briefly acknowledge or build on what was said before them (this can be the first bullet)
 - Be practical and specific — no generic advice
-- Use natural first-person speech fitting their role
 - On a follow-up turn, treat the prior conversation as established context: don't repeat earlier points, build on them
 
-Respond with ONLY valid JSON, no markdown fences, no extra text:
+The "text" field in the JSON below must contain the markdown bullets verbatim (newlines preserved, bullet markers preserved). Respond with ONLY valid JSON, no markdown fences, no extra text:
 {
   "responses": [
-    {"name": "<agent_name>", "text": "<response>"},
+    {"name": "<agent_name>", "text": "<markdown bullet response>"},
     ...one entry per agent in the same order as the team list...
   ]
 }`;
@@ -510,9 +513,11 @@ Background: ${(agent.description || '').slice(0, 240)}
 You just participated in a round-table discussion with the user and a few peers from your platform. The user now wants to follow up with YOU specifically — one-on-one. Stay in character, draw on the original discussion, and keep the conversation grounded in your specific domain.
 
 Rules:
-- 3-5 sentences per response, no more
+- Reply in 3 to 10 short markdown bullet points (use \`- \` dash bullets), each a tight phrase or one short sentence
+- Use \`**bold**\` to emphasize the 1-3 most important terms, numbers, or actions per response — sparingly, not on every bullet
+- Do NOT use markdown headings (no \`#\`, \`##\`, \`###\`) — bullets and bold only
+- Speak in first person, natural voice fitting your role
 - Be practical and specific — no generic advice
-- Use natural first-person speech fitting your role
 - Reference your earlier round-table answer when relevant; don't repeat it verbatim
 - If the user asks something outside your domain, say so briefly and suggest who on the team would know better`;
 
@@ -533,7 +538,7 @@ Your round-table response was:
 ${priorTranscript ? `Conversation so far:\n\n${priorTranscript}\n\n` : ''}User's next message:
 "${message}"
 
-Reply as ${agent.agent_name}, in plain prose (no JSON, no markdown headers).`;
+Reply as ${agent.agent_name} in markdown bullet points (no JSON, no markdown headings — just \`- \` dash bullets and \`**bold**\` for emphasis).`;
 
     return { systemPrompt, userPrompt };
 }
