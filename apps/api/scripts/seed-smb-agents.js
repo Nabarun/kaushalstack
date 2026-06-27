@@ -51,10 +51,12 @@ async function seedOne(file) {
 
     if (!p.agent_name) throw new Error(`${file}: missing agent_name`);
 
-    // Idempotency
+    // Idempotency by skill name — agent_name is a persona slot that can own
+    // multiple skills, so two different SMB skills owned by different personas
+    // is fine; the same skill name twice is not.
     try {
         const existing = await pb.collection('skills').getFirstListItem(
-            `agent_name="${p.agent_name}"`
+            `name="${p.name.replace(/"/g, '\\"')}"`
         );
         return { file, agent_name: p.agent_name, status: 'skipped', id: existing.id };
     } catch (e) {
