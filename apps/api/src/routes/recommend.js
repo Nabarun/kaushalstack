@@ -142,13 +142,19 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // below the chat). Kavya (email) and Tara (social) remain pinnable
     // because they still benefit from round-table input on tone/audience.
     const pins = [];
-    // Kavya pins for marketing-phase email-shaped queries.
-    if (phase === 'marketing' && isEmailCampaignQuery(query)) {
+    // Kavya / Tara pins fire when the marketing phase tile is selected OR no
+    // tile is selected (phase == null). If the user has explicitly picked a
+    // non-marketing phase (ideation / execution), respect that and don't pin
+    // — they probably don't want a marketing specialist crashing the team.
+    const phaseAllowsMarketingPins = (phase === 'marketing' || phase == null);
+
+    // Kavya pins for email-shaped queries.
+    if (phaseAllowsMarketingPins && isEmailCampaignQuery(query)) {
         const kavya = scored.find(s => s.id === KAVYA_SKILL_ID) || getSkillById(KAVYA_SKILL_ID);
         if (kavya) pins.push(kavya);
     }
-    // Tara pins for marketing-phase social-media queries.
-    if (phase === 'marketing' && isSocialMediaQuery(query)) {
+    // Tara pins for social-media queries (Instagram / LinkedIn / Facebook / etc.).
+    if (phaseAllowsMarketingPins && isSocialMediaQuery(query)) {
         const tara = scored.find(s => s.id === TARA_SKILL_ID) || getSkillById(TARA_SKILL_ID);
         if (tara) pins.push(tara);
     }
