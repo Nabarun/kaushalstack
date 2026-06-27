@@ -465,10 +465,10 @@ function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress, l
     <>
       <Tag color={accent}>Maya can design this</Tag>
       <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
-        Generate 5 device-framed HTML mockups so you can see the screens before anything ships.
+        Generate one polished landing page in a desktop browser frame — full conversion-page anatomy (hero, social proof, features, CTAs) — so you can see the page before anything ships.
       </div>
       <button onClick={triggerMockup} style={btn(accent)}>
-        <Palette style={{ width: 14, height: 14 }} /> Design Mockups
+        <Palette style={{ width: 14, height: 14 }} /> Design Landing Page
       </button>
     </>
   );

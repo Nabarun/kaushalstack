@@ -7,9 +7,9 @@ import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircl
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
 //   Ananya — full-stack web build
-//   Maya   — 5 device-framed HTML mockups
+//   Maya   — 1 landing page (desktop browser frame)
 //   Kavya  — HTML email campaign + Gmail-frame preview
-//   Tara   — platform-native social posts + per-platform chrome
+//   Tara   — platform-native social posts (Instagram + Facebook + LinkedIn + X, in parallel)
 const ANANYA_SKILL_ID    = '0v9syxxawznp95v';
 const MAYA_SKILL_ID      = 'uepji0o2teuf29b';
 const KAVYA_SKILL_ID     = 'ip1bvcutzgsy28p';
@@ -2294,7 +2294,7 @@ export default function RoundTablePage() {
                 if (!allResponsesIn || loading) return null;
                 const members = [
                   { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',   accent: '#9b6cf0', theme: 'warm' },
-                  { key: 'maya',      name: 'Maya',      role: 'UX Designer',     accent: '#b07ef8', theme: 'warm' },
+                  { key: 'maya',      name: 'Maya',      role: 'Landing Page Designer', accent: '#b07ef8', theme: 'warm' },
                   { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',    accent: '#5b8dee', theme: 'warm' },
                   { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer', accent: '#9b6cf0', theme: 'cool' },
                 ];
@@ -2368,10 +2368,10 @@ export default function RoundTablePage() {
                     Icon={Megaphone}
                     label="Social"
                     idleHeadline="Round table done · Tara can post this"
-                    idleBlurb="Generate platform-native posts (Instagram, Facebook, LinkedIn, X) rendered inside each platform's UI chrome with captions, hashtags, and asset specs."
-                    idleCta="Design Social Posts"
-                    runningHeadline="Tara is composing…"
-                    runningBlurb="Picking platforms, drafting captions, fetching photos, rendering platform chrome. 1–2 minutes."
+                    idleBlurb="Generate all four platforms in parallel — Instagram, Facebook, LinkedIn, and X — each rendered inside its own platform UI chrome with captions, hashtags, and asset specs."
+                    idleCta="Design 4-platform campaign"
+                    runningHeadline="Tara is composing across 4 platforms…"
+                    runningBlurb="Drafting captions for IG, FB, LinkedIn, and X in parallel; fetching shared hero photos; rendering per-platform chrome. 2–3 minutes."
                     doneLabel="Posts ready"
                     onTrigger={triggerSocial}
                   />
