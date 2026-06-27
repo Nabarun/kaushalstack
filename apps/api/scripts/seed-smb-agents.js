@@ -72,6 +72,7 @@ async function seedOne(file) {
         difficulty_level: p.difficulty_level,
         agent_name: p.agent_name,
         associated_tech_skills: p.associated_tech_skills,
+        created_by: 'system',
         likes_count: 0,
         comments_count: 0,
     });
@@ -95,7 +96,9 @@ async function seedOne(file) {
             console.log(`[${r.status.padEnd(18)}] ${r.agent_name.padEnd(10)} → ${r.id}`);
             results.push(r);
         } catch (e) {
+            const detail = e?.response?.data || e?.data || e?.originalError?.data || null;
             console.error(`[FAILED] ${f}: ${e.message}`);
+            if (detail) console.error('       detail:', JSON.stringify(detail, null, 2));
             results.push({ file: f, status: 'failed', error: e.message });
         }
     }
