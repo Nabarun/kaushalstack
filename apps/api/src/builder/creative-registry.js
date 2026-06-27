@@ -367,7 +367,10 @@ export const CREATIVE_AGENTS = {
         userIntro:            'Design mockups for',
         openaiModel:          'gpt-4o',
         anthropicModel:       'claude-3-5-sonnet-latest',
-        maxTurns:             28,
+        // Bumped 28 → 36: with Tailwind CDN + inline tailwind.config + a single
+        // bigger index.html, Maya is now writing fewer files but each turn does
+        // more reasoning. Headroom for retries on long landing-page sections.
+        maxTurns:             36,
         ingestsDesignSession: false,
         producesDesignBrief:  true,             // her result carries styles+screen text so Ananya can inherit it even after the workspace expires
     },
@@ -386,7 +389,11 @@ export const CREATIVE_AGENTS = {
         userIntro:            'Design the social campaign for',
         openaiModel:          'gpt-4o',
         anthropicModel:       'claude-3-5-sonnet-latest',
-        maxTurns:             28,
+        // Bumped 28 → 44: she now produces 4 platforms × ~3 files each (12 writes)
+        // + 1 search_images + 2 synthesize_voice (Reel + X video) + styles.css +
+        // index.html gallery + planning + summary ≈ 20 floor. +20 buffer for
+        // retries and the occasional tool-error walk-back.
+        maxTurns:             44,
         ingestsDesignSession: false,
     },
 };
