@@ -4,6 +4,8 @@ import { listDir, readFile, writeFile, safeResolve } from './workspace.js';
 import { ensureCache, refreshCache, getSkillByAgentName } from '../embeddings/cache.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
+const OPENAI_KEY   = process.env.OPENAI_API_KEY;
+const VALID_TTS_VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
 
 // Ask another KaushalStack agent for guidance. The consulted agent's skill
 // description (its playbook, distilled from real tutorials) becomes the
@@ -104,6 +106,49 @@ async function searchAndSaveImages(sessionId, query, count = 3) {
     return { images: saved };
 }
 
+// Synthesize a voice-over via OpenAI TTS and save it as an mp3 in the
+// session workspace under assets/. Returns the local path so the agent can
+// drop it into an <audio src="..."> tag. Used by Tara for Reels/Stories/X-video
+// posts where audio is part of the deliverable.
+async function synthesizeVoice(sessionId, script, filename, voice = 'nova', speed = 1.0) {
+    if (!OPENAI_KEY) {
+        return { error: 'OPENAI_API_KEY not configured on server; voice synthesis unavailable.' };
+    }
+    const text = String(script || '').trim();
+    if (!text) return { error: 'script is required' };
+    if (text.length > 4000) return { error: 'script too long (max 4000 chars per TTS call)' };
+    const v = VALID_TTS_VOICES.has(voice) ? voice : 'nova';
+    const sp = Math.max(0.5, Math.min(parseFloat(speed) || 1.0, 1.5));
+
+    const fname = String(filename || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 60) || 'voiceover';
+    const cleanName = fname.endsWith('.mp3') ? fname : `${fname}.mp3`;
+    const relPath = `assets/${cleanName}`;
+
+    const r = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENAI_KEY}`,
+        },
+        body: JSON.stringify({ model: 'tts-1-hd', voice: v, input: text, speed: sp }),
+    });
+    if (!r.ok) {
+        const body = (await r.text()).slice(0, 200);
+        return { error: `OpenAI TTS returned ${r.status}: ${body}` };
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    const abs = await safeResolve(sessionId, relPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, buf);
+    return {
+        path: relPath,
+        voice: v,
+        bytes: buf.length,
+        approx_duration_seconds: Math.round(text.length / 14),  // ~14 chars/sec for nova at speed=1.0
+        embed_hint: `<audio controls src="${relPath}"></audio>`,
+    };
+}
+
 // OpenAI tool definitions (function calling schema). When we add Anthropic
 // support later, the dispatcher will translate from this shape.
 export const TOOL_DEFINITIONS = [
@@ -165,6 +210,23 @@ export const TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'synthesize_voice',
+            description: 'Generate a voice-over via OpenAI TTS (tts-1-hd) and save it as an mp3 in the workspace under assets/. Returns the local path you can drop into <audio src="..." controls></audio>. Use for Reel scripts, Story narration, X video captions, or any post format that benefits from spoken audio. Pick voice "nova" (default, energetic female) for upbeat marketing, "onyx" (deep male) for authoritative, "alloy" (neutral) for explainer, "fable" (British warm) for storytelling, "echo" or "shimmer" for variety.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    script:   { type: 'string', description: 'The script to speak. Keep under 1500 chars (about 60 seconds at speed=1.0). Write spelled-out phrases for URLs (e.g. "mela ventures dot in slash foundr p w r"), abbreviations, and punctuation that should pause.' },
+                    filename: { type: 'string', description: 'Filename without extension (will be saved as assets/<filename>.mp3). E.g. "voiceover-instagram-reel" or "voiceover-x-video".' },
+                    voice:    { type: 'string', description: 'Voice id: alloy | echo | fable | onyx | nova | shimmer. Default "nova".' },
+                    speed:    { type: 'number', description: 'Playback speed multiplier 0.5-1.5. Default 1.0.' },
+                },
+                required: ['script', 'filename'],
+            },
+        },
+    },
 ];
 
 // Not in TOOL_DEFINITIONS — only agents whose registry row opts in (currently
@@ -211,6 +273,10 @@ export async function executeTool(sessionId, name, args) {
         }
         if (name === 'search_images') {
             const r = await searchAndSaveImages(sessionId, args.query, args.count);
+            return JSON.stringify(r);
+        }
+        if (name === 'synthesize_voice') {
+            const r = await synthesizeVoice(sessionId, args.script, args.filename, args.voice, args.speed);
             return JSON.stringify(r);
         }
         if (name === 'consult_agent') {

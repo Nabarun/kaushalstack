@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Helmet } from 'react-helmet';
-import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette, Paperclip, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircle2, AlertCircle, Eye, Mail, Megaphone, X, Search, UserPlus, Sparkles, Palette, Paperclip, Loader2, Volume2, Pause } from 'lucide-react';
 
 // Tool-using agents — when their skill is in the active chat's team, the
 // matching CTA panel renders.
@@ -335,6 +335,13 @@ export default function RoundTablePage() {
   const [activeIdx, setActiveIdx]   = useState(-1);
   const [loading, setLoading]       = useState(false);
   const [focusedIdx, setFocusedIdx] = useState(0);
+  // TTS "speak this" button state — one shared audio element so switching
+  // agents stops the previous voice-over. tag = `${role}:${agentName}` so we
+  // can highlight whichever button is currently playing/loading.
+  const [ttsTag, setTtsTag]       = useState(null);   // which message is active
+  const [ttsState, setTtsState]   = useState('idle'); // 'idle' | 'loading' | 'playing'
+  const ttsAudioRef               = useRef(null);
+  const ttsObjectUrlRef           = useRef(null);
   const [remaining, setRemaining]   = useState(null);
   const [limitReached, setLimitReached] = useState(false);
   const [limitReason, setLimitReason]   = useState('limit_reached');
@@ -686,6 +693,68 @@ export default function RoundTablePage() {
       setSpec(s => ({ ...s, status: 'error', error: err.message }));
     }
   }
+
+  // ── TTS "speak this" — per-agent-response voice-over via /api/tts.
+  //
+  // Single shared audio element (ttsAudioRef): clicking speak on another
+  // message stops the previous one. Same tag clicked twice = toggle play/pause.
+  // The /api/tts route caches identical (text+voice) inputs server-side, so
+  // re-clicking the same message is instant + free after the first request.
+  async function toggleSpeak(tag, text) {
+    if (!text?.trim()) return;
+    const audio = ttsAudioRef.current;
+    if (!audio) return;
+
+    // Same tag clicked while playing → pause. Same tag while paused → resume.
+    if (ttsTag === tag) {
+      if (ttsState === 'playing') {
+        audio.pause();
+        setTtsState('idle');
+      } else if (ttsState === 'idle' && audio.src) {
+        audio.play().catch(() => {});
+        setTtsState('playing');
+      }
+      return;
+    }
+
+    // New tag → stop current, fetch new, play
+    audio.pause();
+    if (ttsObjectUrlRef.current) {
+      URL.revokeObjectURL(ttsObjectUrlRef.current);
+      ttsObjectUrlRef.current = null;
+    }
+    setTtsTag(tag);
+    setTtsState('loading');
+    try {
+      const r = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 4000), voice: 'nova' }),
+      });
+      if (!r.ok) throw new Error(`tts ${r.status}`);
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      ttsObjectUrlRef.current = url;
+      audio.src = url;
+      audio.onended = () => setTtsState('idle');
+      await audio.play();
+      setTtsState('playing');
+    } catch (err) {
+      console.error('tts failed:', err);
+      setTtsState('idle');
+      setTtsTag(null);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount: revoke any pending object URL.
+      if (ttsObjectUrlRef.current) {
+        URL.revokeObjectURL(ttsObjectUrlRef.current);
+        ttsObjectUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Per-agent 1:1 thread: send the user's message to the backend, append the
   // resulting transcript onto both the active chat object and the cached
@@ -1945,7 +2014,7 @@ export default function RoundTablePage() {
                       <img src={avatarUrl(focusedAgent?.agent_name || focusedResponse.name)}
                         alt={focusedResponse.name}
                         style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${focusedColor}44` }} />
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: focusedColor, letterSpacing: '0.02em' }}>
                           {focusedResponse.name}
                         </div>
@@ -1953,7 +2022,54 @@ export default function RoundTablePage() {
                           {focusedAgent?.category || ''}{focusedAgent?.name ? ` · ${focusedAgent.name}` : ''}
                         </div>
                       </div>
+                      {/* Speak button — TTS the response via /api/tts. Same audio
+                          element gets reused across agents; clicking another
+                          agent's button stops the previous one. */}
+                      {(() => {
+                        const tag = `rt:${focusedResponse.name}:${focusedIdx}`;
+                        const isThis = ttsTag === tag;
+                        const isLoading = isThis && ttsState === 'loading';
+                        const isPlaying = isThis && ttsState === 'playing';
+                        return (
+                          <button
+                            onClick={() => toggleSpeak(tag, focusedResponse.text)}
+                            disabled={isLoading}
+                            title={isPlaying ? 'Pause' : isLoading ? 'Generating audio…' : `Listen to ${focusedResponse.name}`}
+                            style={{
+                              background: isPlaying ? `${focusedColor}22` : 'transparent',
+                              border: `1px solid ${isPlaying ? focusedColor : '#1e2130'}`,
+                              borderRadius: 8,
+                              padding: '6px 10px',
+                              color: isPlaying ? focusedColor : '#8a91a8',
+                              cursor: isLoading ? 'wait' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              letterSpacing: '0.04em',
+                              textTransform: 'uppercase',
+                              fontFamily: 'monospace',
+                            }}
+                          >
+                            {isLoading ? (
+                              <Loader2 style={{ width: 13, height: 13 }} className="animate-spin" />
+                            ) : isPlaying ? (
+                              <Pause style={{ width: 13, height: 13 }} />
+                            ) : (
+                              <Volume2 style={{ width: 13, height: 13 }} />
+                            )}
+                            {isLoading ? 'Loading' : isPlaying ? 'Pause' : 'Listen'}
+                          </button>
+                        );
+                      })()}
                     </div>
+                    {/* Hidden audio element shared by every speak button on this page. */}
+                    <audio ref={ttsAudioRef} preload="none" style={{ display: 'none' }} />
+                    {/* Inline keyframe for the loader spinner — Tailwind's animate-spin
+                        relies on a class that may not be active on this page; provide
+                        a fallback styled keyframe via CSS. */}
+                    <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
                     <div style={{ fontSize: 14, color: '#c8ccd8', lineHeight: 1.7 }}>
                       <ReactMarkdown components={AGENT_MD_COMPONENTS}>
                         {focusedResponse.text}

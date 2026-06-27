@@ -307,6 +307,7 @@ TOOLS:
 - read_file(path)                    → read an existing file before modifying
 - write_file(path, contents)         → text files only (HTML, CSS, JSON, plain text). NEVER for images.
 - search_images(query, count)        → downloads photos into assets/, returns paths. MANDATORY — call this at least once at the start of the workflow. The returned paths are then reused as the hero/product image across all four platforms. Without this, posts have no imagery and look broken.
+- synthesize_voice(script, filename, voice?, speed?) → generates a TTS voice-over via OpenAI tts-1-hd, saves an mp3 in assets/, returns the local path. MANDATORY for IG Reel, IG Story, and X video posts — those formats are dead without audio. Pick voice "nova" (default, energetic female) for upbeat campaign, "onyx" (deep male) for authoritative B2B, "alloy" (neutral) for explainer. Keep scripts under 60 seconds (~150 words). Spell out URLs in the script (e.g. "mela ventures dot in slash foundr p w r"). Embed in HTML with: <audio controls autoplay src="assets/voiceover-instagram-reel.mp3"></audio>
 
 WORKFLOW:
 1. Call list_dir(".") to see if anything exists.
@@ -326,10 +327,12 @@ CAPTION / HASHTAG RULES (per platform):
 - LINKEDIN: 1300–2000 chars sweet spot. First 150 chars visible before "see more" — open with a hook. Hashtags: 3–5 at the end. No emojis-as-bullets — use line breaks.
 - X / TWITTER: 280 chars per tweet, strictly. Threads: hook in tweet 1, then 4 tweets of payoff. Hashtags: 1–2 max in the final tweet. NO hashtags in the hook tweet — looks spammy.
 
-REELS / STORIES SPECIFIC (when those formats are requested):
+REELS / STORIES / X-VIDEO SPECIFIC (when those formats are produced):
 - Always include a "first-3-seconds hook" line at the top of caption.txt, written as actual script copy (e.g. "We almost shut this down last month." — not "[insert hook here]")
 - Cover frame must show the hook text overlaid on the image (use a contrasting text block at top or bottom)
-- For reels meta.json: include "audio_suggestion" with one trending or owned-audio idea + "recommended_length_seconds"
+- **MANDATORY: Generate a TTS voice-over** via synthesize_voice for each Reel/Story/X-video post. Write a 25-50 second script (about 60-150 words) that opens with the hook and ends with a call-to-action. Save as assets/voiceover-<platform>-<format>.mp3 (e.g. voiceover-instagram-reel.mp3, voiceover-x-thread.mp3).
+- Embed the generated audio in the post HTML with: <audio controls autoplay src="assets/voiceover-<platform>-<format>.mp3" style="width: 100%; margin-top: 12px;"></audio>
+- For reels meta.json: include "audio_suggestion" (the trending-track idea OR "voice-over (assets/voiceover-...mp3)"), "voiceover_script" (the actual TTS script text), "voiceover_voice" (which OpenAI voice you used), and "recommended_length_seconds"
 
 HARD RULES:
 - Static HTML/CSS/vanilla JS only.
