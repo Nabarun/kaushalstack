@@ -38,24 +38,24 @@ export default function AdminLoginPage() {
     return (
         <>
             <Helmet><title>Admin Sign-In · KaushalStack</title></Helmet>
-            <div className="min-h-screen flex items-center justify-center bg-zinc-950 text-zinc-100 px-4">
-                <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+            <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
+                <Card className="w-full max-w-md bg-card border">
                     <CardHeader className="text-center">
-                        <div className="mx-auto w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mb-2">
-                            <Shield className="w-6 h-6 text-zinc-300" />
+                        <div className="mx-auto w-12 h-12 rounded-full bg-accent flex items-center justify-center mb-2">
+                            <Shield className="w-6 h-6 text-foreground" />
                         </div>
                         <CardTitle className="text-2xl">Admin Console</CardTitle>
-                        <CardDescription className="text-zinc-400">Restricted area · admin accounts only</CardDescription>
+                        <CardDescription className="text-muted-foreground">Restricted area · admin accounts only</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={onSubmit} className="space-y-4">
                             <div>
                                 <Label htmlFor="email">Email</Label>
-                                <Input id="email" type="email" required value={email} onChange={e => setEmail(e.target.value)} className="bg-zinc-950 border-zinc-800 text-zinc-100" />
+                                <Input id="email" type="email" required value={email} onChange={e => setEmail(e.target.value)} className="bg-background border text-foreground" />
                             </div>
                             <div>
                                 <Label htmlFor="password">Password</Label>
-                                <Input id="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className="bg-zinc-950 border-zinc-800 text-zinc-100" />
+                                <Input id="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className="bg-background border text-foreground" />
                             </div>
                             <Button type="submit" className="w-full" disabled={submitting}>
                                 {submitting ? 'Signing in…' : 'Sign in'}

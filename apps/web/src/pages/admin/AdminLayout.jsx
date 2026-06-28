@@ -14,12 +14,12 @@ export default function AdminLayout() {
 
     const linkClass = ({ isActive }) =>
         `flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-            isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+            isActive ? 'bg-accent text-white' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
         }`;
 
     return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 flex">
-            <aside className="w-60 border-r border-zinc-800 bg-zinc-900/40 p-4 flex flex-col print:hidden">
+        <div className="min-h-screen bg-background text-foreground flex">
+            <aside className="w-60 border-r border bg-card p-4 flex flex-col print:hidden">
                 <Link to="/admin/businesses" className="flex items-center gap-2 mb-6">
                     <Shield className="w-5 h-5" />
                     <span className="font-semibold">Admin</span>
@@ -29,11 +29,11 @@ export default function AdminLayout() {
                         <Briefcase className="w-4 h-4" /> Businesses
                     </NavLink>
                 </nav>
-                <div className="border-t border-zinc-800 pt-3 mt-3">
-                    <div className="text-xs text-zinc-500 px-3 mb-2 truncate">{adminUser?.email || ''}</div>
+                <div className="border-t border pt-3 mt-3">
+                    <div className="text-xs text-muted-foreground px-3 mb-2 truncate">{adminUser?.email || ''}</div>
                     <button
                         onClick={onLogout}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
                     >
                         <LogOut className="w-4 h-4" /> Sign out
                     </button>

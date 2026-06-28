@@ -136,21 +136,21 @@ export default function BusinessDetailPage() {
         }
     };
 
-    if (loading) return <p className="text-zinc-400">Loading…</p>;
-    if (!business) return <p className="text-zinc-400">Not found.</p>;
+    if (loading) return <p className="text-muted-foreground">Loading…</p>;
+    if (!business) return <p className="text-muted-foreground">Not found.</p>;
 
     return (
         <>
             <Helmet><title>{business.name} · Admin</title></Helmet>
             <div className="mb-6">
-                <Link to="/admin/businesses" className="text-sm text-zinc-400 hover:text-white inline-flex items-center gap-1">
+                <Link to="/admin/businesses" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
                     <ArrowLeft className="w-4 h-4" /> Businesses
                 </Link>
                 <div className="flex items-center justify-between mt-2">
                     <h1 className="text-2xl font-semibold">{name || business.name}</h1>
                     <div className="flex gap-2">
-                        <Button variant="ghost" onClick={load} className="text-zinc-300"><RefreshCw className="w-4 h-4 mr-1" /> Reload</Button>
-                        <Button onClick={onRunNow} disabled={running} className="bg-zinc-800 hover:bg-zinc-700">
+                        <Button variant="ghost" onClick={load} className="text-foreground"><RefreshCw className="w-4 h-4 mr-1" /> Reload</Button>
+                        <Button onClick={onRunNow} disabled={running} className="bg-accent hover:bg-accent/80">
                             <Play className="w-4 h-4 mr-1" /> {running ? 'Running…' : 'Run report now'}
                         </Button>
                         <Button onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
@@ -159,16 +159,16 @@ export default function BusinessDetailPage() {
             </div>
 
             <div className="grid lg:grid-cols-2 gap-4">
-                <Card className="bg-zinc-900 border-zinc-800">
+                <Card className="bg-card border">
                     <CardHeader><CardTitle className="text-base">Basics</CardTitle></CardHeader>
                     <CardContent className="space-y-3">
-                        <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} className="bg-zinc-950 border-zinc-800" /></div>
-                        <div><Label>Website URL</Label><Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} className="bg-zinc-950 border-zinc-800" /></div>
-                        <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} className="bg-zinc-950 border-zinc-800 min-h-[80px]" /></div>
+                        <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} className="bg-background border" /></div>
+                        <div><Label>Website URL</Label><Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} className="bg-background border" /></div>
+                        <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} className="bg-background border min-h-[80px]" /></div>
                         <div className="flex items-center gap-4">
                             <div className="flex-1">
                                 <Label>Daily run hour (UTC)</Label>
-                                <select value={scheduleHour} onChange={e => setScheduleHour(Number(e.target.value))} className="w-full mt-1 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm">
+                                <select value={scheduleHour} onChange={e => setScheduleHour(Number(e.target.value))} className="w-full mt-1 bg-background border border rounded-md px-3 py-2 text-sm">
                                     {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
                                 </select>
                             </div>
@@ -179,32 +179,32 @@ export default function BusinessDetailPage() {
                         </div>
                         <div>
                             <Label>Monthly revenue ($, optional)</Label>
-                            <Input type="number" min="0" placeholder="e.g. 25000" value={monthlyRevenue} onChange={e => setMonthlyRevenue(e.target.value)} className="bg-zinc-950 border-zinc-800" />
-                            <p className="text-xs text-zinc-500 mt-1">Used to translate the report's revenue lift % into dollars.</p>
+                            <Input type="number" min="0" placeholder="e.g. 25000" value={monthlyRevenue} onChange={e => setMonthlyRevenue(e.target.value)} className="bg-background border" />
+                            <p className="text-xs text-muted-foreground mt-1">Used to translate the report's revenue lift % into dollars.</p>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="bg-zinc-900 border-zinc-800">
+                <Card className="bg-card border">
                     <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-base">Competitors</CardTitle>
                         <Button size="sm" variant="ghost" onClick={addCompetitor}><Plus className="w-4 h-4 mr-1" /> Add</Button>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                        {competitors.length === 0 && <p className="text-sm text-zinc-500">Add competitor websites — the daily scan covers their homepage + RSS.</p>}
+                        {competitors.length === 0 && <p className="text-sm text-muted-foreground">Add competitor websites — the daily scan covers their homepage + RSS.</p>}
                         {competitors.map((c, i) => (
-                            <div key={i} className="border border-zinc-800 rounded-md p-3 space-y-2">
+                            <div key={i} className="border border rounded-md p-3 space-y-2">
                                 <div className="grid grid-cols-12 gap-2 items-start">
-                                    <Input placeholder="Name" value={c.name || ''} onChange={e => updateCompetitor(i, { name: e.target.value })} className="bg-zinc-950 border-zinc-800 col-span-3" />
-                                    <Input placeholder="https://…" value={c.website || ''} onChange={e => updateCompetitor(i, { website: e.target.value })} className="bg-zinc-950 border-zinc-800 col-span-5" />
-                                    <Input placeholder="@handle (optional)" value={c.handles || ''} onChange={e => updateCompetitor(i, { handles: e.target.value })} className="bg-zinc-950 border-zinc-800 col-span-3" />
+                                    <Input placeholder="Name" value={c.name || ''} onChange={e => updateCompetitor(i, { name: e.target.value })} className="bg-background border col-span-3" />
+                                    <Input placeholder="https://…" value={c.website || ''} onChange={e => updateCompetitor(i, { website: e.target.value })} className="bg-background border col-span-5" />
+                                    <Input placeholder="@handle (optional)" value={c.handles || ''} onChange={e => updateCompetitor(i, { handles: e.target.value })} className="bg-background border col-span-3" />
                                     <Button size="icon" variant="ghost" onClick={() => removeCompetitor(i)} className="col-span-1"><Trash2 className="w-4 h-4" /></Button>
                                 </div>
                                 <Textarea
                                     placeholder="What to focus on for this competitor — e.g. 'pricing changes, new feature launches, hiring signals'. Becomes part of the daily prompt."
                                     value={c.focus || ''}
                                     onChange={e => updateCompetitor(i, { focus: e.target.value })}
-                                    className="bg-zinc-950 border-zinc-800 text-sm min-h-[60px]"
+                                    className="bg-background border text-sm min-h-[60px]"
                                 />
                             </div>
                         ))}
@@ -212,20 +212,20 @@ export default function BusinessDetailPage() {
                 </Card>
             </div>
 
-            <Card className="bg-zinc-900 border-zinc-800 mt-4">
+            <Card className="bg-card border mt-4">
                 <CardHeader>
                     <CardTitle className="text-base">Competitor team</CardTitle>
-                    <p className="text-xs text-zinc-500">Auto-generated from the competitor list on save — one private watcher per competitor.</p>
+                    <p className="text-xs text-muted-foreground">Auto-generated from the competitor list on save — one private watcher per competitor.</p>
                 </CardHeader>
                 <CardContent>
                     {team.length === 0 ? (
-                        <p className="text-sm text-zinc-500">Add competitors and save to generate the team.</p>
+                        <p className="text-sm text-muted-foreground">Add competitors and save to generate the team.</p>
                     ) : (
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
                             {team.map(a => (
-                                <div key={a.id} className="bg-zinc-950 border border-zinc-800 rounded-md p-3">
+                                <div key={a.id} className="bg-background border border rounded-md p-3">
                                     <div className="text-sm font-medium">{a.agent_name || a.name}</div>
-                                    <div className="text-xs text-zinc-500 line-clamp-3 mt-1">{a.description}</div>
+                                    <div className="text-xs text-muted-foreground line-clamp-3 mt-1">{a.description}</div>
                                 </div>
                             ))}
                         </div>
@@ -240,10 +240,10 @@ export default function BusinessDetailPage() {
                 each skill's output as a stacked section in the consolidated
                 report. Skills are stored private + scoped to this business —
                 only admin users see them. */}
-            <Card className="bg-zinc-900 border-zinc-800 mt-4">
+            <Card className="bg-card border mt-4">
                 <CardHeader>
                     <CardTitle className="text-base">Custom skills</CardTitle>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-muted-foreground">
                         Upload SKILL.md files (Claude Code skill format — YAML frontmatter + markdown body).
                         Each skill runs alongside the competitor scan; its output is appended as a
                         stacked section in the next consolidated growth report.
@@ -251,19 +251,19 @@ export default function BusinessDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {customSkills.length === 0 ? (
-                        <p className="text-sm text-zinc-500">No custom skills attached yet. Upload one below.</p>
+                        <p className="text-sm text-muted-foreground">No custom skills attached yet. Upload one below.</p>
                     ) : (
                         <div className="space-y-2">
                             {customSkills.map(s => (
-                                <div key={s.id} className="border border-zinc-800 rounded-md p-3 bg-zinc-950 flex items-start gap-3">
-                                    <FileText className="w-4 h-4 text-zinc-500 mt-0.5 flex-shrink-0" />
+                                <div key={s.id} className="border border rounded-md p-3 bg-background flex items-start gap-3">
+                                    <FileText className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium">{s.name}</div>
                                         {s.agent_name && s.agent_name !== s.name && (
-                                            <div className="text-[10px] text-zinc-500 font-mono">{s.agent_name}</div>
+                                            <div className="text-[10px] text-muted-foreground font-mono">{s.agent_name}</div>
                                         )}
-                                        <div className="text-xs text-zinc-500 line-clamp-2 mt-1">{s.description_preview || ''}</div>
-                                        <div className="text-[10px] text-zinc-600 mt-1">added {new Date(s.created).toLocaleString()}</div>
+                                        <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{s.description_preview || ''}</div>
+                                        <div className="text-[10px] text-muted-foreground/70 mt-1">added {new Date(s.created).toLocaleString()}</div>
                                     </div>
                                     <Button size="icon" variant="ghost" onClick={() => onDeleteSkill(s.id, s.name)} title="Delete">
                                         <Trash2 className="w-4 h-4" />
@@ -273,14 +273,14 @@ export default function BusinessDetailPage() {
                         </div>
                     )}
 
-                    <div className="border-t border-zinc-800 pt-4">
-                        <Label className="text-xs uppercase tracking-widest text-zinc-500">Upload a new skill</Label>
+                    <div className="border-t border pt-4">
+                        <Label className="text-xs uppercase tracking-widest text-muted-foreground">Upload a new skill</Label>
                         <div className="space-y-2 mt-2">
                             <Input
                                 placeholder="Skill name (e.g. Patient sentiment analyzer)"
                                 value={uploadName}
                                 onChange={e => setUploadName(e.target.value)}
-                                className="bg-zinc-950 border-zinc-800"
+                                className="bg-background border"
                                 disabled={uploading}
                             />
                             <input
@@ -289,10 +289,10 @@ export default function BusinessDetailPage() {
                                 accept=".md,.markdown,.txt,text/markdown,text/plain"
                                 onChange={e => setUploadFile(e.target.files?.[0] || null)}
                                 disabled={uploading}
-                                className="block text-sm text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-zinc-800 file:text-zinc-100 hover:file:bg-zinc-700"
+                                className="block text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-accent file:text-foreground hover:file:bg-accent/80"
                             />
                             {uploadFile && (
-                                <div className="text-xs text-zinc-500">
+                                <div className="text-xs text-muted-foreground">
                                     Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)
                                 </div>
                             )}
@@ -305,21 +305,21 @@ export default function BusinessDetailPage() {
                 </CardContent>
             </Card>
 
-            <Card className="bg-zinc-900 border-zinc-800 mt-4">
+            <Card className="bg-card border mt-4">
                 <CardHeader><CardTitle className="text-base">Reports</CardTitle></CardHeader>
                 <CardContent>
                     {reports.length === 0 ? (
-                        <p className="text-sm text-zinc-500">No reports yet. Hit "Run report now" or wait for the daily schedule.</p>
+                        <p className="text-sm text-muted-foreground">No reports yet. Hit "Run report now" or wait for the daily schedule.</p>
                     ) : (
                         <div className="space-y-2">
                             {reports.map(r => (
-                                <Link key={r.id} to={`/admin/reports/${r.id}`} className="block bg-zinc-950 hover:bg-zinc-800/50 border border-zinc-800 rounded-md px-3 py-2">
+                                <Link key={r.id} to={`/admin/reports/${r.id}`} className="block bg-background hover:bg-accent/50 border border rounded-md px-3 py-2">
                                     <div className="flex justify-between text-sm">
                                         <div>
                                             <div className="font-medium">{new Date(r.created).toLocaleString()}</div>
-                                            <div className="text-xs text-zinc-500 line-clamp-2">{r.summary || (r.status === 'running' ? 'Running…' : r.status === 'failed' ? r.error : '')}</div>
+                                            <div className="text-xs text-muted-foreground line-clamp-2">{r.summary || (r.status === 'running' ? 'Running…' : r.status === 'failed' ? r.error : '')}</div>
                                         </div>
-                                        <div className={`text-xs ${r.status === 'completed' ? 'text-emerald-400' : r.status === 'failed' ? 'text-rose-400' : 'text-amber-400'}`}>{r.status}</div>
+                                        <div className={`text-xs ${r.status === 'completed' ? 'text-emerald-600' : r.status === 'failed' ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</div>
                                     </div>
                                 </Link>
                             ))}
