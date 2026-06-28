@@ -37,6 +37,7 @@ export default function BusinessDetailPage() {
     const [uploadName, setUploadName]           = useState('');
     const [uploadFile, setUploadFile]           = useState(null);
     const [uploading, setUploading]             = useState(false);
+    const [expandedSkillId, setExpandedSkillId] = useState(null);
     const uploadFileInputRef                    = React.useRef(null);
 
     const load = async () => {
@@ -254,22 +255,46 @@ export default function BusinessDetailPage() {
                         <p className="text-sm text-muted-foreground">No custom skills attached yet. Upload one below.</p>
                     ) : (
                         <div className="space-y-2">
-                            {customSkills.map(s => (
-                                <div key={s.id} className="border border rounded-md p-3 bg-background flex items-start gap-3">
-                                    <FileText className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium">{s.name}</div>
-                                        {s.agent_name && s.agent_name !== s.name && (
-                                            <div className="text-[10px] text-muted-foreground font-mono">{s.agent_name}</div>
+                            {customSkills.map(s => {
+                                const isExpanded = expandedSkillId === s.id;
+                                return (
+                                    <div key={s.id} className="border rounded-md bg-background overflow-hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => setExpandedSkillId(isExpanded ? null : s.id)}
+                                            className="w-full text-left p-3 flex items-start gap-3 hover:bg-accent/30 transition-colors"
+                                        >
+                                            <FileText className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium">{s.name}</div>
+                                                {s.agent_name && s.agent_name !== s.name && (
+                                                    <div className="text-[10px] text-muted-foreground font-mono">{s.agent_name}</div>
+                                                )}
+                                                {!isExpanded && (
+                                                    <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{s.description_preview || ''}</div>
+                                                )}
+                                                <div className="text-[10px] text-muted-foreground/70 mt-1">
+                                                    added {new Date(s.created).toLocaleString()} · click to {isExpanded ? 'collapse' : 'view details'}
+                                                </div>
+                                            </div>
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={(e) => { e.stopPropagation(); onDeleteSkill(s.id, s.name); }}
+                                                title="Delete"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                        </button>
+                                        {isExpanded && (
+                                            <div className="border-t bg-muted/30 p-3">
+                                                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">SKILL.md content</div>
+                                                <pre className="text-xs whitespace-pre-wrap break-words text-foreground font-mono leading-relaxed max-h-[60vh] overflow-auto">{s.description || '(empty)'}</pre>
+                                            </div>
                                         )}
-                                        <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{s.description_preview || ''}</div>
-                                        <div className="text-[10px] text-muted-foreground/70 mt-1">added {new Date(s.created).toLocaleString()}</div>
                                     </div>
-                                    <Button size="icon" variant="ghost" onClick={() => onDeleteSkill(s.id, s.name)} title="Delete">
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
 

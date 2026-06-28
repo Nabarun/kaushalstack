@@ -57,7 +57,8 @@ router.get('/admin/businesses/:id/skills', async (req, res) => {
             sort: '-created',
             fields: 'id,name,agent_name,category,competitor_website,description,created',
         });
-        // Trim the description preview server-side so the list payload is small.
+        // Return the full description so the UI can expand inline without
+        // a second round-trip. Also keep a short preview for the collapsed view.
         const items = r.items.map(s => ({
             ...s,
             description_preview: (s.description || '').slice(0, 200),
