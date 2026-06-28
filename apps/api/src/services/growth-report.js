@@ -305,10 +305,21 @@ export async function runGrowthReportForBusiness(business) {
                 }));
             }
         }
+        // Schema cap on recommendations / summary text fields is 10,000 chars
+        // (bumped from PB's 5,000 default on 2026-06-28). Defensive truncate so
+        // the save never fails on overflow — full attached_skill outputs still
+        // live in findings.attached_skills (300KB cap) so nothing is lost.
+        const TEXT_FIELD_MAX = 9_700;   // leave headroom for the "trimmed" marker
+        const trim = (s) => {
+            const t = String(s || '');
+            return t.length <= TEXT_FIELD_MAX
+                ? t
+                : `${t.slice(0, TEXT_FIELD_MAX)}\n\n…(trimmed at ${TEXT_FIELD_MAX} chars to fit storage cap — full attached-skill outputs available in findings.attached_skills)`;
+        };
         const finalRecord = await pb.collection('growth_reports').update(initial.id, {
             status: 'completed',
-            summary,
-            recommendations: recsTextWithAttached,
+            summary: trim(summary),
+            recommendations: trim(recsTextWithAttached),
             findings: findingsPayload,
         });
 
