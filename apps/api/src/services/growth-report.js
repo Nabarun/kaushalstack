@@ -1,6 +1,7 @@
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
+import { runAttachedSkills, renderAttachedSkillSections } from './business-skills-runner.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 import { scanAll } from './competitor-scanner.js';
 import { ensureReportsCollection } from '../routes/admin/collections.js';
@@ -279,11 +280,37 @@ export async function runGrowthReportForBusiness(business) {
                 ? `byok-${primaryProvider}/${primaryModel}`
                 : `server-${SERVER_PROVIDER}/${SERVER_MODEL}`;
 
+        // Run any admin-uploaded private skills attached to this business as
+        // an additional analysis layer. Each skill is a SKILL.md whose body
+        // becomes the system prompt; the user prompt is the business context +
+        // a short summary of the competitor scan. Outputs stack into the
+        // recommendations text under a "Custom skill analysis" section so
+        // the existing ReportDetailPage renders them with no UI change.
+        let attachedSkillResults = [];
+        try {
+            const runnerCfg = fellBackToServer
+                ? { provider: SERVER_PROVIDER, key: OPENAI_API_KEY, model: SERVER_MODEL }
+                : { provider: primaryProvider, key: primaryKey,     model: primaryModel };
+            attachedSkillResults = await runAttachedSkills(business, summary, runnerCfg);
+        } catch (err) {
+            logger.warn(`growth-report: attached-skills runner crashed for ${business.id}: ${err.message}`);
+        }
+        const attachedSectionsMd = renderAttachedSkillSections(attachedSkillResults);
+        const recsTextWithAttached = attachedSectionsMd ? `${recsText}${attachedSectionsMd}` : recsText;
+
         const finalRecord = await pb.collection('growth_reports').update(initial.id, {
             status: 'completed',
             summary,
-            recommendations: recsText,
-            findings: { scans: compact, findings, recommendations: recs, revenue_impact: revenueImpact, market_opportunity: marketOpportunity, key_path: keyPath },
+            recommendations: recsTextWithAttached,
+            findings: {
+                scans: compact,
+                findings,
+                recommendations: recs,
+                revenue_impact: revenueImpact,
+                market_opportunity: marketOpportunity,
+                key_path: keyPath,
+                attached_skills: attachedSkillResults,    // {skill_id, skill_name, output_text}[]
+            },
         });
 
         const liftHi = revenueImpact?.estimated_monthly_lift_pct_high;

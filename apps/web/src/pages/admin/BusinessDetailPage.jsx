@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, Play, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Play, Plus, Trash2, RefreshCw, Upload, FileText } from 'lucide-react';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -30,13 +30,23 @@ export default function BusinessDetailPage() {
     const [monthlyRevenue, setMonthlyRevenue] = useState('');
     const [competitors, setCompetitors] = useState([]);
 
+    // Admin-uploaded private skills attached to this business — run as
+    // additional analysis layers on top of the competitor scan inside the
+    // growth-report pipeline.
+    const [customSkills, setCustomSkills]       = useState([]);
+    const [uploadName, setUploadName]           = useState('');
+    const [uploadFile, setUploadFile]           = useState(null);
+    const [uploading, setUploading]             = useState(false);
+    const uploadFileInputRef                    = React.useRef(null);
+
     const load = async () => {
         setLoading(true);
         try {
-            const [b, t, r] = await Promise.all([
+            const [b, t, r, s] = await Promise.all([
                 adminApi.getBusiness(id),
                 adminApi.team(id).catch(() => ({ items: [] })),
                 adminApi.listReports(id),
+                adminApi.listBusinessSkills(id).catch(() => ({ items: [] })),
             ]);
             const biz = b.item;
             setBusiness(biz);
@@ -49,10 +59,44 @@ export default function BusinessDetailPage() {
             setCompetitors(Array.isArray(biz.competitors) ? biz.competitors : []);
             setTeam(t.items || []);
             setReports(r.items || []);
+            setCustomSkills(s.items || []);
         } catch (err) {
             toast.error(`Failed to load: ${err.message}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const onUploadSkill = async () => {
+        if (!uploadName.trim() || !uploadFile) {
+            toast.error('Skill name and a .md file are required');
+            return;
+        }
+        setUploading(true);
+        try {
+            await adminApi.uploadBusinessSkill(id, uploadName.trim(), uploadFile);
+            toast.success(`Skill "${uploadName.trim()}" uploaded`);
+            setUploadName('');
+            setUploadFile(null);
+            if (uploadFileInputRef.current) uploadFileInputRef.current.value = '';
+            // Refresh the skills list only — avoid a full reload.
+            const r = await adminApi.listBusinessSkills(id);
+            setCustomSkills(r.items || []);
+        } catch (err) {
+            toast.error(`Upload failed: ${err.message}`);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const onDeleteSkill = async (skillId, skillName) => {
+        if (!confirm(`Delete the "${skillName}" skill? This cannot be undone.`)) return;
+        try {
+            await adminApi.deleteBusinessSkill(id, skillId);
+            setCustomSkills(prev => prev.filter(s => s.id !== skillId));
+            toast.success(`Deleted "${skillName}"`);
+        } catch (err) {
+            toast.error(`Delete failed: ${err.message}`);
         }
     };
     useEffect(() => { load(); }, [id]);
@@ -186,6 +230,78 @@ export default function BusinessDetailPage() {
                             ))}
                         </div>
                     )}
+                </CardContent>
+            </Card>
+
+            {/* ── Custom Skills (admin-only) ──────────────────────────────────
+                Upload SKILL.md files that run as additional analysis layers
+                on top of the competitor scan. Each uploaded skill's body
+                becomes a system prompt; the growth-report pipeline appends
+                each skill's output as a stacked section in the consolidated
+                report. Skills are stored private + scoped to this business —
+                only admin users see them. */}
+            <Card className="bg-zinc-900 border-zinc-800 mt-4">
+                <CardHeader>
+                    <CardTitle className="text-base">Custom skills</CardTitle>
+                    <p className="text-xs text-zinc-500">
+                        Upload SKILL.md files (Claude Code skill format — YAML frontmatter + markdown body).
+                        Each skill runs alongside the competitor scan; its output is appended as a
+                        stacked section in the next consolidated growth report.
+                    </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {customSkills.length === 0 ? (
+                        <p className="text-sm text-zinc-500">No custom skills attached yet. Upload one below.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {customSkills.map(s => (
+                                <div key={s.id} className="border border-zinc-800 rounded-md p-3 bg-zinc-950 flex items-start gap-3">
+                                    <FileText className="w-4 h-4 text-zinc-500 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium">{s.name}</div>
+                                        {s.agent_name && s.agent_name !== s.name && (
+                                            <div className="text-[10px] text-zinc-500 font-mono">{s.agent_name}</div>
+                                        )}
+                                        <div className="text-xs text-zinc-500 line-clamp-2 mt-1">{s.description_preview || ''}</div>
+                                        <div className="text-[10px] text-zinc-600 mt-1">added {new Date(s.created).toLocaleString()}</div>
+                                    </div>
+                                    <Button size="icon" variant="ghost" onClick={() => onDeleteSkill(s.id, s.name)} title="Delete">
+                                        <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="border-t border-zinc-800 pt-4">
+                        <Label className="text-xs uppercase tracking-widest text-zinc-500">Upload a new skill</Label>
+                        <div className="space-y-2 mt-2">
+                            <Input
+                                placeholder="Skill name (e.g. Patient sentiment analyzer)"
+                                value={uploadName}
+                                onChange={e => setUploadName(e.target.value)}
+                                className="bg-zinc-950 border-zinc-800"
+                                disabled={uploading}
+                            />
+                            <input
+                                ref={uploadFileInputRef}
+                                type="file"
+                                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                                onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                                disabled={uploading}
+                                className="block text-sm text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-zinc-800 file:text-zinc-100 hover:file:bg-zinc-700"
+                            />
+                            {uploadFile && (
+                                <div className="text-xs text-zinc-500">
+                                    Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)
+                                </div>
+                            )}
+                            <Button onClick={onUploadSkill} disabled={uploading || !uploadName.trim() || !uploadFile}>
+                                <Upload className="w-4 h-4 mr-1" />
+                                {uploading ? 'Uploading…' : 'Upload skill'}
+                            </Button>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 

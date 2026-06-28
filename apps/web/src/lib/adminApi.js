@@ -61,4 +61,29 @@ export const adminApi = {
             method: 'POST', headers: headers(),
         }).then(handle);
     },
+
+    // Attached private skills (admin-uploaded SKILL.md files that run as
+    // additional analysis layers on top of the competitor scan).
+    listBusinessSkills(businessId) {
+        return fetch(`${API_BASE}/admin/businesses/${businessId}/skills`, { headers: headers() }).then(handle);
+    },
+    // Multipart upload: name (text) + file (the .md). Does NOT use the JSON
+    // Content-Type header; let the browser set the multipart boundary.
+    uploadBusinessSkill(businessId, name, file) {
+        const fd = new FormData();
+        fd.append('name', name);
+        fd.append('file', file);
+        const h = {};
+        if (adminPb.authStore.isValid && adminPb.authStore.token) {
+            h.Authorization = `Bearer ${adminPb.authStore.token}`;
+        }
+        return fetch(`${API_BASE}/admin/businesses/${businessId}/skills`, {
+            method: 'POST', headers: h, body: fd,
+        }).then(handle);
+    },
+    deleteBusinessSkill(businessId, skillId) {
+        return fetch(`${API_BASE}/admin/businesses/${businessId}/skills/${skillId}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
 };
