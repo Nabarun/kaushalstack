@@ -102,6 +102,11 @@ export async function syncCompetitorSkills(business) {
 
     for (const s of existing) {
         const k = String(s.competitor_website || '').trim().toLowerCase();
+        // ONLY delete if this looks like a competitor watcher (has a
+        // competitor_website set) AND it's no longer in the wanted set.
+        // Custom admin-uploaded skills (e.g. via /admin/businesses/:id/skills)
+        // do NOT have a competitor_website — they must never be touched here.
+        if (!k) continue;
         if (!wantedKeys.has(k)) {
             try { await pb.collection('skills').delete(s.id); }
             catch (err) { logger.warn(`syncCompetitorSkills: delete ${s.id} failed: ${err.message}`); }
