@@ -296,10 +296,21 @@ export default function BusinessDetailPage() {
                                     Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)
                                 </div>
                             )}
-                            <Button onClick={onUploadSkill} disabled={uploading || !uploadName.trim() || !uploadFile}>
-                                <Upload className="w-4 h-4 mr-1" />
-                                {uploading ? 'Uploading…' : 'Upload skill'}
-                            </Button>
+                            <div className="flex items-center gap-3">
+                                <Button onClick={onUploadSkill} disabled={uploading || !uploadName.trim() || !uploadFile}>
+                                    <Upload className="w-4 h-4 mr-1" />
+                                    {uploading ? 'Uploading…' : 'Upload skill'}
+                                </Button>
+                                {(!uploadName.trim() || !uploadFile) && !uploading && (
+                                    <span className="text-xs text-muted-foreground">
+                                        {!uploadName.trim() && !uploadFile
+                                            ? 'Enter a skill name and pick a .md file to enable'
+                                            : !uploadName.trim()
+                                                ? 'Enter a skill name'
+                                                : 'Pick a .md file'}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </CardContent>
