@@ -68,7 +68,7 @@ function buildPrompt(business, team, scans, competitors) {
         ? `Business monthly revenue baseline: $${monthlyRevenue.toLocaleString()} (use this to compute dollar-denominated lift estimates).`
         : `Business monthly revenue baseline: not provided (express lift as a percentage range only; do not invent a dollar amount).`;
 
-    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 7 days and produce ONE concise growth report — plus an honest estimate of (a) the financial upside if the owner acts on the recommendations and (b) the market opportunity (TAM/SAM/SOM).
+    const system = `You are the growth-analysis lead for the round-table team supporting ${business.name}. Your job: read the scan of the business's competitors over the last 7 days and produce ONE concise growth report — plus an honest estimate of the financial upside if the owner acts on the recommendations.
 
 The team assigned to this business:
 ${teamRoster}
@@ -76,8 +76,6 @@ ${teamRoster}
 Speak to the business owner. Be specific. Cite competitor names. Avoid generic "consider doing X" filler — if nothing new is happening, say so. When a competitor block includes a "Focus for this competitor" line, weight your findings and recommendations for that competitor toward that focus area. When a "Source" line says google_news, treat the items as third-party news mentions rather than first-party announcements.
 
 For the revenue_impact: be conservative, explain your assumptions, set confidence honestly (low if the scan is thin or the competitors aren't doing much), and never invent a dollar amount without a baseline.
-
-For market_opportunity: estimate the total market size category for this kind of business (TAM = global/all-segments dollar value the category captures per year), the realistic serviceable slice given the business's geography, segment, and channel (SAM), and the obtainable slice over a 1-3 year horizon given the competitive landscape you just scanned (SOM). Express each as a dollar range. If the business description is thin, set confidence to low and say what would tighten the estimate. Never invent a precise number when the inputs don't support one.
 
 Output strict JSON only.`;
 
@@ -112,30 +110,10 @@ Return JSON of the shape:
     "time_horizon_months": <number, typically 3 to 12>,
     "confidence": "low|medium|high",
     "reasoning": "2-3 sentences on assumptions, what drives the range, and what would tighten the confidence"
-  },
-  "market_opportunity": {
-    "tam": {
-      "low_dollars": <number, annual>,
-      "high_dollars": <number, annual>,
-      "scope": "one short phrase, e.g. 'global B2B SaaS HR analytics'"
-    },
-    "sam": {
-      "low_dollars": <number, annual>,
-      "high_dollars": <number, annual>,
-      "scope": "one short phrase, e.g. 'India SMB segment with online channel'"
-    },
-    "som": {
-      "low_dollars": <number, annual>,
-      "high_dollars": <number, annual>,
-      "horizon_years": <number, typically 1 to 3>,
-      "scope": "one short phrase, e.g. 'achievable share over 3 years given competitor density'"
-    },
-    "confidence": "low|medium|high",
-    "reasoning": "2-3 sentences explaining the assumptions and what would tighten the estimate"
   }
 }
 
-If there's nothing notable in the competitor scan, return empty arrays for findings/recommendations and a revenue_impact with 0/0 lift and confidence=low. The market_opportunity should still be filled if the business description gives enough signal — set confidence=low when it doesn't. Do not invent items that are not in the scan data.`;
+If there's nothing notable in the competitor scan, return empty arrays for findings/recommendations and a revenue_impact with 0/0 lift and confidence=low. Do not invent items that are not in the scan data.`;
 
     return { system, user };
 }
@@ -267,9 +245,6 @@ export async function runGrowthReportForBusiness(business) {
         const revenueImpact = parsed.revenue_impact && typeof parsed.revenue_impact === 'object'
             ? parsed.revenue_impact
             : null;
-        const marketOpportunity = parsed.market_opportunity && typeof parsed.market_opportunity === 'object'
-            ? parsed.market_opportunity
-            : null;
         const recsText = recs.map((r, i) =>
             `${i + 1}. ${r.action || ''}${r.owner_agent ? ` — owner: ${r.owner_agent}` : ''}\n   Rationale: ${r.rationale || ''}${r.estimated_impact ? `\n   Estimated impact: ${r.estimated_impact}` : ''}`
         ).join('\n\n');
@@ -307,7 +282,6 @@ export async function runGrowthReportForBusiness(business) {
                 findings,
                 recommendations: recs,
                 revenue_impact: revenueImpact,
-                market_opportunity: marketOpportunity,
                 key_path: keyPath,
                 attached_skills: attachedSkillResults,    // {skill_id, skill_name, output_text}[]
             },
