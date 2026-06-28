@@ -273,18 +273,43 @@ export async function runGrowthReportForBusiness(business) {
         const attachedSectionsMd = renderAttachedSkillSections(attachedSkillResults);
         const recsTextWithAttached = attachedSectionsMd ? `${recsText}${attachedSectionsMd}` : recsText;
 
-        const finalRecord = await pb.collection('growth_reports').update(initial.id, {
-            status: 'completed',
-            summary,
-            recommendations: recsTextWithAttached,
-            findings: {
-                scans: compact,
+        // Build findings JSON + enforce the 300KB PocketBase json-field cap.
+        // The largest contributor is usually scans (HTML extracts from
+        // competitor pages); attached_skills tops out at ~20KB. If we're over
+        // ~250KB total, progressively drop the heaviest fields rather than
+        // failing the whole report save.
+        const buildFindings = (skinny = false) => {
+            const f = {
                 findings,
                 recommendations: recs,
                 revenue_impact: revenueImpact,
                 key_path: keyPath,
-                attached_skills: attachedSkillResults,    // {skill_id, skill_name, output_text}[]
-            },
+                attached_skills: attachedSkillResults,
+            };
+            if (!skinny) f.scans = compact;
+            return f;
+        };
+        const FINDINGS_SAFE_MAX = 250_000;          // PB cap is 300_000 — leave headroom
+        let findingsPayload = buildFindings(false);
+        let findingsJson    = JSON.stringify(findingsPayload);
+        if (findingsJson.length > FINDINGS_SAFE_MAX) {
+            logger.warn(`growth-report: findings ${findingsJson.length}b exceeds ${FINDINGS_SAFE_MAX}b safe-cap — dropping scans block`);
+            findingsPayload = buildFindings(true);
+            findingsJson    = JSON.stringify(findingsPayload);
+            if (findingsJson.length > FINDINGS_SAFE_MAX) {
+                logger.warn(`growth-report: findings STILL ${findingsJson.length}b — trimming each attached_skills output_text`);
+                const trimTo = Math.max(200, Math.floor(FINDINGS_SAFE_MAX / Math.max(1, attachedSkillResults.length) / 2));
+                findingsPayload.attached_skills = attachedSkillResults.map(r => ({
+                    ...r,
+                    output_text: String(r.output_text || '').slice(0, trimTo) + (r.output_text?.length > trimTo ? `\n\n…(trimmed at ${trimTo} chars to fit storage cap)` : ''),
+                }));
+            }
+        }
+        const finalRecord = await pb.collection('growth_reports').update(initial.id, {
+            status: 'completed',
+            summary,
+            recommendations: recsTextWithAttached,
+            findings: findingsPayload,
         });
 
         const liftHi = revenueImpact?.estimated_monthly_lift_pct_high;
@@ -292,11 +317,16 @@ export async function runGrowthReportForBusiness(business) {
         logger.info(`growth-report: business=${business.name} report=${finalRecord.id} findings=${findings.length} recs=${recs.length} lift_hi=${liftHi ?? 'n/a'}% key=${keyPath} elapsed=${elapsedSec}s`);
         return finalRecord;
     } catch (err) {
-        logger.error(`growth-report failed for business ${business.id}: ${err.message}`);
+        // PocketBase wraps validation failures in 'Failed to update record.' —
+        // log err.data (the per-field validation errors) so we can actually see
+        // what was rejected.
+        const detail = err?.response?.data || err?.data || err?.originalError?.data || null;
+        const detailStr = detail ? ` | data=${JSON.stringify(detail).slice(0, 600)}` : '';
+        logger.error(`growth-report failed for business ${business.id}: ${err.message}${detailStr}`);
         try {
             return await pb.collection('growth_reports').update(initial.id, {
                 status: 'failed',
-                error: err.message,
+                error: detail ? `${err.message}: ${JSON.stringify(detail).slice(0, 500)}` : err.message,
             });
         } catch {
             return null;
