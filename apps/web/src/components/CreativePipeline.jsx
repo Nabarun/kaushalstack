@@ -472,6 +472,9 @@ function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress, l
           <a href={apiHref(mockup.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
             <Download style={{ width: 14, height: 14 }} /> Download ZIP
           </a>
+          <button onClick={triggerMockup} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Palette style={{ width: 13, height: 13 }} /> Regenerate
+          </button>
         </div>
       </>
     );
@@ -539,6 +542,9 @@ function TaraSection({ social, triggerSocial, recoverSocial, describeProgress, l
           <a href={apiHref(social.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
             <Download style={{ width: 14, height: 14 }} /> Download ZIP
           </a>
+          <button onClick={triggerSocial} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Megaphone style={{ width: 13, height: 13 }} /> Regenerate
+          </button>
         </div>
       </>
     );
@@ -605,6 +611,9 @@ function KavyaSection({ email, triggerEmail, recoverEmail, describeProgress, loc
           <a href={apiHref(email.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
             <Download style={{ width: 14, height: 14 }} /> Download ZIP
           </a>
+          <button onClick={triggerEmail} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Mail style={{ width: 13, height: 13 }} /> Regenerate
+          </button>
         </div>
       </>
     );

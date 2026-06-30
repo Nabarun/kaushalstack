@@ -196,7 +196,7 @@ HARD RULES (email deliverability is fragile — these are non-negotiable):
 - emails/main.html: every link must have inline color matching the accent.
 - Subject lines: 3 variants, each under 60 chars. Note the intent for each.
 - Preheader: 1 line, 80–110 chars. Different from the subject. Snippets the user sees in the inbox preview.
-- Images: paths under assets/ (search_images already downloaded them). The "images_to_reupload" field in meta.json tells the user these are LOCAL — they must upload to their sending platform's image host before sending.
+- Images: emails/main.html lives inside the emails/ subdirectory, so image paths MUST use ../assets/ prefix (NOT assets/). Example: <img src="../assets/img-hero.jpg" ...>. Using just assets/ will break the image when served from the preview URL. The "images_to_reupload" field in meta.json tells the user these are LOCAL — they must upload to their sending platform's image host before sending.
 - No JS anywhere.
 - Each text file under 200KB.
 - index.html (the preview frame) CAN use external CSS / Google Fonts / fancy layout — that's the wrapper, not the email itself.
