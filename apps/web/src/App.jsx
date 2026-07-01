@@ -23,6 +23,7 @@ import GrowthReportDetailPage from '@/pages/GrowthReportDetailPage.jsx';
 import BuildPage from '@/pages/BuildPage.jsx';
 import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
+import AboutPage from '@/pages/AboutPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
 import DevelopersPage from '@/pages/DevelopersPage.jsx';
 import AdminLoginPage from '@/pages/admin/AdminLoginPage.jsx';
@@ -70,6 +71,7 @@ function App() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route
                 path="/growth-partner"
