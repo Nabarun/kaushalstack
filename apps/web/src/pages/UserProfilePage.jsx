@@ -9,7 +9,7 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X, Bell, BellOff } from 'lucide-react';
+import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X, Bell, BellOff, Lock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -128,6 +128,9 @@ const UserProfilePage = () => {
 
               {/* Profile details — name + bio */}
               <ProfileEditSection user={user} />
+
+              {/* Password reset */}
+              <PasswordSection user={user} />
 
               {/* AI provider key management (OpenAI, Anthropic, …) */}
               <ProviderKeySection />
@@ -293,6 +296,51 @@ function ProfileEditSection({ user }) {
             </div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PasswordSection({ user }) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function sendReset() {
+    setBusy(true);
+    try {
+      await pb.collection('users').requestPasswordReset(user.email);
+      setSent(true);
+      toast.success(`Reset link sent to ${user.email}`);
+    } catch (err) {
+      toast.error(err?.message || 'Failed to send reset email');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-center gap-2">
+          <Lock className="w-5 h-5 text-primary" />
+          <h2 className="text-xl font-bold">Password</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          We'll email you a reset link to change your password.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5">
+        <div className="flex items-center justify-between gap-4 bg-muted/30 border rounded-lg px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">Change your password</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Link will be sent to <span className="font-mono">{user?.email}</span>
+            </div>
+          </div>
+          <Button onClick={sendReset} disabled={busy || sent} variant="outline" size="sm">
+            {busy ? 'Sending…' : sent ? 'Email sent ✓' : 'Send reset link'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
