@@ -86,4 +86,11 @@ export const adminApi = {
             method: 'DELETE', headers: headers(),
         }).then(handle);
     },
+
+    listEdits(status = 'pending') {
+        return fetch(`${API_BASE}/admin/edits?status=${encodeURIComponent(status)}`, { headers: headers() }).then(handle);
+    },
+    deleteEdit(id) {
+        return fetch(`${API_BASE}/admin/edits/${id}`, { method: 'DELETE', headers: headers() }).then(handle);
+    },
 };

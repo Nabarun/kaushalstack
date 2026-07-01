@@ -31,6 +31,7 @@ import AdminLayout from '@/pages/admin/AdminLayout.jsx';
 import BusinessesPage from '@/pages/admin/BusinessesPage.jsx';
 import BusinessDetailPage from '@/pages/admin/BusinessDetailPage.jsx';
 import ReportDetailPage from '@/pages/admin/ReportDetailPage.jsx';
+import ReviewsPage from '@/pages/admin/ReviewsPage.jsx';
 
 function SiteChrome({ children }) {
   const { pathname } = useLocation();
@@ -137,6 +138,7 @@ function App() {
                 <Route path="businesses" element={<BusinessesPage />} />
                 <Route path="businesses/:id" element={<BusinessDetailPage />} />
                 <Route path="reports/:id" element={<ReportDetailPage />} />
+                <Route path="reviews" element={<ReviewsPage />} />
               </Route>
 
               <Route path="*" element={
