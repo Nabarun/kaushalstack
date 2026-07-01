@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Check, X, Sparkles, Bot, GitPullRequest, User } from 'lucide-react';
+import { Check, X, Sparkles, Bot, GitPullRequest, User, ShieldX, Trash2 } from 'lucide-react';
 import pb from '@/lib/pocketbaseClient';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 
@@ -46,7 +46,7 @@ function FieldDiff({ field, before, after }) {
   );
 }
 
-function EditCard({ edit, currentUserId, onAction }) {
+function EditCard({ edit, currentUserId, isAdmin, onAction }) {
   const [busy, setBusy] = useState(false);
 
   const approvals  = Array.isArray(edit.approvals)  ? edit.approvals  : [];
@@ -72,6 +72,37 @@ function EditCard({ edit, currentUserId, onAction }) {
       else if (data.discarded) toast.success('Rejected — change discarded after 6 rejections');
       else if (action === 'approve') toast.success(`Approved (${data.approvals.length}/${APPROVAL_THRESHOLD})`);
       else                  toast.success(`Rejected (${data.rejections.length}/${REJECTION_THRESHOLD})`);
+      onAction();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adminReject() {
+    setBusy(true);
+    try {
+      const r = await authedFetch(`/api/edits/${edit.id}/admin-reject`, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+      toast.success('Edit rejected by admin — change discarded immediately');
+      onAction();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteEdit() {
+    if (!confirm('Permanently delete this edit? This cannot be undone.')) return;
+    setBusy(true);
+    try {
+      const r = await authedFetch(`/api/admin/edits/${edit.id}`, { method: 'DELETE' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+      toast.success('Edit deleted');
       onAction();
     } catch (err) {
       toast.error(err.message);
@@ -155,6 +186,17 @@ function EditCard({ edit, currentUserId, onAction }) {
             onClick={() => vote('reject')} className="gap-1.5">
             <X className="w-3.5 h-3.5" /> Reject
           </Button>
+          {isAdmin && (
+            <Button size="sm" disabled={busy} onClick={adminReject}
+              className="gap-1.5 bg-orange-700 hover:bg-orange-800 text-white">
+              <ShieldX className="w-3.5 h-3.5" /> Admin Reject
+            </Button>
+          )}
+          {isAdmin && (
+            <Button size="sm" variant="destructive" disabled={busy} onClick={deleteEdit} className="gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </Button>
+          )}
           {!aiVoted && (
             <Button size="sm" variant="outline" disabled={busy} onClick={aiReview} className="gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> Request AI Review
@@ -231,7 +273,7 @@ export default function ReviewPage() {
             <div className="space-y-4">
               {edits.map((e, i) => (
                 <motion.div key={e.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                  <EditCard edit={e} currentUserId={currentUser.id} onAction={refresh} />
+                  <EditCard edit={e} currentUserId={currentUser.id} isAdmin={!!currentUser?.is_admin} onAction={refresh} />
                 </motion.div>
               ))}
             </div>
