@@ -1,0 +1,26 @@
+{
+  "context": {
+    "domain": "ONDC:SRV11",
+    "action": "search",
+    "country": "IND",
+    "city": "std:080",
+    "core_version": "1.2.0",
+    "bap_id": "buyerapp.example.in",
+    "bap_uri": "https://buyerapp.example.in/ondc",
+    "transaction_id": "9d7f1a2c-demo",
+    "message_id": "m-001",
+    "timestamp": "2026-07-02T10:00:00.000Z",
+    "ttl": "PT30S"
+  },
+  "message": {
+    "intent": {
+      "item": { "descriptor": { "name": "physiotherapy for back pain" } },
+      "category": { "id": "SRV11-HEALTH" },
+      "fulfillment": {
+        "type": "Delivery",
+        "end": { "location": { "gps": "12.9352,77.6996",
+                 "radius": { "unit": "km", "value": "5" } } }
+      }
+    }
+  }
+}
