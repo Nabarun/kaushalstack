@@ -1,0 +1,12 @@
+services:
+  ondc-webhook:
+    build: .
+    restart: always
+    env_file: .env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ondc-webhook.entrypoints=websecure"
+      - "traefik.http.routers.ondc-webhook.rule=Host(`ondc.kaushalstack.com`)"
+      - "traefik.http.routers.ondc-webhook.tls=true"
+      - "traefik.http.routers.ondc-webhook.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ondc-webhook.loadbalancer.server.port=8089"
