@@ -1,10 +1,11 @@
 """
 Beckn context + BAP-side client.
 
-The `context` envelope travels with every Beckn message. City codes use the
-STD-code convention (Bengaluru = std:080). Domains follow ONDC taxonomy,
-e.g. ONDC:RET10 (grocery), ONDC:RET13 (BPC), ONDC:SRV11 (services),
-ONDC:TRV10 (mobility) — pick per business vertical.
+Covers the full BAP transaction flow:
+  discovery : /search  → /on_search
+  ordering  : /select → /on_select → /init → /on_init → /confirm → /on_confirm
+  post-order: /status, /track, /cancel, /support
+  IGM       : /issue, /issue_status
 """
 
 import json
@@ -15,9 +16,9 @@ from datetime import datetime, timezone
 from .crypto import build_auth_header
 
 GATEWAY_URLS = {
-    "staging": "https://staging.gateway.proteantech.in",  # example staging BG
+    "staging": "https://staging.gateway.proteantech.in",
     "preprod": "https://preprod.gateway.ondc.org",
-    "prod": "https://prod.gateway.ondc.org",
+    "prod":    "https://prod.gateway.ondc.org",
 }
 
 
@@ -26,12 +27,13 @@ def now_iso() -> str:
 
 
 def build_context(action: str, *, domain: str, city: str, bap_id: str, bap_uri: str,
+                  bpp_id: str = "", bpp_uri: str = "",
                   transaction_id: str | None = None, country: str = "IND") -> dict:
-    return {
+    ctx = {
         "domain": domain,
         "action": action,
         "country": country,
-        "city": city,                      # e.g. "std:080" for Bengaluru
+        "city": city,
         "core_version": "1.2.0",
         "bap_id": bap_id,
         "bap_uri": bap_uri,
@@ -40,11 +42,15 @@ def build_context(action: str, *, domain: str, city: str, bap_id: str, bap_uri: 
         "timestamp": now_iso(),
         "ttl": "PT30S",
     }
+    if bpp_id:
+        ctx["bpp_id"] = bpp_id
+    if bpp_uri:
+        ctx["bpp_uri"] = bpp_uri
+    return ctx
 
 
 def build_search_intent(*, query: str | None = None, category: str | None = None,
                         gps: str | None = None, radius_km: float = 5.0) -> dict:
-    """Location-aware discovery intent. gps = 'lat,lng'."""
     intent: dict = {}
     if query:
         intent["item"] = {"descriptor": {"name": query}}
@@ -61,8 +67,7 @@ def build_search_intent(*, query: str | None = None, category: str | None = None
 
 
 class BecknClient:
-    """BAP-side client: signs and fires /search at the ONDC gateway.
-    Responses arrive asynchronously at your /on_search callback URL."""
+    """BAP-side client: signs and fires Beckn calls to the ONDC network."""
 
     def __init__(self):
         self.env = os.getenv("ONDC_ENV", "staging")
@@ -72,27 +77,119 @@ class BecknClient:
         self.signing_private_key = os.getenv("ONDC_SIGNING_PRIVATE_KEY", "")
         self.mock = os.getenv("ONDC_MOCK", "true").lower() == "true"
 
+    # ── Discovery ──────────────────────────────────────────────────────────────
+
     async def search(self, *, domain: str, city: str, query: str | None = None,
                      category: str | None = None, gps: str | None = None,
                      radius_km: float = 5.0) -> dict:
         context = build_context("search", domain=domain, city=city,
                                 bap_id=self.subscriber_id, bap_uri=self.subscriber_uri)
-        payload = {"context": context, "message": build_search_intent(
-            query=query, category=category, gps=gps, radius_km=radius_km)}
-
+        payload = {"context": context,
+                   "message": build_search_intent(query=query, category=category,
+                                                  gps=gps, radius_km=radius_km)}
         if self.mock:
             return {"mode": "mock", "sent": payload,
                     "note": "ONDC_MOCK=true — no network call. Register on the "
                             "staging registry and set credentials to go live."}
+        return await self._post(GATEWAY_URLS[self.env] + "/search", payload)
 
+    # ── Order flow ─────────────────────────────────────────────────────────────
+
+    async def select(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                     transaction_id: str, order: dict) -> dict:
+        context = build_context("select", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/select", {"context": context, "message": {"order": order}})
+
+    async def init(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                   transaction_id: str, order: dict) -> dict:
+        context = build_context("init", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/init", {"context": context, "message": {"order": order}})
+
+    async def confirm(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                      transaction_id: str, order: dict) -> dict:
+        context = build_context("confirm", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/confirm", {"context": context, "message": {"order": order}})
+
+    async def status(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                     transaction_id: str, order_id: str) -> dict:
+        context = build_context("status", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/status",
+                                {"context": context, "message": {"order_id": order_id}})
+
+    async def track(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                    transaction_id: str, order_id: str) -> dict:
+        context = build_context("track", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/track",
+                                {"context": context, "message": {"order_id": order_id}})
+
+    async def cancel(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                     transaction_id: str, order_id: str, cancellation_reason_id: str = "001") -> dict:
+        context = build_context("cancel", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/cancel",
+                                {"context": context,
+                                 "message": {"order_id": order_id,
+                                             "cancellation_reason_id": cancellation_reason_id}})
+
+    async def support(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                      transaction_id: str, ref_id: str) -> dict:
+        context = build_context("support", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/support",
+                                {"context": context, "message": {"ref_id": ref_id}})
+
+    # ── IGM ────────────────────────────────────────────────────────────────────
+
+    async def issue(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                    transaction_id: str, issue: dict) -> dict:
+        context = build_context("issue", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/issue",
+                                {"context": context, "message": {"issue": issue}})
+
+    async def issue_status(self, *, bpp_uri: str, bpp_id: str, domain: str, city: str,
+                           transaction_id: str, issue_id: str) -> dict:
+        context = build_context("issue_status", domain=domain, city=city,
+                                bap_id=self.subscriber_id, bap_uri=self.subscriber_uri,
+                                bpp_id=bpp_id, bpp_uri=bpp_uri,
+                                transaction_id=transaction_id)
+        return await self._post(bpp_uri + "/issue_status",
+                                {"context": context, "message": {"issue_id": issue_id}})
+
+    # ── Internal ───────────────────────────────────────────────────────────────
+
+    async def _post(self, url: str, payload: dict) -> dict:
+        if self.mock:
+            return {"mode": "mock", "url": url, "sent": payload}
         body = json.dumps(payload)
         auth = build_auth_header(body, self.subscriber_id,
                                  self.unique_key_id, self.signing_private_key)
-        import httpx  # lazy: only needed for live network calls
+        import httpx
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{GATEWAY_URLS[self.env]}/search",
-                                     content=body,
+            resp = await client.post(url, content=body,
                                      headers={"Authorization": auth,
                                               "Content-Type": "application/json"})
         return {"mode": "live", "status_code": resp.status_code,
-                "ack": resp.json(), "transaction_id": context["transaction_id"]}
+                "response": resp.json(),
+                "transaction_id": payload["context"]["transaction_id"]}
