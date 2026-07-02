@@ -1,0 +1,42 @@
+{
+  "context": {
+    "domain": "ONDC:SRV13",
+    "action": "on_settlement",
+    "country": "IND",
+    "city": "std:080",
+    "core_version": "1.2.0",
+    "bap_id": "ondc.kaushalstack.com",
+    "bap_uri": "https://ondc.kaushalstack.com/bapl",
+    "bpp_id": "seller.example.com",
+    "bpp_uri": "https://seller.example.com/ondc",
+    "transaction_id": "fc60e774-0f5e-4a31-98b3-dd8b8ffb5ef7",
+    "message_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2026-07-02T05:00:00.000Z",
+    "ttl": "PT30S"
+  },
+  "message": {
+    "settlement": {
+      "settlements": [
+        {
+          "payer_name": "KaushalStack",
+          "payer_address": "Bengaluru, Karnataka",
+          "payer_account_no": "XXXXXXXX1234",
+          "payer_bank_code": "HDFC0001234",
+          "payer_virtual_payment_address": "kaushalstack@hdfc",
+          "payee_name": "PhysioSupply India",
+          "payee_address": "Bengaluru, Karnataka",
+          "payee_account_no": "XXXXXXXX5678",
+          "payee_bank_code": "ICIC0005678",
+          "payee_virtual_payment_address": "physiosupply@icici",
+          "amount": "18500.00",
+          "timestamp": "2026-07-02T05:00:00.000Z",
+          "state": "SUCC",
+          "transaction_id": "fc60e774-0f5e-4a31-98b3-dd8b8ffb5ef7",
+          "settlement_id": "SETTLE-20260702-001",
+          "settlement_reference_no": "REF-20260702-001",
+          "utr": "UTR123456789012"
+        }
+      ]
+    }
+  }
+}
