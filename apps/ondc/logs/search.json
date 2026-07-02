@@ -1,0 +1,40 @@
+{
+  "context": {
+    "domain": "ONDC:SRV11",
+    "action": "search",
+    "country": "IND",
+    "city": "std:080",
+    "core_version": "1.2.0",
+    "bap_id": "ondc.kaushalstack.com",
+    "bap_uri": "https://ondc.kaushalstack.com/bapl",
+    "transaction_id": "fc60e774-0f5e-4a31-98b3-dd8b8ffb5ef7",
+    "message_id": "e735e173-72e5-4272-b53d-afa0fff99692",
+    "timestamp": "2026-07-02T04:30:00.000Z",
+    "ttl": "PT30S"
+  },
+  "message": {
+    "intent": {
+      "item": {
+        "descriptor": {
+          "name": "physiotherapy equipment supplier"
+        }
+      },
+      "fulfillment": {
+        "type": "Delivery",
+        "end": {
+          "location": {
+            "gps": "12.9416,77.7400",
+            "radius": {
+              "unit": "km",
+              "value": "5"
+            }
+          }
+        }
+      },
+      "payment": {
+        "@ondc/org/buyer_app_finder_fee_type": "percent",
+        "@ondc/org/buyer_app_finder_fee_amount": "3"
+      }
+    }
+  }
+}

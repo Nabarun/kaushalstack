@@ -1,0 +1,88 @@
+{
+  "context": {
+    "domain": "ONDC:SRV11",
+    "action": "on_search",
+    "country": "IND",
+    "city": "std:080",
+    "core_version": "1.2.0",
+    "bap_id": "ondc.kaushalstack.com",
+    "bap_uri": "https://ondc.kaushalstack.com/bapl",
+    "bpp_id": "seller.example.com",
+    "bpp_uri": "https://seller.example.com/ondc",
+    "transaction_id": "fc60e774-0f5e-4a31-98b3-dd8b8ffb5ef7",
+    "message_id": "e735e173-72e5-4272-b53d-afa0fff99692",
+    "timestamp": "2026-07-02T04:30:02.000Z",
+    "ttl": "PT30S"
+  },
+  "message": {
+    "catalog": {
+      "bpp/descriptor": {
+        "name": "PhysioSupply India",
+        "short_desc": "Physiotherapy equipment and rehab supplies",
+        "long_desc": "Leading supplier of physiotherapy, rehabilitation and sports injury equipment in Bengaluru",
+        "images": []
+      },
+      "bpp/fulfillments": [
+        {
+          "id": "1",
+          "type": "Delivery"
+        }
+      ],
+      "bpp/providers": [
+        {
+          "id": "provider-001",
+          "descriptor": {
+            "name": "PhysioSupply India",
+            "short_desc": "Rehab equipment supplier"
+          },
+          "locations": [
+            {
+              "id": "loc-001",
+              "gps": "12.9352,77.7245",
+              "address": {
+                "city": "Bengaluru",
+                "state": "Karnataka",
+                "country": "IND",
+                "area_code": "560066"
+              }
+            }
+          ],
+          "items": [
+            {
+              "id": "item-001",
+              "descriptor": {
+                "name": "Ultrasound Therapy Machine",
+                "short_desc": "1MHz/3MHz therapeutic ultrasound unit",
+                "images": []
+              },
+              "price": {
+                "currency": "INR",
+                "value": "18500.00"
+              },
+              "location_id": "loc-001",
+              "fulfillment_id": "1",
+              "@ondc/org/returnable": false,
+              "@ondc/org/cancellable": false
+            },
+            {
+              "id": "item-002",
+              "descriptor": {
+                "name": "TENS/EMS Combo Unit",
+                "short_desc": "Dual-channel electrotherapy device",
+                "images": []
+              },
+              "price": {
+                "currency": "INR",
+                "value": "4200.00"
+              },
+              "location_id": "loc-001",
+              "fulfillment_id": "1",
+              "@ondc/org/returnable": false,
+              "@ondc/org/cancellable": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
