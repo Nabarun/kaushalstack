@@ -87,6 +87,9 @@ export const adminApi = {
         }).then(handle);
     },
 
+    getPartnerStats(range = 'mtd') {
+        return fetch(`${API_BASE}/admin/partner-stats?range=${range}`, { headers: headers() }).then(handle);
+    },
     listEdits(status = 'pending') {
         return fetch(`${API_BASE}/admin/edits?status=${encodeURIComponent(status)}`, { headers: headers() }).then(handle);
     },
