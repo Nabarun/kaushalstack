@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
-import { Calendar, Tag, ArrowRight } from 'lucide-react';
+import { Calendar, Tag, ArrowRight, PenLine } from 'lucide-react';
+import { useAdminAuth } from '@/contexts/AdminAuthContext.jsx';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -11,6 +12,7 @@ function formatDate(dateStr) {
 }
 
 export default function BlogPage() {
+  const { isAdminAuthenticated } = useAdminAuth();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,9 +33,19 @@ export default function BlogPage() {
       </Helmet>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="mb-10">
-          <h1 className="text-4xl font-bold tracking-tight mb-2">Blog</h1>
-          <p className="text-muted-foreground text-lg">Engineering notes &amp; build-in-public updates from KaushalStack.</p>
+        <div className="mb-10 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight mb-2">Blog</h1>
+            <p className="text-muted-foreground text-lg">Engineering notes &amp; build-in-public updates from KaushalStack.</p>
+          </div>
+          {isAdminAuthenticated && (
+            <Link
+              to="/admin/blog"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors shrink-0"
+            >
+              <PenLine className="w-4 h-4" /> Add Blog
+            </Link>
+          )}
         </div>
 
         {loading && (
