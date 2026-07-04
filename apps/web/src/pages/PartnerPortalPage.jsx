@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import pocketbaseClient from '@/lib/pocketbaseClient.js';
 import apiServerClient from '@/lib/apiServerClient.js';
+import { avatarUrl } from '@/lib/avatar';
 
 const authHeaders = () => ({ Authorization: `Bearer ${pocketbaseClient.authStore.token}` });
 
@@ -203,6 +204,94 @@ function AssetsTab({ partner }) {
     );
 }
 
+function buildQueryFromAssets(assets) {
+    return assets
+        .map(a => [a.title, a.note].filter(Boolean).join(' '))
+        .filter(Boolean)
+        .join('. ');
+}
+
+function TeamTab({ partner }) {
+    const [assets, setAssets]   = useState(null);
+    const [team, setTeam]       = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [err, setErr]         = useState('');
+
+    useEffect(() => {
+        api(`/partner/${partner.id}/assets`)
+            .then(d => setAssets(d.assets || []))
+            .catch(() => setAssets([]));
+    }, [partner.id]);
+
+    const recommend = async () => {
+        const query = buildQueryFromAssets(assets);
+        if (!query) return;
+        setLoading(true); setErr(''); setTeam([]);
+        try {
+            const data = await api('/recommend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query }),
+            });
+            setTeam(data.skills || []);
+        } catch (e) { setErr(e.message); } finally { setLoading(false); }
+    };
+
+    const hasAssets = assets && assets.length > 0;
+    const hasQuery  = hasAssets && buildQueryFromAssets(assets).length > 0;
+
+    return (
+        <div className="space-y-6">
+            <div className="rounded-xl border bg-white p-5">
+                <p className="text-sm text-gray-600">
+                    Recommend agents based on what you've added in the Assets tab — links, docs, and notes become the query context.
+                </p>
+                {assets === null && <p className="mt-3 text-xs text-gray-400">Loading assets…</p>}
+                {assets !== null && !hasAssets && (
+                    <p className="mt-3 text-sm text-amber-600">Add at least one asset with a title or note to get recommendations.</p>
+                )}
+                {hasAssets && (
+                    <button
+                        onClick={recommend}
+                        disabled={loading || !hasQuery}
+                        className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                        {loading ? 'Finding agents…' : `Recommend agents from ${assets.length} asset${assets.length !== 1 ? 's' : ''}`}
+                    </button>
+                )}
+                {err && <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+            </div>
+
+            {team.length > 0 && (
+                <div className="rounded-xl border bg-white p-5">
+                    <h3 className="mb-4 font-medium text-sm">Recommended team for {partner.name}</h3>
+                    <div className="space-y-3">
+                        {team.map(s => (
+                            <div key={s.id} className="flex items-center gap-3">
+                                <img
+                                    src={avatarUrl(s.agent_name)}
+                                    alt={s.agent_name}
+                                    className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                                />
+                                <div className="min-w-0">
+                                    <div className="text-sm font-semibold">{s.agent_name}</div>
+                                    <div className="text-xs text-gray-400">{s.category} · {s.name}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <Link
+                        to="/roundtable"
+                        className="mt-5 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"
+                    >
+                        Open Round Table
+                    </Link>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function PartnerPortalPage() {
     const [partners, setPartners] = useState(null);
     const [active, setActive] = useState(null);
@@ -261,12 +350,7 @@ export default function PartnerPortalPage() {
                     <div className="mt-6">
                         {tab === 'usage' && <UsageTab partner={active} />}
                         {tab === 'assets' && <AssetsTab partner={active} />}
-                        {tab === 'team' && (
-                            <div className="rounded-xl border bg-white p-6 text-sm text-gray-700">
-                                <p>Your partner's private agent team runs through the Round Table. Open it and describe what {active.name} needs — the Assets tab's contents become the team's requirements source once Deep Research ingestion lands.</p>
-                                <Link to="/roundtable" className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">Open Round Table</Link>
-                            </div>
-                        )}
+                        {tab === 'team' && <TeamTab partner={active} />}
                     </div>
                 </>
             )}
