@@ -36,16 +36,20 @@ const Header = () => {
     { name: 'About', path: '/about' },
     { name: 'Skills', path: '/skills' },
     { name: 'Blog', path: '/blog' },
-    // Growth Partner is admin-only — appended below if the admin session is active
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
-  if (isAuthenticated) {
+  // Non-admin authenticated users get a plain Partner link
+  if (isAuthenticated && !isAdminAuthenticated) {
     navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
   }
-  if (isAdminAuthenticated) {
-    navLinks.splice(3, 0, { name: 'Growth Partner', path: '/growth-partner' });
-  }
+
+  // Admin: merged Partner dropdown replaces both nav items
+  const partnerDropdownLinks = isAdminAuthenticated ? [
+    { name: 'Partner Portal', path: '/partner' },
+    { name: 'Growth Partner', path: '/growth-partner' },
+  ] : [];
+  const partnerDropdownActive = partnerDropdownLinks.some(l => location.pathname === l.path);
 
   // Items grouped under the "Community" dropdown
   const communityLinks = [
@@ -105,6 +109,35 @@ const Header = () => {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Partner dropdown (admin only) */}
+            {isAdminAuthenticated && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className={`inline-flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      partnerDropdownActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    Partner <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-44">
+                  {partnerDropdownLinks.map((link) => (
+                    <DropdownMenuItem key={link.path} asChild>
+                      <Link
+                        to={link.path}
+                        className={`w-full cursor-pointer ${isActive(link.path) ? 'font-medium text-primary' : ''}`}
+                      >
+                        {link.name}
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -173,6 +206,21 @@ const Header = () => {
               ))}
               {/* Community items flat in mobile */}
               {communityLinks.map((link) => (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive(link.path)
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  {link.name}
+                </Link>
+              ))}
+              {/* Partner items flat in mobile (admin only) */}
+              {partnerDropdownLinks.map((link) => (
                 <Link
                   key={link.path}
                   to={link.path}
