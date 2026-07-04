@@ -9,7 +9,7 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X, Bell, BellOff, Lock } from 'lucide-react';
+import { User, Mail, Calendar, Code, Trophy, LogOut, Key, ShieldCheck, Trash2, ExternalLink, Pencil, Save, X, Bell, BellOff, Lock, BarChart2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -137,6 +137,9 @@ const UserProfilePage = () => {
 
               {/* Email notification preferences */}
               <EmailPrefsSection user={user} />
+
+              {/* Round Table usage */}
+              <UsageSection user={user} />
 
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold">My Shared Skills</h2>
@@ -609,6 +612,87 @@ function ProviderKeySection() {
               <ShieldCheck className="w-3 h-3" /> {meta.hint}. Keys are encrypted at rest and never exposed back to the browser — only the last 4 characters are shown.
             </p>
           </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const FREE_TIER_LIMIT = 10;
+
+function UsageSection({ user }) {
+  const [uses, setUses] = useState(null);
+  const [hasKey, setHasKey] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = pb.authStore.token;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    Promise.all([
+      pb.collection('roundtable_usage').getList(1, 1, {
+        filter: `user_id = "${user.id}"`,
+        $autoCancel: false,
+      }).then(r => r.items[0]?.uses || 0).catch(() => 0),
+      fetch('/api/me/provider', { headers })
+        .then(r => r.ok ? r.json() : {})
+        .then(d => !!d.has_key)
+        .catch(() => false),
+    ]).then(([u, k]) => {
+      setUses(u);
+      setHasKey(k);
+    }).finally(() => setLoading(false));
+  }, [user.id]);
+
+  const pct = hasKey ? 100 : Math.min(100, Math.round(((uses || 0) / FREE_TIER_LIMIT) * 100));
+  const remaining = hasKey ? null : Math.max(0, FREE_TIER_LIMIT - (uses || 0));
+  const overLimit = !hasKey && (uses || 0) >= FREE_TIER_LIMIT;
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="w-5 h-5 text-primary" />
+          <h2 className="text-xl font-bold">Round Table usage</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          Your lifetime Round Table calls on the free tier. Add an AI provider key above to remove the limit.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5">
+        {loading ? (
+          <div className="h-10 bg-muted/40 rounded animate-pulse" />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">
+                {hasKey ? 'Unlimited (BYOK key active)' : `${uses || 0} / ${FREE_TIER_LIMIT} free calls used`}
+              </span>
+              {!hasKey && (
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  overLimit
+                    ? 'bg-destructive/10 text-destructive'
+                    : remaining <= 2
+                    ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                }`}>
+                  {overLimit ? 'Limit reached' : `${remaining} remaining`}
+                </span>
+              )}
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  hasKey ? 'bg-primary' : overLimit ? 'bg-destructive' : remaining <= 2 ? 'bg-yellow-500' : 'bg-primary'
+                }`}
+                style={{ width: `${hasKey ? 100 : pct}%` }}
+              />
+            </div>
+            {overLimit && (
+              <p className="text-xs text-muted-foreground">
+                Add an AI provider key in the section above to continue using Round Table without limits.
+              </p>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

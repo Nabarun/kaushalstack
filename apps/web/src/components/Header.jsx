@@ -32,13 +32,15 @@ const Header = () => {
     { name: 'Leaderboard', path: '/leaderboard' },
     { name: 'Members', path: '/members' },
     { name: 'Blog', path: '/blog' },
-    // Growth Partner and Partner are admin-only — appended below if the admin session is active
+    // Growth Partner is admin-only — appended below if the admin session is active
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
+  if (isAuthenticated) {
+    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
+  }
   if (isAdminAuthenticated) {
     navLinks.splice(4, 0, { name: 'Growth Partner', path: '/growth-partner' });
-    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
   }
 
   const isActive = (path) => location.pathname === path;
