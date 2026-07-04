@@ -27,12 +27,15 @@ import AboutPage from '@/pages/AboutPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
 import DevelopersPage from '@/pages/DevelopersPage.jsx';
 import PartnerPortalPage from '@/pages/PartnerPortalPage.jsx';
+import BlogPage from '@/pages/BlogPage.jsx';
+import BlogPostPage from '@/pages/BlogPostPage.jsx';
 import AdminLoginPage from '@/pages/admin/AdminLoginPage.jsx';
 import AdminLayout from '@/pages/admin/AdminLayout.jsx';
 import BusinessesPage from '@/pages/admin/BusinessesPage.jsx';
 import BusinessDetailPage from '@/pages/admin/BusinessDetailPage.jsx';
 import ReportDetailPage from '@/pages/admin/ReportDetailPage.jsx';
 import ReviewsPage from '@/pages/admin/ReviewsPage.jsx';
+import AdminBlogPage from '@/pages/admin/AdminBlogPage.jsx';
 
 function SiteChrome({ children }) {
   const { pathname } = useLocation();
@@ -74,6 +77,8 @@ function App() {
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
               <Route path="/about" element={<AboutPage />} />
+              <Route path="/blog" element={<BlogPage />} />
+              <Route path="/blog/:slug" element={<BlogPostPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route
                 path="/growth-partner"
@@ -111,9 +116,9 @@ function App() {
               <Route
                 path="/partner"
                 element={
-                  <ProtectedRoute>
+                  <AdminProtectedRoute>
                     <PartnerPortalPage />
-                  </ProtectedRoute>
+                  </AdminProtectedRoute>
                 }
               />
               <Route
@@ -148,6 +153,7 @@ function App() {
                 <Route path="businesses/:id" element={<BusinessDetailPage />} />
                 <Route path="reports/:id" element={<ReportDetailPage />} />
                 <Route path="reviews" element={<ReviewsPage />} />
+                <Route path="blog" element={<AdminBlogPage />} />
               </Route>
 
               <Route path="*" element={

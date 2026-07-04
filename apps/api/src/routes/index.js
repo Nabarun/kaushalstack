@@ -21,6 +21,7 @@ import adminRouter from './admin/index.js';
 import meBusinessesRouter from './me-businesses.js';
 import ttsRouter from './tts.js';
 import partnerRouter from './partner.js';
+import blogRouter from './blog.js';
 
 const router = Router();
 
@@ -51,6 +52,7 @@ export default () => {
     router.use('/', meBusinessesRouter);
     router.use('/', ttsRouter);
     router.use('/', partnerRouter);
+    router.use('/', blogRouter);
 
     return router;
 };

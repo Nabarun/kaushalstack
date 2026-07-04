@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '@/contexts/AdminAuthContext.jsx';
-import { Shield, Briefcase, GitPullRequest, LogOut } from 'lucide-react';
+import { Shield, Briefcase, GitPullRequest, LogOut, FileText } from 'lucide-react';
 
 export default function AdminLayout() {
     const { adminUser, logout } = useAdminAuth();
@@ -30,6 +30,9 @@ export default function AdminLayout() {
                     </NavLink>
                     <NavLink to="/admin/reviews" className={linkClass}>
                         <GitPullRequest className="w-4 h-4" /> Reviews
+                    </NavLink>
+                    <NavLink to="/admin/blog" className={linkClass}>
+                        <FileText className="w-4 h-4" /> Blog
                     </NavLink>
                 </nav>
                 <div className="border-t border pt-3 mt-3">

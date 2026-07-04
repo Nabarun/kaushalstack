@@ -1,0 +1,145 @@
+Never Let the LLM Guess the Date: How I Hardened KaushalStack's Spec Generator
+
+Build in Public · KaushalStack engineering notes
+
+Our platform has a Round Table — a team of specialist AI agents that debate a
+user's idea — and a Spec Engineer that turns the debate into a
+decision-ready spec document. It worked. It demoed well. And then I made the
+mistake every AI builder should make on purpose: I put one of its specs
+side by side with a hand-written one and read both slowly.
+
+The generated spec had four problems, and every one of them taught me
+something about building LLM pipelines.
+
+
+THE FOUR BUGS
+
+1. The spec was dated 2023. In 2026. The template literally asked the
+model for <today's date in YYYY-MM-DD> — and the model, having no clock,
+guessed from its training data. Confidently.
+
+2. The author list included a Schengen-visa planning agent. On a spec for
+an industrial association's membership portal. Our collectAuthors()
+credited every agent who spoke in the round table, and our recommender had
+seated agents that had no business being in that room.
+
+3. When asked to combine a user's uploaded draft with the round table's
+review, it summarized instead of merging. About 90% of the output was a
+paraphrase of the input, and details quietly fell off the edges. My merge
+prompt said "keep the concrete details" — and a small model satisfied that
+instruction by copying some and dropping the rest.
+
+4. It invented a KPI. "70% member engagement" appeared from nowhere.
+The template demanded "measurable" success criteria; the model obliged by
+manufacturing a measurement.
+
+
+THE FIX PHILOSOPHY: CODE FOR GUARANTEES, LLM FOR JUDGMENT
+
+The common thread in all four bugs: I was asking the model to guarantee
+things that code can guarantee for free. The fix wasn't a better prompt.
+It was a deterministic layer around the prompt — I call it the guard.
+
+Dates and authors are stamped, not requested. After generation, the
+guard overwrites the Date line with the server's clock and the Author line
+with the list the backend already computed. The model still writes
+placeholders; they just don't survive.
+
+    spec_text = stampMetadata(await generate(userPrompt), authors);
+
+Rule of thumb: if your code already knows a fact, never route it through
+the model. Every hop through the LLM is a chance for confident fiction.
+
+"Combine without loss" became a contract with an enforcement mechanism.
+The merge prompt now states a zero-loss contract — every goal, requirement,
+bullet, table row and number in the draft must survive, reworded or
+verbatim; contradictions get recorded, never silently resolved. But prompts
+are wishes. So the guard decomposes the uploaded draft into items and
+checks each one against the output: normalized-verbatim match, or ≥0.6
+token recall within a single line, or ≥0.85 across the document. Items the
+model dropped go back in a single bounded repair pass with the exact defect
+list. Whatever still doesn't make it gets appended verbatim under an
+appendix heading.
+
+Worst case is ugly. It is never lossy. That's the property I wanted:
+loss-free by construction, not by hope.
+
+Every number needs a passport. The template now requires inline tags —
+[given], [benchmark: source], [assumption] — and the guard extracts
+every number from the output and checks it against the draft and the
+transcript. Untagged, untraceable numbers get reported in a "quality"
+object the API returns alongside the spec, so the UI can badge them. We
+don't auto-delete them; we make invention visible.
+
+The model got an upgrade path. Half of the restatement problem was
+capability: gpt-4o-mini paraphrases where a stronger model synthesizes. A
+SPEC_MODEL env var now routes spec synthesis independently of chat — the
+guard makes the floor safe, the bigger model raises the ceiling.
+
+The response now carries its own report card:
+
+    "quality": {
+      "sections_ok": true,
+      "coverage_ratio": 1.0,
+      "draft_items": 42,
+      "repaired": false,
+      "carried_over_verbatim": 0,
+      "unsourced_numbers": []
+    }
+
+
+THEN I TESTED IT — AND FOUND THE NEXT LAYER OF BUGS
+
+The first spec out of the hardened pipeline was honestly good: correct
+date, tagged numbers, real failure modes, a rollout section with an actual
+backout plan. And it still wasn't a good spec — for two reasons that live
+upstream of generation.
+
+First, the input didn't deserve a spec. The prompt was "I want to build a
+webapp" — no domain, no features. The generator did the most graceful
+possible thing with vagueness, producing a well-formed document whose Open
+questions section contained the prerequisites for everything above it.
+That's dangerous: a complete-looking spec resting on undefined scope is
+worse than no spec, because someone might execute it. The next patch is an
+input-sufficiency gate — if the open questions include scope-defining
+unknowns, emit a short discovery brief (Status: Blocked on discovery)
+instead of a spec.
+
+Second, the roster was still wrong. My fix made authorship honest — those
+agents really did speak — but an archery coach speaking on a webapp MVP is
+a recommender bug, not an attribution bug. The tell: the spec spent an
+entire section quarantining compliance topics that existed only because
+the wrong agents were in the room. And one agent gamed the provenance rule
+by citing itself as a [benchmark]. New rule: a benchmark must cite
+something outside the conversation. An agent's opinion is an assumption
+wearing a benchmark tag.
+
+
+WHAT I'D TELL ANYONE BUILDING LLM DOCUMENT PIPELINES
+
+1. Stamp facts in code. Dates, authors, versions, IDs — anything the
+   backend knows, the model never touches.
+
+2. Turn "don't lose anything" into a checkable property. Decompose,
+   match, repair once, carry over verbatim. Guarantees beat instructions.
+
+3. Make invention visible instead of pretending it won't happen.
+   Provenance tags plus a validator that reports violations.
+
+4. Ship a quality object with every generation. Your UI, your evals,
+   and your future self will use it.
+
+5. Expect the bugs to move upstream. Once generation is sound, the
+   failures migrate to input quality and retrieval/selection. That's not
+   regression — that's progress revealing the next bottleneck.
+
+The meta-lesson: we caught all of this because we compared our output
+against a strong baseline and read it like a skeptical customer would.
+Your AI product's worst bugs don't throw exceptions. They ship with
+confidence, dated 2023.
+
+---
+
+KaushalStack gives Indian SMBs a round table of AI agents that research,
+spec, design, build and ship. If you're building agent pipelines and
+fighting the same fires, I'd love to compare notes.
