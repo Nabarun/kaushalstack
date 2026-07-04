@@ -264,7 +264,7 @@ export default function PartnerPortalPage() {
                         {tab === 'team' && (
                             <div className="rounded-xl border bg-white p-6 text-sm text-gray-700">
                                 <p>Your partner's private agent team runs through the Round Table. Open it and describe what {active.name} needs — the Assets tab's contents become the team's requirements source once Deep Research ingestion lands.</p>
-                                <Link to="/round-table" className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">Open Round Table</Link>
+                                <Link to="/roundtable" className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">Open Round Table</Link>
                             </div>
                         )}
                     </div>
