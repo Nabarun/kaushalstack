@@ -5,67 +5,79 @@ import { requireAdmin } from './auth.js';
 
 const router = Router();
 
-const esc = (s) => String(s || '').replace(/"/g, '\\"');
-
 function rangeStart(range) {
     const now = new Date();
-    if (range === 'mtd') return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    if (range === '7d')  return new Date(Date.now() - 7 * 24 * 3600 * 1000);
+    if (range === 'mtd')   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    if (range === '7d')    return new Date(Date.now() - 7 * 24 * 3600 * 1000);
     if (range === 'today') return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    return null; // all time
+    return null;
 }
 
 router.get('/admin/partner-stats', requireAdmin, async (req, res) => {
     const range = ['today', '7d', 'mtd', 'all'].includes(req.query.range) ? req.query.range : 'mtd';
     try {
-        // Fetch all partners
+        // ── Partners ─────────────────────────────────────────────────────────
         let partners = [];
         try {
             partners = await pb.collection('partners').getFullList({ sort: 'name' });
         } catch { /* collection may not exist yet */ }
 
-        const partnerMap = Object.fromEntries(partners.map(p => [p.id, p]));
+        // ── Member map: user_id → partner_id ─────────────────────────────────
+        // Most usage_events carry partner_id='' — they're attributed by user
+        // membership, exactly like the per-partner /partner/:id/usage endpoint.
+        const userToPartner = {};
+        try {
+            const members = await pb.collection('partner_members').getFullList({
+                fields: 'partner_id,user_id',
+            });
+            for (const m of members) {
+                if (m.user_id && !userToPartner[m.user_id]) {
+                    userToPartner[m.user_id] = m.partner_id;
+                }
+            }
+        } catch {}
 
-        // Fetch usage events within range
+        // ── All usage events in range ─────────────────────────────────────────
         const start = rangeStart(range);
-        let eventsFilter = 'partner_id != ""';
-        if (start) {
-            const startStr = start.toISOString().replace('T', ' ').slice(0, 19);
-            eventsFilter += ` && created >= "${startStr}"`;
-        }
+        const startStr = start ? start.toISOString().replace('T', ' ').slice(0, 19) : null;
 
         let events = [];
         try {
             events = await pb.collection('usage_events').getFullList({
-                filter: eventsFilter,
+                filter: startStr ? `created >= "${startStr}"` : '',
                 sort: '-created',
-                fields: 'partner_id,cost_usd,input_tokens,output_tokens,created,agent,model,provider',
+                fields: 'partner_id,user_id,cost_usd,input_tokens,output_tokens,created',
             });
-        } catch { /* usage_events may be empty */ }
+        } catch {}
 
-        // Aggregate totals
+        // ── Platform totals (all events) ──────────────────────────────────────
         const totals = { cost_usd: 0, input_tokens: 0, output_tokens: 0, calls: events.length };
-        const byPartner = {};
-
         for (const e of events) {
-            totals.cost_usd     += e.cost_usd     || 0;
-            totals.input_tokens += e.input_tokens  || 0;
-            totals.output_tokens+= e.output_tokens || 0;
+            totals.cost_usd      += e.cost_usd      || 0;
+            totals.input_tokens  += e.input_tokens   || 0;
+            totals.output_tokens += e.output_tokens  || 0;
+        }
+        totals.cost_usd = Number(totals.cost_usd.toFixed(4));
 
-            const pid = e.partner_id;
+        // ── Per-partner attribution ───────────────────────────────────────────
+        // Attribute each event to a partner via:
+        //   1. event.partner_id (explicit)
+        //   2. userToPartner[event.user_id] (member-based, covers most events)
+        const byPartner = {};
+        for (const e of events) {
+            const pid = e.partner_id || userToPartner[e.user_id] || '';
+            if (!pid) continue;
             if (!byPartner[pid]) {
                 byPartner[pid] = { cost_usd: 0, calls: 0, input_tokens: 0, output_tokens: 0, last_active: null };
             }
-            byPartner[pid].cost_usd      += e.cost_usd     || 0;
-            byPartner[pid].input_tokens  += e.input_tokens  || 0;
-            byPartner[pid].output_tokens += e.output_tokens || 0;
+            byPartner[pid].cost_usd      += e.cost_usd      || 0;
             byPartner[pid].calls++;
+            byPartner[pid].input_tokens  += e.input_tokens   || 0;
+            byPartner[pid].output_tokens += e.output_tokens  || 0;
             if (!byPartner[pid].last_active || e.created > byPartner[pid].last_active) {
                 byPartner[pid].last_active = e.created;
             }
         }
-
-        totals.cost_usd = Number(totals.cost_usd.toFixed(4));
 
         const partnerRows = partners.map(p => {
             const u = byPartner[p.id] || { cost_usd: 0, calls: 0, input_tokens: 0, output_tokens: 0, last_active: null };
@@ -83,7 +95,11 @@ router.get('/admin/partner-stats', requireAdmin, async (req, res) => {
 
         res.json({
             range,
-            totals: { ...totals, partners: partners.length, active_partners: Object.keys(byPartner).length },
+            totals: {
+                ...totals,
+                partners: partners.length,
+                active_partners: Object.keys(byPartner).length,
+            },
             partners: partnerRows,
         });
     } catch (err) {
