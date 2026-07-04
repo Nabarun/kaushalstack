@@ -231,7 +231,7 @@ function TeamTab({ partner }) {
             const data = await api('/recommend', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query }),
+                body: JSON.stringify({ query, size: 10 }),
             });
             setTeam(data.skills || []);
         } catch (e) { setErr(e.message); } finally { setLoading(false); }
