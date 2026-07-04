@@ -35,6 +35,9 @@ const Header = () => {
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
+  if (isAuthenticated) {
+    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
+  }
   if (isAdminAuthenticated) {
     navLinks.splice(4, 0, { name: 'Growth Partner', path: '/growth-partner' });
   }

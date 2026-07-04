@@ -26,6 +26,7 @@ import ReviewPage from '@/pages/ReviewPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
 import DevelopersPage from '@/pages/DevelopersPage.jsx';
+import PartnerPortalPage from '@/pages/PartnerPortalPage.jsx';
 import AdminLoginPage from '@/pages/admin/AdminLoginPage.jsx';
 import AdminLayout from '@/pages/admin/AdminLayout.jsx';
 import BusinessesPage from '@/pages/admin/BusinessesPage.jsx';
@@ -107,6 +108,14 @@ function App() {
                 }
               />
               <Route path="/build" element={<BuildPage />} />
+              <Route
+                path="/partner"
+                element={
+                  <ProtectedRoute>
+                    <PartnerPortalPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/roundtable"
                 element={

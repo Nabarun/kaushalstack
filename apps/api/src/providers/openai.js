@@ -41,7 +41,7 @@ export async function listChatModels(key) {
         .map(m => ({ id: m.id, created: m.created || 0, owned_by: m.owned_by || 'openai' }));
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode, onUsage }) {
     // OpenAI auto-caches identical prompt prefixes >=1024 tokens for 5-10
     // minutes. We don't send explicit markers — the only requirement is that
     // the cached prefix sit at the START of the prompt and be byte-identical
@@ -76,5 +76,16 @@ export async function chatComplete({ key, model, systemPrompt, userPrompt, cache
         throw err;
     }
     const data = await r.json();
+    // Exact token usage for the metering layer (providers/index.js). Never
+    // let a metering bug break the chat call itself.
+    if (typeof onUsage === 'function' && data.usage) {
+        try {
+            onUsage({
+                input_tokens:        data.usage.prompt_tokens || 0,
+                output_tokens:       data.usage.completion_tokens || 0,
+                cached_input_tokens: data.usage.prompt_tokens_details?.cached_tokens || 0,
+            });
+        } catch { /* metering must never throw into the request path */ }
+    }
     return data.choices?.[0]?.message?.content || '';
 }

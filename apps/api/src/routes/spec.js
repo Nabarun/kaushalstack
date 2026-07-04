@@ -1,5 +1,6 @@
 // Spec Engineer — synthesizes a round-table chat into a structured spec
-// document. One-shot LLM call (no tools, no streaming). Output follows the
+// document. One LLM call plus a bounded repair pass, wrapped in a
+// deterministic quality gate (see ../spec/guard.js). Output follows the
 // fixed template documented in SPEC_SYSTEM_PROMPT so the UI can render and
 // edit it consistently.
 //
@@ -8,7 +9,11 @@
 //     -> server reads chat (query + turns/responses)
 //     -> builds a single prompt with the round-table transcript
 //     -> calls chatComplete with cached team-roster prefix
-//     -> returns { spec_text, authors }
+//     -> GUARD: stamp Date/Author in code, check sections, and (in combine
+//        mode) verify every draft item survived; one repair pass fixes what
+//        it can, anything still missing is appended verbatim — the combine
+//        is loss-free by construction.
+//     -> returns { spec_text, authors, quality }
 //     -> client persists via PUT /roundtable/chats/:id/spec
 //
 // Saving + editing the spec is handled by the existing tool-results endpoint
@@ -23,10 +28,17 @@ import pb from '../utils/pocketbaseClient.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserBYOK } from './user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
+import {
+    todayISO, stampMetadata, missingSections,
+    coverageReport, appendCarryover, unsourcedNumbers,
+} from '../spec/guard.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERVER_PROVIDER = 'openai';
-const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
+// SPEC_MODEL lets you route spec synthesis to a stronger model than the chat
+// default without touching code — combine-mode restatement was partly a
+// gpt-4o-mini capability problem. e.g. SPEC_MODEL=gpt-4o
+const SERVER_DEFAULT_MODEL = process.env.SPEC_MODEL || 'gpt-4o-mini';
 const UPLOAD_TEXT_CAP = 60000; // chars — keep prompts bounded regardless of file size
 
 const router = Router();
@@ -78,6 +90,8 @@ router.post('/spec/upload', upload.single('file'), async (req, res) => {
 // Spec template — frozen. The agent must output EXACTLY these sections so
 // the UI can parse/render predictably and the user's edits don't break
 // downstream consumers (Maya reads the proposed-approach block in particular).
+// NOTE: the Date and Author lines the model writes are placeholders — the
+// server overwrites both from code after generation (guard.stampMetadata).
 const SPEC_SYSTEM_PROMPT = `You are the Spec Engineer. After a round table of specialist agents has discussed a user's idea, you turn that conversation into a single, decision-ready spec document that the design + build agents can act on.
 
 Output MUST follow this exact template, in this order, using these exact section headings. Markdown only — no code fences around the whole doc, no commentary before or after.
@@ -86,7 +100,7 @@ Title: <one-line title in Title Case>
 
 Author: <comma-separated agent names — every agent who spoke in the round table>
 Status: Draft
-Date: <today's date in YYYY-MM-DD>
+Date: <today's date in YYYY-MM-DD — it is provided in the user message; never guess>
 
 ## Problem
 
@@ -136,6 +150,7 @@ RULES:
 - Stay grounded in what the agents said. Don't invent functionality nobody discussed.
 - Where the round table disagreed, pick the strongest concrete approach and note the alternative under "Alternatives considered."
 - Be specific. "Improve UX" is not a goal; "let a user revoke their key in one click from the dashboard" is.
+- EVERY number (percentages, counts, targets, timelines) must be traceable: either it appeared in the conversation/draft, or you tag it inline as [assumption] or [benchmark: <source>]. Never present an invented number as fact.
 - Authors line must list every agent that contributed a perspective. Order them as they appeared.`;
 
 // Marketing-phase template. Produces a campaign brief that Maya can turn into
@@ -149,7 +164,7 @@ Title: <one-line campaign / event name in Title Case>
 
 Author: <comma-separated agent names — every agent who spoke in the round table>
 Status: Draft
-Date: <today's date in YYYY-MM-DD>
+Date: <today's date in YYYY-MM-DD — it is provided in the user message; never guess>
 
 ## Campaign brief
 
@@ -193,6 +208,7 @@ Date: <today's date in YYYY-MM-DD>
 RULES:
 - Stay grounded in what the round table said. Don't invent angles, audiences, or claims they didn't surface.
 - Each asset's "Short description" must be concrete enough for a designer to start from — specify the visual hook, the headline/copy direction, and the CTA. Not "make it look nice."
+- EVERY number must be traceable to the conversation, or tagged inline as [assumption] or [benchmark: <source>].
 - Authors line must list every agent that contributed a perspective. Order them as they appeared.
 - Do NOT output the software-spec sections (Problem / Goals / Requirements / Proposed approach / Failure modes / Rollout) — this is a campaign brief, not a product spec.`;
 
@@ -222,18 +238,22 @@ function buildSpecUserPrompt(chat, rawSpecText) {
             }).join('\n\n---\n\n');
     }
 
+    // Real date, injected — the model never guesses it (guard re-stamps it
+    // afterwards anyway, belt and braces).
+    const dateLine = `Today's date is ${todayISO()}. Use exactly this in the Date line.`;
+
     // When the user uploaded a draft spec, the round table was convened to
-    // REVIEW it — so the job is to merge, not synthesize from scratch.
+    // REVIEW it — so the job is a LOSSLESS MERGE, not a summary.
     const uploaded = (rawSpecText || '').trim();
     if (uploaded) {
-        const uploadedBlock = `\n\n========\n\nUSER-UPLOADED DRAFT SPEC (the starting point — keep its concrete details and intent):\n\n${uploaded.slice(0, 40000)}`;
-        const reviewGuidance = `Produce a single COMBINED spec. Start from the user's uploaded draft spec below, then FOLD IN everything the round table added — fill the gaps it flagged, tighten the goals, and absorb the experts' suggestions${techTurns.length > 0 ? ' and the technical round table\'s architecture/risk notes' : ''}. Keep the concrete details from the upload; don't drop them. Reformat the result to the required template.`;
+        const uploadedBlock = `\n\n========\n\nUSER-UPLOADED DRAFT SPEC (the starting point — nothing in it may be lost):\n\n${uploaded.slice(0, 40000)}`;
+        const reviewGuidance = `${dateLine}\n\nProduce a single COMBINED spec under a ZERO-LOSS contract:\n1. EVERY item in the uploaded draft — each goal, requirement (Must/Should/Won't), feature, constraint, metric, number, bullet and table row — MUST appear in your output, either verbatim or faithfully reworded with identical facts. You may reorganize and deduplicate; you may NEVER summarize items away or collapse a list into a shorter one.\n2. On top of that, FOLD IN everything the round table added${techTurns.length > 0 ? ' and the technical round table\'s architecture/risk notes' : ''} — gaps they flagged, tightened goals, expert suggestions.\n3. If the round table contradicted a draft item, KEEP the draft item and record the disagreement under "Alternatives considered" or "Open questions" — never silently drop or alter it.\n4. Reformat the merged result to the required template.`;
         return `${reviewGuidance}${uploadedBlock}\n\n========\n\nROUND-TABLE REVIEW (what the experts added / flagged as missing):\n\n${domainTranscript}${techTranscript}`;
     }
 
     const guidance = techTurns.length > 0
-        ? `Synthesize the spec from BOTH round-table conversations below. The domain round table set the problem and goals; the technical round table reviewed the spec draft and weighed in on architecture, stack choices, and engineering risks. The final spec should absorb both perspectives — domain-driven Problem/Goals/Requirements, tech-driven Proposed approach/Failure modes/Open questions.`
-        : `Synthesize the spec from this round-table conversation:`;
+        ? `${dateLine}\n\nSynthesize the spec from BOTH round-table conversations below. The domain round table set the problem and goals; the technical round table reviewed the spec draft and weighed in on architecture, stack choices, and engineering risks. The final spec should absorb both perspectives — domain-driven Problem/Goals/Requirements, tech-driven Proposed approach/Failure modes/Open questions.`
+        : `${dateLine}\n\nSynthesize the spec from this round-table conversation:`;
 
     return `${guidance}\n\n${domainTranscript}${techTranscript}`;
 }
@@ -254,6 +274,21 @@ function collectAuthors(chat) {
         }
     }
     return order;
+}
+
+// Flatten everything the model was allowed to draw from — used for number
+// provenance checks.
+function collectSourceTexts(chat, rawSpecText) {
+    const out = [rawSpecText || ''];
+    const turnSets = [chat.turns, chat.tech_turns, [{ query: chat.query, responses: chat.responses }]];
+    for (const turns of turnSets) {
+        if (!Array.isArray(turns)) continue;
+        for (const t of turns) {
+            if (t?.query) out.push(String(t.query));
+            for (const r of (t?.responses || [])) if (r?.text) out.push(String(r.text));
+        }
+    }
+    return out;
 }
 
 router.post('/spec', async (req, res) => {
@@ -299,44 +334,85 @@ router.post('/spec', async (req, res) => {
     const isMarketing = chat?.phase === 'marketing';
     const systemPrompt = isMarketing ? MARKETING_SPEC_SYSTEM_PROMPT : SPEC_SYSTEM_PROMPT;
 
-    try {
-        const userPrompt = buildSpecUserPrompt(chat, rawSpecText);
-        let spec_text;
+    const generate = async (userPrompt) => {
         try {
-            spec_text = await chatComplete(provider, {
-                key,
-                model,
-                systemPrompt,
-                userPrompt,
+            return await chatComplete(provider, {
+                key, model, systemPrompt, userPrompt,
+                meter: { user_id: userId, agent: 'Spec Engineer', context: 'spec' },
             });
         } catch (err) {
-            // BYOK failed — fall back to server gpt-4o-mini so the spec
-            // still lands. Match /api/roundtable's fallback policy.
+            // BYOK failed — fall back to server model so the spec still
+            // lands. Match /api/roundtable's fallback policy.
             const isBYOKFailure = usingUserKey && (
                 err.status === 401 || err.status === 429 || err.status === 504 ||
                 err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
             );
             if (!isBYOKFailure) throw err;
             const causeMsg = err.cause?.message || err.cause?.code || err.message;
-            logger.warn(`spec BYOK failed (provider=${provider} model=${model} cause=${causeMsg}) — falling back to server gpt-4o-mini`);
+            logger.warn(`spec BYOK failed (provider=${provider} model=${model} cause=${causeMsg}) — falling back to server ${SERVER_DEFAULT_MODEL}`);
             provider = SERVER_PROVIDER;
             key      = OPENAI_API_KEY;
             model    = SERVER_DEFAULT_MODEL;
             fellBackToServer = true;
-            spec_text = await chatComplete(provider, {
-                key,
-                model,
-                systemPrompt,
-                userPrompt,
+            return await chatComplete(provider, {
+                key, model, systemPrompt, userPrompt,
+                meter: { user_id: userId, agent: 'Spec Engineer', context: 'spec' },
             });
         }
-        logger.info(`spec: chat=${chatId} phase=${chat?.phase || 'default'} template=${isMarketing ? 'marketing' : 'software'} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''}`);
+    };
+
+    try {
+        const userPrompt = buildSpecUserPrompt(chat, rawSpecText);
+        let spec_text = stampMetadata(await generate(userPrompt), authors);
+
+        // ── Quality gate ────────────────────────────────────────────────────
+        let sectionsMissing = missingSections(spec_text, chat?.phase);
+        let coverage = rawSpecText ? coverageReport(rawSpecText, spec_text) : { total: 0, missing: [], ratio: 1 };
+        let repaired = false;
+
+        if (sectionsMissing.length > 0 || coverage.missing.length > 0) {
+            // One bounded repair pass with the exact defect list. Cheap, and
+            // fixes the common case where a small model dropped a handful of
+            // draft items or a section.
+            const problems = [];
+            if (sectionsMissing.length > 0) problems.push(`Missing required sections: ${sectionsMissing.join(', ')}`);
+            if (coverage.missing.length > 0) {
+                problems.push(`These items from the uploaded draft were LOST and must be restored (reworded is fine, dropped is not):\n${coverage.missing.map(m => `- ${m}`).join('\n')}`);
+            }
+            const repairPrompt = `${userPrompt}\n\n========\n\nYou already produced the spec below, but it FAILED review:\n${problems.join('\n\n')}\n\nOutput the corrected FULL spec (entire document, same template). Fix every listed problem and change nothing else.\n\n--- PREVIOUS SPEC ---\n\n${spec_text}`;
+            spec_text = stampMetadata(await generate(repairPrompt), authors);
+            repaired = true;
+            sectionsMissing = missingSections(spec_text, chat?.phase);
+            coverage = rawSpecText ? coverageReport(rawSpecText, spec_text) : coverage;
+        }
+
+        // Guaranteed floor: anything STILL missing rides along verbatim.
+        let appended = 0;
+        if (coverage.missing.length > 0) {
+            spec_text = appendCarryover(spec_text, coverage.missing);
+            appended = coverage.missing.length;
+            coverage = coverageReport(rawSpecText, spec_text);
+        }
+
+        const unsourced = unsourcedNumbers(spec_text, collectSourceTexts(chat, rawSpecText));
+
+        logger.info(`spec: chat=${chatId} phase=${chat?.phase || 'default'} template=${isMarketing ? 'marketing' : 'software'} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''} coverage=${coverage.ratio.toFixed(2)}${repaired ? ' repaired' : ''}${appended ? ` appended=${appended}` : ''} unsourced_numbers=${unsourced.length}`);
+
         res.json({
             spec_text,
             authors,
             generated_at: new Date().toISOString(),
             engine: { provider, model },
             byok_fell_back: fellBackToServer,
+            quality: {
+                sections_ok: sectionsMissing.length === 0,
+                sections_missing: sectionsMissing,
+                coverage_ratio: Number(coverage.ratio.toFixed(3)),
+                draft_items: coverage.total,
+                repaired,
+                carried_over_verbatim: appended,
+                unsourced_numbers: unsourced,
+            },
         });
     } catch (err) {
         const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');

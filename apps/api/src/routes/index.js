@@ -20,6 +20,7 @@ import specRouter from './spec.js';
 import adminRouter from './admin/index.js';
 import meBusinessesRouter from './me-businesses.js';
 import ttsRouter from './tts.js';
+import partnerRouter from './partner.js';
 
 const router = Router();
 
@@ -49,6 +50,7 @@ export default () => {
     router.use('/', adminRouter);
     router.use('/', meBusinessesRouter);
     router.use('/', ttsRouter);
+    router.use('/', partnerRouter);
 
     return router;
 };

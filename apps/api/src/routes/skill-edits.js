@@ -264,6 +264,30 @@ router.post('/edits/:id/reject', async (req, res) => {
     res.status(result.status).json(result.body);
 });
 
+// POST /edits/:id/admin-reject — admin instant reject, bypasses REJECTION_THRESHOLD
+router.post('/edits/:id/admin-reject', async (req, res) => {
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const u = await getUser(userId);
+    if (!u?.is_admin) return res.status(403).json({ error: 'admin only' });
+
+    const edit = await pb.collection('skill_edits').getOne(req.params.id).catch(() => null);
+    if (!edit) return res.status(404).json({ error: 'edit not found' });
+    if (edit.status !== 'pending') return res.status(409).json({ error: `edit is already ${edit.status}` });
+
+    await discardEdit(edit.id);
+    const skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+    notify({
+        userId: edit.user_id,
+        kind: NotificationKind.EDIT_DISCARDED,
+        actor_id: userId,
+        subject_id: edit.skill_id,
+        data: { skill_name: skill?.name || '', rejections_count: 'admin override' },
+    });
+    logger.info(`admin ${userId} force-rejected edit ${edit.id}`);
+    res.json({ discarded: true });
+});
+
 // POST /edits/:id/ai-review — invoke AI reviewer
 router.post('/edits/:id/ai-review', async (req, res) => {
     const userId = await getUserIdFromAuth(req);

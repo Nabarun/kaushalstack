@@ -2,6 +2,7 @@ import * as openai from './openai.js';
 import * as anthropic from './anthropic.js';
 import * as xai from './xai.js';
 import * as google from './google.js';
+import { recordUsage } from '../partner/usage.js';
 
 const REGISTRY = {
     openai,
@@ -30,6 +31,32 @@ export async function listChatModels(provider, key) {
     return pick(provider).listChatModels(key);
 }
 
-export async function chatComplete(provider, opts) {
-    return pick(provider).chatComplete(opts);
+// Single choke point for every chat completion in the platform — which makes
+// it the single choke point for usage metering too. Callers can attach
+//   opts.meter = { partner_id, user_id, agent, context }
+// for attribution; calls without it are still metered as context='untagged'
+// so total spend on the dashboard is always true. Providers that surface
+// exact token usage do so via the onUsage callback; others get a chars/4
+// estimate flagged estimated=true.
+export async function chatComplete(provider, opts = {}) {
+    const impl = pick(provider);
+    let usage = null;
+    const { meter, ...providerOpts } = opts;
+    const text = await impl.chatComplete({
+        ...providerOpts,
+        onUsage: (u) => { usage = u; },
+    });
+    const promptChars =
+        (opts.systemPrompt?.length || 0) +
+        (opts.userPrompt?.length || 0) +
+        (opts.cachedPrefix?.length || 0);
+    recordUsage({
+        provider,
+        model: opts.model || impl.meta?.defaultModel,
+        usage,
+        promptChars,
+        completionChars: text?.length || 0,
+        meter,
+    }).catch(() => {});
+    return text;
 }
