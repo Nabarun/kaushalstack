@@ -163,8 +163,20 @@ router.get('/partner/:id/usage', async (req, res) => {
     const range = ['today', 'mtd', '7d'].includes(req.query.range) ? req.query.range : 'today';
     const start = rangeStart(range).toISOString().replace('T', ' ').slice(0, 19);
     try {
+        // Include calls tagged with this partner_id AND untagged calls (partner_id="")
+        // from any member of this partner — covers roundtable/spec calls that carry
+        // user_id but no partner_id until explicit attribution is added.
+        const allMembers = await pb.collection('partner_members').getFullList({
+            filter: `partner_id = "${esc(req.params.id)}"`,
+        });
+        const memberIds = [...new Set([
+            ctx.partner.owner_user_id,
+            ...allMembers.map(m => m.user_id),
+        ])].filter(Boolean);
+        const memberFilter = memberIds.map(id => `user_id = "${esc(id)}"`).join(' || ');
+        const usageFilter = `(partner_id = "${esc(req.params.id)}" || (partner_id = "" && (${memberFilter}))) && created >= "${start}"`;
         const events = await pb.collection('usage_events').getFullList({
-            filter: `partner_id = "${esc(req.params.id)}" && created >= "${start}"`,
+            filter: usageFilter,
             sort: '-created',
         });
         const sum = { cost_usd: 0, input_tokens: 0, output_tokens: 0, calls: events.length, estimated_calls: 0 };

@@ -396,6 +396,7 @@ router.post('/roundtable', async (req, res) => {
             userPrompt,
             cachedPrefix,
             jsonMode: true,
+            meter: { user_id: userId || '', agent: 'roundtable', context: 'roundtable' },
         });
     } catch (err) {
         // BYOK failed for any reason (401/429/504/timeout/quota) — fall
@@ -415,6 +416,7 @@ router.post('/roundtable', async (req, res) => {
                     userPrompt,
                     cachedPrefix,
                     jsonMode: true,
+                    meter: { user_id: userId || '', agent: 'roundtable', context: 'roundtable' },
                 });
                 fellBackToServer = true;
             } catch (fallbackErr) {
@@ -635,6 +637,7 @@ router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) =
             model: modelInUse,
             systemPrompt,
             userPrompt,
+            meter: { user_id: userId, agent: agentName, context: 'agent-thread' },
         });
     } catch (err) {
         // Same soft-fall policy as /roundtable: any BYOK failure (auth,
@@ -661,6 +664,7 @@ router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) =
                 model: modelInUse,
                 systemPrompt,
                 userPrompt,
+                meter: { user_id: userId, agent: agentName, context: 'agent-thread' },
             });
         } catch (fallbackErr) {
             logger.error(`agent-thread fallback also failed: ${fallbackErr.message}`);
