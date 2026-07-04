@@ -1,8 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, GitPullRequest } from 'lucide-react';
+import { Menu, X, GitPullRequest, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import Logo from '@/components/Logo.jsx';
 import NotificationBell from '@/components/NotificationBell.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
@@ -29,20 +35,23 @@ const Header = () => {
     { name: 'Home', path: '/' },
     { name: 'About', path: '/about' },
     { name: 'Skills', path: '/skills' },
-    { name: 'Leaderboard', path: '/leaderboard' },
-    { name: 'Members', path: '/members' },
     { name: 'Blog', path: '/blog' },
     // Growth Partner is admin-only — appended below if the admin session is active
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
-  if (isAuthenticated) {
-    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
-  }
   if (isAdminAuthenticated) {
-    navLinks.splice(4, 0, { name: 'Growth Partner', path: '/growth-partner' });
+    navLinks.splice(3, 0, { name: 'Growth Partner', path: '/growth-partner' });
   }
 
+  // Items grouped under the "Community" dropdown
+  const communityLinks = [
+    { name: 'Leaderboard', path: '/leaderboard' },
+    { name: 'Members', path: '/members' },
+    ...(isAuthenticated ? [{ name: 'Partner', path: '/partner' }] : []),
+  ];
+
+  const communityActive = communityLinks.some(l => location.pathname === l.path);
   const isActive = (path) => location.pathname === path;
 
   return (
@@ -50,8 +59,6 @@ const Header = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <Link to="/" className="flex items-center">
-            {/* tagline=true renders the italic serif "Your AI Onboarding
-                Partner" below the wordmark — see Logo.jsx for the styling. */}
             <Logo size={30} tagline />
           </Link>
 
@@ -69,6 +76,33 @@ const Header = () => {
                 {link.name}
               </Link>
             ))}
+
+            {/* Community dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={`inline-flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    communityActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  Community <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {communityLinks.map((link) => (
+                  <DropdownMenuItem key={link.path} asChild>
+                    <Link
+                      to={link.path}
+                      className={`w-full cursor-pointer ${isActive(link.path) ? 'font-medium text-primary' : ''}`}
+                    >
+                      {link.name}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -122,6 +156,21 @@ const Header = () => {
           <div className="md:hidden py-4 border-t">
             <nav className="flex flex-col gap-2">
               {navLinks.map((link) => (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive(link.path)
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  {link.name}
+                </Link>
+              ))}
+              {/* Community items flat in mobile */}
+              {communityLinks.map((link) => (
                 <Link
                   key={link.path}
                   to={link.path}
