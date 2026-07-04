@@ -1,4 +1,4 @@
-const API_SERVER_URL = '/hcgi/api';
+const API_SERVER_URL = '/api';
 
 const apiServerClient = {
     fetch: async (url, options = {}) => {
