@@ -40,6 +40,9 @@ const Header = () => {
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
+  if (isAuthenticated) {
+    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
+  }
   if (isAdminAuthenticated) {
     navLinks.splice(3, 0, { name: 'Growth Partner', path: '/growth-partner' });
   }
@@ -48,7 +51,6 @@ const Header = () => {
   const communityLinks = [
     { name: 'Leaderboard', path: '/leaderboard' },
     { name: 'Members', path: '/members' },
-    ...(isAuthenticated ? [{ name: 'Partner', path: '/partner' }] : []),
   ];
 
   const communityActive = communityLinks.some(l => location.pathname === l.path);
