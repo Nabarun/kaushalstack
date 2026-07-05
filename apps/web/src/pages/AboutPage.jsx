@@ -1,24 +1,12 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Heart, Users, Code, TrendingUp, ArrowRight, Sparkles } from 'lucide-react';
+import { TrendingUp, ArrowRight, Sparkles } from 'lucide-react';
 import DemoVideoCard from '@/components/DemoVideoCard.jsx';
-import pb from '@/lib/pocketbaseClient';
-
 const AboutPage = () => {
-  const [stats, setStats] = useState({ users: 0, skills: 0, leaderboard: 0 });
-
   useEffect(() => {
-    // /api/stats does the join via the API's superuser PB client — the
-    // browser can't query users directly because of the auth.id read rule.
-    fetch('/api/stats')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setStats({ users: d.members, skills: d.skills, leaderboard: d.leaderboard }); })
-      .catch(err => console.error('Failed to fetch platform stats:', err));
-
     // ScrollToTop globally yanks the page to top on route change, so an in-URL
     // #demo hash gets clobbered. Re-honor it after mount.
     if (window.location.hash === '#demo') {
@@ -74,49 +62,6 @@ const AboutPage = () => {
 
         <section className="py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-20">
-              <div>
-                <h2 className="text-3xl font-bold mb-4">Open source at our core</h2>
-                <p className="text-muted-foreground leading-relaxed mb-6">
-                  We're committed to transparency and community ownership. Every line of code, every feature, and every decision is made with the community in mind. Our platform is built by contributors, for contributors.
-                </p>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex items-center gap-2 px-4 py-2 bg-muted rounded-lg">
-                    <Heart className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium">100% Free</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-muted rounded-lg">
-                    <Code className="w-4 h-4 text-accent" />
-                    <span className="text-sm font-medium">Open Source</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-muted rounded-lg">
-                    <Users className="w-4 h-4 text-secondary" />
-                    <span className="text-sm font-medium">Community Driven</span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Card>
-                  <CardContent className="p-6 text-center">
-                    <div className="text-4xl font-bold text-primary mb-2">{stats.users}</div>
-                    <p className="text-sm text-muted-foreground">Members</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-6 text-center">
-                    <div className="text-4xl font-bold text-accent mb-2">{stats.skills}</div>
-                    <p className="text-sm text-muted-foreground">Skills Shared</p>
-                  </CardContent>
-                </Card>
-                <Card className="sm:col-span-2">
-                  <CardContent className="p-6 text-center">
-                    <div className="text-4xl font-bold text-secondary mb-2">{stats.leaderboard}</div>
-                    <p className="text-sm text-muted-foreground">Leaderboard Entries</p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
               <div className="order-2 md:order-1">
                 <div className="bg-gradient-to-br from-primary/10 to-accent/10 rounded-2xl p-8 text-center">
