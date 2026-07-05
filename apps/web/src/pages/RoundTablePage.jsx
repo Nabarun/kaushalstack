@@ -10,11 +10,18 @@ import { ArrowLeft, Send, Key, Plus, Trash2, MessageSquare, Download, CheckCircl
 //   Maya   — 1 landing page (desktop browser frame)
 //   Kavya  — HTML email campaign + Gmail-frame preview
 //   Tara   — platform-native social posts (Instagram + Facebook + LinkedIn + X, in parallel)
-const ANANYA_SKILL_ID    = '0v9syxxawznp95v';
-const MAYA_SKILL_ID      = 'uepji0o2teuf29b';
-const KAVYA_SKILL_ID     = 'ip1bvcutzgsy28p';
-const TARA_SKILL_ID      = 'eu6cweasi3d4xt8';
-const HOSTINGER_SKILL_ID = 'hostingerdeploy';
+//   Meera  — mobile app build (Expo / React Native) — replaces Ananya for mobile queries
+//   Priya  — mobile app screen designer — replaces Maya for mobile queries
+const ANANYA_SKILL_ID          = '0v9syxxawznp95v';
+const MAYA_SKILL_ID            = 'uepji0o2teuf29b';
+const KAVYA_SKILL_ID           = 'ip1bvcutzgsy28p';
+const TARA_SKILL_ID            = 'eu6cweasi3d4xt8';
+const HOSTINGER_SKILL_ID       = 'hostingerdeploy';
+const MOBILE_DEV_SKILL_ID      = 'mobiledevagent1';
+const MOBILE_DESIGNER_SKILL_ID = 'mobiledesignagent1';
+
+const MOBILE_QUERY_RX = /\b(mobile\s+app|react\s+native|expo\s+app|ios\s+app|android\s+app|expo\b|react-native|cross[-\s]platform\s+app|phone\s+app|smartphone\s+app|native\s+app|build\s+(?:a\s+)?(?:mobile|ios|android)|eas\s+build|expo\s+go|app\s+store|google\s+play)\b/i;
+function isMobileQuery(q) { return MOBILE_QUERY_RX.test(q || ''); }
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
 import CreativePipeline from '@/components/CreativePipeline';
@@ -629,12 +636,24 @@ export default function RoundTablePage() {
     });
   }
 
-  // If Maya already produced mockups in this chat, Ananya consumes them as a
-  // design brief — palette, typography, layout structure carry over. We pass
-  // BOTH her session id (so her images get copied) AND the persisted brief text
-  // (so the handoff still works after her workspace has expired — which is the
-  // common case once you come back to a saved chat).
+  // If the design stage already produced mockups in this chat, the build stage
+  // consumes them as a design brief. We pass BOTH the session id (so images get
+  // copied) AND the persisted brief text (so the handoff works after the
+  // workspace has expired — the common case once you come back to a saved chat).
+  //
+  // For mobile queries Meera replaces Ananya (build) and Priya replaces Maya
+  // (design). Both use the generic /api/creative endpoint with an agent_id.
+  const isMobile = isMobileQuery(activeChat?.query);
   const triggerBuild = () => {
+    if (isMobile) {
+      return runToolAction({
+        endpoint: '/api/creative',
+        excludeAgentId: MOBILE_DEV_SKILL_ID,
+        setState: setBuild,
+        toolKey: 'build',
+        extraBody: { agent_id: MOBILE_DEV_SKILL_ID },
+      });
+    }
     const extraBody = {};
     if (mockup.status === 'done' && mockup.result) {
       if (mockup.result.session_id)  extraBody.design_session_id = mockup.result.session_id;
@@ -648,18 +667,33 @@ export default function RoundTablePage() {
       extraBody,
     });
   };
-  const triggerMockup = (overrideQuery) => runToolAction({
-    endpoint: '/api/mockup',
-    excludeAgentId: MAYA_SKILL_ID,
-    setState: setMockup,
-    toolKey: 'mockup',
-    // When the Spec Engineer hands off, the spec text replaces the original
-    // user query as the design driver. extraBody.query takes precedence over
-    // the chat's stored query inside runToolAction's body construction.
-    ...(typeof overrideQuery === 'string' && overrideQuery.trim()
-      ? { extraBody: { query_override: overrideQuery.trim() } }
-      : {}),
-  });
+  const triggerMockup = (overrideQuery) => {
+    if (isMobile) {
+      return runToolAction({
+        endpoint: '/api/creative',
+        excludeAgentId: MOBILE_DESIGNER_SKILL_ID,
+        setState: setMockup,
+        toolKey: 'mockup',
+        extraBody: {
+          agent_id: MOBILE_DESIGNER_SKILL_ID,
+          ...(typeof overrideQuery === 'string' && overrideQuery.trim()
+            ? { query_override: overrideQuery.trim() }
+            : {}),
+        },
+      });
+    }
+    return runToolAction({
+      endpoint: '/api/mockup',
+      excludeAgentId: MAYA_SKILL_ID,
+      setState: setMockup,
+      toolKey: 'mockup',
+      // When the Spec Engineer hands off, the spec text replaces the original
+      // user query as the design driver.
+      ...(typeof overrideQuery === 'string' && overrideQuery.trim()
+        ? { extraBody: { query_override: overrideQuery.trim() } }
+        : {}),
+    });
+  };
 
   // Spec Engineer — synthesize a structured spec doc from the round-table
   // transcript. One-shot LLM call, not the SSE-streamed creative pipeline.
@@ -2408,13 +2442,18 @@ export default function RoundTablePage() {
                 if (!activeChat) return null;
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
                 if (!allResponsesIn || loading) return null;
+                const chatIsMobile = isMobileQuery(activeChat?.query);
                 const members = [
-                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',           accent: '#9b6cf0', theme: 'warm' },
-                  { key: 'maya',      name: 'Maya',      role: 'Landing Page Designer',   accent: '#b07ef8', theme: 'warm' },
-                  { key: 'tara',      name: 'Tara',      role: 'Social Campaign Designer', accent: '#e070c2', theme: 'warm', parallelWith: 'maya' },
-                  { key: 'kavya',     name: 'Kavya',     role: 'Email Campaign Designer', accent: '#f0a04b', theme: 'warm', parallelWith: 'tara' },
-                  { key: 'ananya',    name: 'Ananya',    role: 'Dev Engineer',            accent: '#5b8dee', theme: 'warm' },
-                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',         accent: '#9b6cf0', theme: 'cool' },
+                  { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',                        accent: '#9b6cf0', theme: 'warm' },
+                  chatIsMobile
+                    ? { key: 'priya',  name: 'Priya',  role: 'Mobile App Designer',                    accent: '#b07ef8', theme: 'warm' }
+                    : { key: 'maya',   name: 'Maya',   role: 'Landing Page Designer',                  accent: '#b07ef8', theme: 'warm' },
+                  { key: 'tara',      name: 'Tara',      role: 'Social Campaign Designer',             accent: '#e070c2', theme: 'warm', parallelWith: chatIsMobile ? 'priya' : 'maya' },
+                  { key: 'kavya',     name: 'Kavya',     role: 'Email Campaign Designer',              accent: '#f0a04b', theme: 'warm', parallelWith: 'tara' },
+                  chatIsMobile
+                    ? { key: 'meera', name: 'Meera', role: 'Mobile App Engineer',                      accent: '#5b8dee', theme: 'warm' }
+                    : { key: 'ananya', name: 'Ananya', role: 'Dev Engineer',                           accent: '#5b8dee', theme: 'warm' },
+                  { key: 'hostinger', name: 'Hostinger', role: 'Deploy Engineer',                      accent: '#9b6cf0', theme: 'cool' },
                 ];
                 return (
                   <CreativePipeline

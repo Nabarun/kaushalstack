@@ -80,11 +80,10 @@ export default function CreativePipeline({
   hostingerToken, setHostingerToken, setHostinger,
   describeProgress, buildWillInheritDesign,
 }) {
-  // For marketing-phase chats, the pipeline ends at Maya — there's no website
-  // to build or deploy. Drop Ananya + Hostinger before any downstream logic
-  // (gating, default-selected step, avatar row, etc.) reads `members`.
+  // For marketing-phase chats, the pipeline ends at the design step — there's
+  // no website/app to build or deploy. Drop build + deploy agents.
   const visibleMembers = phase === 'marketing'
-    ? members.filter(m => m.key !== 'ananya' && m.key !== 'hostinger')
+    ? members.filter(m => m.key !== 'ananya' && m.key !== 'meera' && m.key !== 'hostinger')
     : members;
   const has = key => visibleMembers.some(m => m.key === key);
 
@@ -102,12 +101,14 @@ export default function CreativePipeline({
   const stageRelevant = specText ? {
     aisha:     true,
     maya:      DESIGN_RX.test(specText),
+    priya:     DESIGN_RX.test(specText),
     tara:      SOCIAL_RX.test(specText),
     kavya:     EMAIL_RX.test(specText),
     ananya:    BUILD_RX.test(specText),
+    meera:     BUILD_RX.test(specText),
     hostinger: DEPLOY_RX.test(specText),
   } : {
-    aisha: true, maya: true, tara: true, kavya: true, ananya: true, hostinger: true,  // before spec exists, show all bright
+    aisha: true, maya: true, priya: true, tara: true, kavya: true, ananya: true, meera: true, hostinger: true,
   };
 
   // Gating — each downstream agent waits for the previous one to finish.
@@ -118,17 +119,21 @@ export default function CreativePipeline({
   const lockedFor = {
     aisha:     false,
     maya:      has('aisha') && spec?.status !== 'done',
-    tara:      has('aisha') && spec?.status !== 'done',  // parallel to Maya — same gating
-    kavya:     has('aisha') && spec?.status !== 'done',  // parallel to Maya — same gating
-    ananya:    has('maya') && mockup.status !== 'done',
+    priya:     has('aisha') && spec?.status !== 'done',  // same gating as maya
+    tara:      has('aisha') && spec?.status !== 'done',  // parallel to Maya/Priya — same gating
+    kavya:     has('aisha') && spec?.status !== 'done',  // parallel — same gating
+    ananya:    has('maya')  && mockup.status !== 'done',
+    meera:     has('priya') && mockup.status !== 'done', // waits for Priya same as Ananya waits for Maya
     hostinger: build.status !== 'done',
   };
   const statusFor = {
     aisha:     spec?.status || 'idle',
     maya:      mockup.status,
+    priya:     mockup.status,
     tara:      social?.status || 'idle',
     kavya:     email?.status || 'idle',
     ananya:    build.status,
+    meera:     build.status,
     hostinger: deploy.status,
   };
 
@@ -238,11 +243,13 @@ export default function CreativePipeline({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya: has('maya'), tech, conveneTechTeam }} />}
+            {effective === 'aisha'     && <AishaSection {...{ spec, setSpec, generateSpec, saveSpecEdits, sendSpecToMaya, uploadedSpec, sendUploadedToMaya, mockup, hasMaya: has('maya') || has('priya'), tech, conveneTechTeam }} />}
             {effective === 'maya'      && <MayaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.maya }} />}
+            {effective === 'priya'     && <PriyaSection {...{ mockup, triggerMockup, recoverMockup, describeProgress, locked: lockedFor.priya }} />}
             {effective === 'tara'      && <TaraSection {...{ social, triggerSocial, recoverSocial, describeProgress, locked: lockedFor.tara }} />}
             {effective === 'kavya'     && <KavyaSection {...{ email, triggerEmail, recoverEmail, describeProgress, locked: lockedFor.kavya }} />}
             {effective === 'ananya'    && <AnanyaSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.ananya, buildWillInheritDesign }} />}
+            {effective === 'meera'     && <MeeraSection {...{ build, triggerBuild, recoverBuild, describeProgress, locked: lockedFor.meera }} />}
             {effective === 'hostinger' && (
               <HostingerSection {...{
                 build, deploy, hostinger, triggerDeploy, locked: lockedFor.hostinger,
@@ -496,6 +503,73 @@ function MayaSection({ mockup, triggerMockup, recoverMockup, describeProgress, l
   );
 }
 
+// ── Priya — design mobile app screens ───────────────────────────────
+function PriyaSection({ mockup, triggerMockup, recoverMockup, describeProgress, locked }) {
+  const accent = '#b07ef8';
+  if (locked && mockup.status !== 'done') {
+    return (
+      <>
+        <Tag color="#5a607a" icon={Lock}>Waiting for Aisha</Tag>
+        <div style={{ fontSize: 13, color: '#8a91a8', lineHeight: 1.65 }}>
+          Priya designs from the spec. Generate (or accept) Aisha's spec first, then come back here.
+        </div>
+      </>
+    );
+  }
+  if (mockup.status === 'running') {
+    const live = describeProgress(mockup.progress);
+    return (
+      <div className="flex items-center gap-3">
+        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+          <Palette style={{ width: 22, height: 22, color: accent }} />
+        </motion.div>
+        <div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Priya is designing screens…</div>
+          <div style={{ fontSize: 11, color: live ? accent : '#5a607a', marginTop: 2 }}>
+            {live || 'Drawing mobile screens at 390px with phone chrome. 1–2 minutes.'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (mockup.status === 'done' && mockup.result) {
+    return (
+      <>
+        <Tag color="#5cc28a" icon={CheckCircle2}>Screen mockups ready</Tag>
+        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{mockup.result.summary}</div>
+        <FileList files={mockup.result.files} maxHeight={180} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {mockup.result.preview_url && (
+            <a href={apiHref(mockup.result.preview_url)} target="_blank" rel="noopener noreferrer" style={btn(accent)}>
+              <Eye style={{ width: 14, height: 14 }} /> Preview
+            </a>
+          )}
+          <a href={apiHref(mockup.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
+            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+          </a>
+          <button onClick={triggerMockup} style={{ background: 'none', color: '#5a607a', border: '1px solid #1e2130', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Palette style={{ width: 13, height: 13 }} /> Regenerate
+          </button>
+        </div>
+      </>
+    );
+  }
+  if (mockup.status === 'error') {
+    return <ErrorBlock title="Screen design failed" message={mockup.error} accent={accent} onRetry={triggerMockup} pendingSessionId={mockup.pendingSessionId} onRecover={recoverMockup} recoveryNote={mockup.recoveryNote} />;
+  }
+  return (
+    <>
+      <Tag color={accent}>Priya can design this</Tag>
+      <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+        Generate polished mobile screen mockups — multiple screens at 390px viewport inside iPhone chrome, using real content and native UI patterns.
+      </div>
+      <button onClick={triggerMockup} style={btn(accent)}>
+        <Palette style={{ width: 14, height: 14 }} /> Design Mobile Screens
+      </button>
+    </>
+  );
+}
+
 // ── Tara — design social posts (parallel to Maya) ───────────────────
 // Same shape as MayaSection (locked / running / done / error / idle states)
 // but reads from `social` state and renders the 4-platform campaign output.
@@ -712,6 +786,73 @@ function AnanyaSection({ build, triggerBuild, recoverBuild, describeProgress, lo
       </div>
       <button onClick={triggerBuild} style={btn(accent)}>
         <Hammer style={{ width: 14, height: 14 }} /> {buildWillInheritDesign ? "Build from Maya's design" : 'Build & Download'}
+      </button>
+    </>
+  );
+}
+
+// ── Meera — build the mobile app (Expo / React Native) ──────────────
+function MeeraSection({ build, triggerBuild, recoverBuild, describeProgress, locked }) {
+  const accent = '#5b8dee';
+  if (locked && build.status !== 'done') {
+    return (
+      <>
+        <Tag color="#5a607a" icon={Lock}>Waiting for Priya</Tag>
+        <div style={{ fontSize: 13, color: '#8a91a8', lineHeight: 1.65 }}>
+          Meera builds the Expo project once <span style={{ color: '#b07ef8', fontWeight: 600 }}>Priya's screen mockups</span> are ready. Generate the designs first.
+        </div>
+      </>
+    );
+  }
+  if (build.status === 'running') {
+    const live = describeProgress(build.progress);
+    return (
+      <div className="flex items-center gap-3">
+        <motion.div animate={{ rotate: [0, 12, -12, 0] }} transition={{ duration: 1.4, repeat: Infinity }}>
+          <Hammer style={{ width: 22, height: 22, color: accent }} />
+        </motion.div>
+        <div>
+          <div style={{ fontSize: 13, color: '#c8ccd8', fontWeight: 600 }}>Meera is scaffolding the app…</div>
+          <div style={{ fontSize: 11, color: live ? accent : '#5a607a', marginTop: 2 }}>
+            {live || 'Writing package.json, App.tsx, screens, navigation, and SETUP.md. 1–2 minutes.'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (build.status === 'done' && build.result) {
+    return (
+      <>
+        <Tag color="#5cc28a" icon={CheckCircle2}>Mobile app ready</Tag>
+        <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 12, lineHeight: 1.65 }}>{build.result.summary}</div>
+        <FileList files={build.result.files} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {build.result.preview_url && (
+            <a href={apiHref(build.result.preview_url)} target="_blank" rel="noopener noreferrer" style={btn(accent)}>
+              <Eye style={{ width: 14, height: 14 }} /> Preview
+            </a>
+          )}
+          <a href={apiHref(build.result.download_url)} download style={btn('#5cc28a', '#0a0c12')}>
+            <Download style={{ width: 14, height: 14 }} /> Download ZIP
+          </a>
+        </div>
+        <div style={{ fontSize: 11, color: '#5a607a', marginTop: 12 }}>
+          Unzip → <code style={{ color: '#a8b1c8', background: '#0a0c12', padding: '1px 5px', borderRadius: 3 }}>npm install</code> → <code style={{ color: '#a8b1c8', background: '#0a0c12', padding: '1px 5px', borderRadius: 3 }}>npx expo start</code>
+        </div>
+      </>
+    );
+  }
+  if (build.status === 'error') {
+    return <ErrorBlock title="Mobile build failed" message={build.error} accent={accent} onRetry={triggerBuild} pendingSessionId={build.pendingSessionId} onRecover={recoverBuild} recoveryNote={build.recoveryNote} />;
+  }
+  return (
+    <>
+      <Tag color={accent} icon={Hammer}>Meera can build this</Tag>
+      <div style={{ fontSize: 13, color: '#c8ccd8', marginBottom: 14, lineHeight: 1.65 }}>
+        Scaffold a complete Expo / React Native TypeScript project — screens, navigation, state management, and SETUP.md. Download the ZIP and run <code style={{ color: '#a8b1c8', background: '#0a0c12', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>npm install && npx expo start</code>.
+      </div>
+      <button onClick={triggerBuild} style={btn(accent)}>
+        <Hammer style={{ width: 14, height: 14 }} /> Build Mobile App
       </button>
     </>
   );

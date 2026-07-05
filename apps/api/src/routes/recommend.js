@@ -188,11 +188,9 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
         const naina = scored.find(s => s.id === NAINA_SKILL_ID) || getSkillById(NAINA_SKILL_ID);
         if (naina) pins.push(naina);
     }
-    // Meera pins for execution-phase mobile app queries.
-    if ((phase === 'execution' || phase == null) && isMobileQuery(query)) {
-        const meera = scored.find(s => s.id === MOBILE_DEV_SKILL_ID) || getSkillById(MOBILE_DEV_SKILL_ID);
-        if (meera) pins.push(meera);
-    }
+    // Meera is category=Tech — she belongs in the tech round table, not the
+    // domain one. No pin here; she surfaces via /recommend/tech when the spec
+    // mentions mobile/Expo/React Native.
     const pinnedIds = new Set(pins.map(p => p.id));
     for (const pin of pins) {
         if (team.some(s => s.id === pin.id)) continue;
