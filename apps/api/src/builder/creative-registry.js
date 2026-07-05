@@ -23,7 +23,7 @@ export const MAYA_SKILL_ID            = 'uepji0o2teuf29b';
 export const KAVYA_SKILL_ID           = 'ip1bvcutzgsy28p';
 export const TARA_SKILL_ID            = 'eu6cweasi3d4xt8';
 export const MOBILE_DEV_SKILL_ID      = 'mobiledevagent1';
-export const MOBILE_DESIGNER_SKILL_ID = 'mobiledesign1';
+export const MOBILE_DESIGNER_SKILL_ID = 'mobiledesign001';
 
 // ────────────────────────────────────────────────────────────────────────
 // Maya — UX Mockup Designer (system prompt lifted verbatim from the old

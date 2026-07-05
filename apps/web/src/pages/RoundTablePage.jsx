@@ -18,7 +18,7 @@ const KAVYA_SKILL_ID           = 'ip1bvcutzgsy28p';
 const TARA_SKILL_ID            = 'eu6cweasi3d4xt8';
 const HOSTINGER_SKILL_ID       = 'hostingerdeploy';
 const MOBILE_DEV_SKILL_ID      = 'mobiledevagent1';
-const MOBILE_DESIGNER_SKILL_ID = 'mobiledesign1';
+const MOBILE_DESIGNER_SKILL_ID = 'mobiledesign001';
 
 const MOBILE_QUERY_RX = /\b(mobile\s+app|react\s+native|expo\s+app|ios\s+app|android\s+app|expo\b|react-native|cross[-\s]platform\s+app|phone\s+app|smartphone\s+app|native\s+app|build\s+(?:a\s+)?(?:mobile|ios|android)|eas\s+build|expo\s+go|app\s+store|google\s+play)\b/i;
 function isMobileQuery(q) { return MOBILE_QUERY_RX.test(q || ''); }
