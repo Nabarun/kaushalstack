@@ -3,10 +3,10 @@ migrate((app) => {
   const collection = app.findCollectionByNameOrId("skills");
 
   const record = new Record(collection, {
-    id: "mobiledesignagent1",
+    id: "mobiledesign1",
     name: "Mobile App Design",
     description: "Priya is KaushalStack's Mobile App Designer. She produces polished HTML screen mockups for iOS/Android apps — multiple screens wrapped in phone chrome at 390px mobile viewport, using Tailwind CSS and real imagery. The output is a gallery the team reviews before Meera builds the actual Expo project.",
-    category: "Design",
+    category: "Tech",
     agent_name: "Priya",
     associated_tech_skills: "Mobile UI, React Native, Expo, Figma patterns, Tailwind CSS",
     created_by: "system",
@@ -26,7 +26,7 @@ migrate((app) => {
   }
 }, (app) => {
   try {
-    const record = app.findRecordById("skills", "mobiledesignagent1");
+    const record = app.findRecordById("skills", "mobiledesign1");
     app.delete(record);
   } catch (e) {
     if (e.message && e.message.includes("no rows in result set")) {
