@@ -20,8 +20,16 @@ const HOSTINGER_SKILL_ID       = 'hostingerdeploy';
 const MOBILE_DEV_SKILL_ID      = 'mobiledevagent1';
 const MOBILE_DESIGNER_SKILL_ID = 'mobiledesign001';
 
-const MOBILE_QUERY_RX = /\b(mobile\s+app|react\s+native|expo\s+app|ios\s+app|android\s+app|expo\b|react-native|cross[-\s]platform\s+app|phone\s+app|smartphone\s+app|native\s+app|build\s+(?:a\s+)?(?:mobile|ios|android)|eas\s+build|expo\s+go|app\s+store|google\s+play)\b/i;
-function isMobileQuery(q) { return MOBILE_QUERY_RX.test(q || ''); }
+// Matches the query text. Intentionally broad: if someone says "mobile
+// application" or "android app" they almost certainly want Meera + Priya.
+const MOBILE_QUERY_RX = /\b(mobile\s+app(?:lication)?|mobile\s+application|react\s+native|expo\s+(?:app|project|sdk)?\b|ios\s+app(?:lication)?|android\s+app(?:lication)?|react-native|cross[-\s]platform\s+app|phone\s+app|smartphone\s+app|native\s+app|build\s+(?:a\s+)?(?:mobile|ios|android)|eas\s+build|expo\s+go|app\s+store|google\s+play|mobile\s+(?:ui|screen|screens?|design|product|platform)|app(?:lication)?\s+for\s+(?:mobile|android|ios|iphone|smartphone)|ios\s+and\s+android|android\s+and\s+ios|iphone\s+app|meera\b)\b/i;
+// Also check the Aisha-generated spec for Expo / React Native keywords — handles
+// the case where the original query was vague ("build me an app") but the spec
+// makes the mobile intent explicit.
+const MOBILE_SPEC_RX = /\b(expo\b|react\s+native|react-native|npx\s+expo|eas\s+build|mobile\s+app|ios\s+app|android\s+app|expo\s+go|app\s+store|google\s+play)\b/i;
+function isMobileContext(query, specText) {
+  return MOBILE_QUERY_RX.test(query || '') || MOBILE_SPEC_RX.test(specText || '');
+}
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
 import CreativePipeline from '@/components/CreativePipeline';
@@ -643,7 +651,7 @@ export default function RoundTablePage() {
   //
   // For mobile queries Meera replaces Ananya (build) and Priya replaces Maya
   // (design). Both use the generic /api/creative endpoint with an agent_id.
-  const isMobile = isMobileQuery(activeChat?.query);
+  const isMobile = isMobileContext(activeChat?.query, spec?.result?.text);
   const triggerBuild = () => {
     if (isMobile) {
       return runToolAction({
@@ -2442,7 +2450,7 @@ export default function RoundTablePage() {
                 if (!activeChat) return null;
                 const allResponsesIn = (activeChat.responses?.length || 0) >= (activeChat.team?.length || 0) && (activeChat.responses?.length || 0) > 0;
                 if (!allResponsesIn || loading) return null;
-                const chatIsMobile = isMobileQuery(activeChat?.query);
+                const chatIsMobile = isMobileContext(activeChat?.query, spec?.result?.text);
                 const members = [
                   { key: 'aisha',     name: 'Aisha',     role: 'Spec Engineer',                        accent: '#9b6cf0', theme: 'warm' },
                   chatIsMobile
