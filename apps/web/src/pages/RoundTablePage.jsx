@@ -583,7 +583,56 @@ export default function RoundTablePage() {
       // Keep pendingSessionId on the error state — the recovery flow uses it
       // to fetch the persisted result via /api/build/:id/result.
       setState({ status: 'error', result: null, error: err.message, progress: null, pendingSessionId, recoveryNote: null });
+      // Auto-poll when the stream dropped mid-run but the server may still be
+      // working. Only fires when we have a session id (i.e. the agent started).
+      if (pendingSessionId) {
+        autoPollRecovery({ setState, toolKey, sessionId: pendingSessionId });
+      }
     }
+  }
+
+  // Auto-poll recovery: called after the stream drops with a known sessionId.
+  // Polls every 10s up to 36 attempts (~6 min). Stops as soon as the result
+  // lands or the state changes (e.g. user hit Retry, starting a fresh run).
+  function autoPollRecovery({ setState, toolKey, sessionId, attempt = 0 }) {
+    if (attempt >= 36) return;
+    setTimeout(async () => {
+      // Bail if the state changed since we scheduled this tick — user retried
+      // or a previous tick already recovered the result.
+      let stillWaiting = false;
+      setState(prev => {
+        stillWaiting = prev.pendingSessionId === sessionId && prev.status === 'error';
+        return prev;
+      });
+      if (!stillWaiting) return;
+
+      try {
+        const r = await fetch(`/api/build/${sessionId}/result`);
+        if (r.ok) {
+          const result = await r.json();
+          setState({ status: 'done', result, error: null, progress: null, pendingSessionId: null, recoveryNote: null });
+          if (toolKey) persistToolResult(toolKey, result);
+          return;
+        }
+        if (r.status === 404) {
+          const info = await r.json().catch(() => ({}));
+          let note;
+          if (!info.workspace_exists) {
+            note = `Still spinning up — checking again in 10s (attempt ${attempt + 1}/36)`;
+          } else {
+            const files = info.files_written || 0;
+            const secs  = info.last_activity_ms_ago != null
+              ? Math.max(0, Math.round(info.last_activity_ms_ago / 1000)) : null;
+            const ago   = secs != null ? (secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`) : 'just now';
+            const latest = info.latest_file ? ` · ${info.latest_file}` : '';
+            note = `Auto-recovering… ${files} file${files === 1 ? '' : 's'} · last activity ${ago}${latest}`;
+          }
+          setState(p => p.pendingSessionId === sessionId ? { ...p, recoveryNote: note } : p);
+        }
+      } catch { /* network blip — try again next tick */ }
+
+      autoPollRecovery({ setState, toolKey, sessionId, attempt: attempt + 1 });
+    }, 10000);
   }
 
   // Recovery path: the SSE stream may die mid-run (network blip, proxy
