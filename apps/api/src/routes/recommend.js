@@ -123,6 +123,15 @@ function isEventQuery(q) {
     return EVENT_KEYWORDS.test(q);
 }
 
+// Meera is the Mobile App Engineer — pinned for execution-phase queries that
+// clearly ask for a mobile app, React Native, or Expo project.
+const MOBILE_DEV_SKILL_ID = 'mobiledevagent1';
+const MOBILE_KEYWORDS = /\b(mobile\s+app|react\s+native|expo\s+app|ios\s+app|android\s+app|expo\b|react-native|cross[-\s]platform\s+app|phone\s+app|smartphone\s+app|native\s+app|build\s+(?:a\s+)?(?:mobile|ios|android)|eas\s+build|expo\s+go|app\s+store|google\s+play)\b/i;
+
+function isMobileQuery(q) {
+    return MOBILE_KEYWORDS.test(q);
+}
+
 function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     // One per category, in order of score, until we hit `size`.
     const seenCats = new Set();
@@ -178,6 +187,11 @@ function pickTeam(scored, size = 6, { query = '', phase = null } = {}) {
     if (isEventQuery(query)) {
         const naina = scored.find(s => s.id === NAINA_SKILL_ID) || getSkillById(NAINA_SKILL_ID);
         if (naina) pins.push(naina);
+    }
+    // Meera pins for execution-phase mobile app queries.
+    if ((phase === 'execution' || phase == null) && isMobileQuery(query)) {
+        const meera = scored.find(s => s.id === MOBILE_DEV_SKILL_ID) || getSkillById(MOBILE_DEV_SKILL_ID);
+        if (meera) pins.push(meera);
     }
     const pinnedIds = new Set(pins.map(p => p.id));
     for (const pin of pins) {
