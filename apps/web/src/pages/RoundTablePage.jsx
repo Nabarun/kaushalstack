@@ -2456,8 +2456,10 @@ export default function RoundTablePage() {
                   chatIsMobile
                     ? { key: 'priya',  name: 'Priya',  role: 'Mobile App Designer',                    accent: '#b07ef8', theme: 'warm' }
                     : { key: 'maya',   name: 'Maya',   role: 'Landing Page Designer',                  accent: '#b07ef8', theme: 'warm' },
-                  { key: 'tara',      name: 'Tara',      role: 'Social Campaign Designer',             accent: '#e070c2', theme: 'warm', parallelWith: chatIsMobile ? 'priya' : 'maya' },
-                  { key: 'kavya',     name: 'Kavya',     role: 'Email Campaign Designer',              accent: '#f0a04b', theme: 'warm', parallelWith: 'tara' },
+                  ...(!chatIsMobile ? [
+                    { key: 'tara',  name: 'Tara',  role: 'Social Campaign Designer', accent: '#e070c2', theme: 'warm', parallelWith: 'maya' },
+                    { key: 'kavya', name: 'Kavya', role: 'Email Campaign Designer',  accent: '#f0a04b', theme: 'warm', parallelWith: 'tara' },
+                  ] : []),
                   chatIsMobile
                     ? { key: 'meera', name: 'Meera', role: 'Mobile App Engineer',                      accent: '#5b8dee', theme: 'warm' }
                     : { key: 'ananya', name: 'Ananya', role: 'Dev Engineer',                           accent: '#5b8dee', theme: 'warm' },
