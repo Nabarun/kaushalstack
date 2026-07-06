@@ -28,6 +28,7 @@ import pb from '../utils/pocketbaseClient.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserBYOK } from './user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
+import { verifiedPartnerId } from '../partner/membership.js';
 import {
     todayISO, stampMetadata, missingSections,
     coverageReport, appendCarryover, unsourcedNumbers,
@@ -297,7 +298,8 @@ router.post('/spec', async (req, res) => {
 
     const chatId = (req.body?.chat_id || '').trim();
     if (!chatId) return res.status(400).json({ error: 'chat_id is required' });
-    const partnerId = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
+    const partnerIdInput = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
+    const partnerId = partnerIdInput ? await verifiedPartnerId(partnerIdInput, userId) : '';
 
     // Optional uploaded draft spec → produce a COMBINED spec (upload + review).
     // Falls back to the chat's persisted uploaded_spec when the client omits it.

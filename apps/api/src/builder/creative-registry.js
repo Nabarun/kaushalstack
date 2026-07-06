@@ -13,6 +13,7 @@ import { CONSULT_AGENT_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
+import { verifiedPartnerId } from '../partner/membership.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Skill IDs (mirrored from PocketBase). Kept here so the route layer doesn't
@@ -818,7 +819,8 @@ export async function runCreativeAgent({
         // immediately and surface the session id (useful for download/preview).
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
-        const meter = userId ? { user_id: userId, partner_id: partnerId || '', agent: config.agentName, context: config.meterContext || 'creative' } : null;
+        const meterPartnerId = (partnerId && userId) ? await verifiedPartnerId(partnerId, userId) : '';
+        const meter = userId ? { user_id: userId, partner_id: meterPartnerId, agent: config.agentName, context: config.meterContext || 'creative' } : null;
 
         const openaiRun = () => runBuildAgent({
             sessionId,

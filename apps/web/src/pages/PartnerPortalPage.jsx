@@ -55,6 +55,67 @@ function Bars({ rows }) {
     );
 }
 
+function BudgetEditor({ partner, currentBudget, onSaved }) {
+    const [value, setValue] = useState('');
+    const [editing, setEditing] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const isOwner = partner.my_role === 'owner' || !partner.my_role;
+
+    if (!isOwner) return null;
+
+    const save = async () => {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) { setErr('Enter a valid amount'); return; }
+        setBusy(true); setErr('');
+        try {
+            await api(`/partner/${partner.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ monthly_budget_usd: n }),
+            });
+            setEditing(false); setValue('');
+            onSaved?.();
+        } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    };
+
+    return (
+        <div className="rounded-xl border bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <div className="text-sm font-medium">Monthly budget alert</div>
+                    <div className="text-xs text-gray-500">
+                        {currentBudget > 0
+                            ? `Alerts fire at 80% and 100% of ${fmtUSD(currentBudget)}/month for ${partner.name}.`
+                            : `No budget set for ${partner.name} — set one to get spend alerts.`}
+                    </div>
+                </div>
+                {!editing ? (
+                    <button onClick={() => { setEditing(true); setValue(currentBudget > 0 ? String(currentBudget) : ''); }}
+                        className="rounded-lg border px-3 py-1.5 text-sm text-gray-700">
+                        {currentBudget > 0 ? 'Change' : 'Set budget'}
+                    </button>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">$</span>
+                        <input value={value} onChange={(e) => setValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && save()}
+                            placeholder="e.g. 50" autoFocus
+                            className="w-24 rounded-lg border px-2 py-1.5 text-sm" />
+                        <button onClick={save} disabled={busy}
+                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+                            {busy ? 'Saving…' : 'Save'}
+                        </button>
+                        <button onClick={() => { setEditing(false); setErr(''); }} disabled={busy}
+                            className="text-sm text-gray-500">Cancel</button>
+                    </div>
+                )}
+            </div>
+            {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+        </div>
+    );
+}
+
 function UsageTab({ partner }) {
     const [range, setRange] = useState('today');
     const [data, setData] = useState(null);
@@ -80,8 +141,17 @@ function UsageTab({ partner }) {
 
     const t = data?.totals;
     const budget = data?.monthly_budget_usd || 0;
+    const mtdSpend = data?.mtd_spend_usd || 0;
+    const budgetPct = budget > 0 ? mtdSpend / budget : 0;
     return (
         <div className="space-y-6">
+            {budget > 0 && budgetPct >= 0.8 && (
+                <div className={`rounded-lg p-3 text-sm ${budgetPct >= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {budgetPct >= 1
+                        ? <><b>{partner.name}</b> is over its monthly budget — {fmtUSD(mtdSpend)} spent of {fmtUSD(budget)}.</>
+                        : <><b>{partner.name}</b> is at {Math.round(budgetPct * 100)}% of its monthly budget ({fmtUSD(mtdSpend)} of {fmtUSD(budget)}).</>}
+                </div>
+            )}
             <div className="flex gap-2">
                 {['today', '7d', 'mtd'].map((r) => (
                     <button key={r} onClick={() => setRange(r)}
@@ -108,6 +178,7 @@ function UsageTab({ partner }) {
                     </div>
                 </div>
             )}
+            <BudgetEditor partner={partner} currentBudget={budget} onSaved={load} />
             <div className="grid gap-6 md:grid-cols-2">
                 <div className="rounded-xl border bg-white p-4">
                     <h3 className="mb-3 font-medium">By agent</h3>
@@ -213,7 +284,9 @@ function buildQueryFromAssets(assets) {
 
 function TeamTab({ partner }) {
     const [assets, setAssets]   = useState(null);
-    const [team, setTeam]       = useState([]);
+    // Seed from the team persisted on this partner record — each partner
+    // keeps its own saved team, restored across sessions.
+    const [team, setTeam]       = useState(Array.isArray(partner.team) ? partner.team : []);
     const [loading, setLoading] = useState(false);
     const [err, setErr]         = useState('');
 
@@ -226,14 +299,21 @@ function TeamTab({ partner }) {
     const recommend = async () => {
         const query = buildQueryFromAssets(assets);
         if (!query) return;
-        setLoading(true); setErr(''); setTeam([]);
+        setLoading(true); setErr('');
         try {
             const data = await api('/recommend', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query, size: 10 }),
             });
-            setTeam(data.skills || []);
+            const skills = data.skills || [];
+            setTeam(skills);
+            // Persist to this partner so the team survives reloads.
+            api(`/partner/${partner.id}/team`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ team: skills }),
+            }).catch(() => {});
         } catch (e) { setErr(e.message); } finally { setLoading(false); }
     };
 

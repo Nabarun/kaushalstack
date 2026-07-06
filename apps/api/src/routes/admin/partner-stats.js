@@ -22,21 +22,6 @@ router.get('/admin/partner-stats', requireAdmin, async (req, res) => {
             partners = await pb.collection('partners').getFullList({ sort: 'name' });
         } catch { /* collection may not exist yet */ }
 
-        // ── Member map: user_id → partner_id ─────────────────────────────────
-        // Most usage_events carry partner_id='' — they're attributed by user
-        // membership, exactly like the per-partner /partner/:id/usage endpoint.
-        const userToPartner = {};
-        try {
-            const members = await pb.collection('partner_members').getFullList({
-                fields: 'partner_id,user_id',
-            });
-            for (const m of members) {
-                if (m.user_id && !userToPartner[m.user_id]) {
-                    userToPartner[m.user_id] = m.partner_id;
-                }
-            }
-        } catch {}
-
         // ── All usage events in range ─────────────────────────────────────────
         const start = rangeStart(range);
         const startStr = start ? start.toISOString().replace('T', ' ').slice(0, 19) : null;
@@ -59,13 +44,12 @@ router.get('/admin/partner-stats', requireAdmin, async (req, res) => {
         }
         totals.cost_usd = Number(totals.cost_usd.toFixed(4));
 
-        // ── Per-partner attribution ───────────────────────────────────────────
-        // Attribute each event to a partner via:
-        //   1. event.partner_id (explicit)
-        //   2. userToPartner[event.user_id] (member-based, covers most events)
+        // ── Per-partner attribution — explicit partner_id only. Untagged
+        // events count in platform totals but are not attributed to any
+        // partner (no member-based guessing → no cross-partner overlap).
         const byPartner = {};
         for (const e of events) {
-            const pid = e.partner_id || userToPartner[e.user_id] || '';
+            const pid = e.partner_id || '';
             if (!pid) continue;
             if (!byPartner[pid]) {
                 byPartner[pid] = { cost_usd: 0, calls: 0, input_tokens: 0, output_tokens: 0, last_active: null };

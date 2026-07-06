@@ -86,6 +86,55 @@ router.get('/partner/mine', async (req, res) => {
     }
 });
 
+// PATCH /partner/:id — owner updates name and/or monthly budget
+router.patch('/partner/:id', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner']);
+    if (!ctx) return;
+    const patch = {};
+    if (typeof req.body?.name === 'string' && req.body.name.trim()) {
+        patch.name = req.body.name.trim().slice(0, 200);
+    }
+    if (req.body?.monthly_budget_usd !== undefined) {
+        const b = Number(req.body.monthly_budget_usd);
+        if (!Number.isFinite(b) || b < 0) return res.status(400).json({ error: 'monthly_budget_usd must be a non-negative number' });
+        patch.monthly_budget_usd = b;
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'nothing to update' });
+    try {
+        const partner = await pb.collection('partners').update(req.params.id, patch);
+        res.json({ partner });
+    } catch (err) {
+        logger.error(`partner patch failed: ${err.message}`);
+        res.status(500).json({ error: 'could not update partner' });
+    }
+});
+
+// PUT /partner/:id/team — persist the recommended agent team on the partner
+router.put('/partner/:id/team', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    const raw = req.body?.team;
+    if (!Array.isArray(raw)) return res.status(400).json({ error: 'team must be an array' });
+    const team = raw.slice(0, 12)
+        .filter(s => s && typeof s === 'object')
+        .map(s => ({
+            id:         String(s.id || '').slice(0, 50),
+            agent_name: String(s.agent_name || '').slice(0, 100),
+            name:       String(s.name || '').slice(0, 200),
+            category:   String(s.category || '').slice(0, 100),
+            description:            String(s.description || '').slice(0, 1000),
+            associated_tech_skills: String(s.associated_tech_skills || '').slice(0, 500),
+        }))
+        .filter(s => s.id && s.agent_name);
+    try {
+        const partner = await pb.collection('partners').update(req.params.id, { team });
+        res.json({ ok: true, team: partner.team || [] });
+    } catch (err) {
+        logger.error(`partner team save failed: ${err.message}`);
+        res.status(500).json({ error: 'could not save team' });
+    }
+});
+
 router.delete('/partner/:id', async (req, res) => {
     const ctx = await requireMember(req, res, ['owner']);
     if (!ctx) return;
@@ -201,6 +250,24 @@ router.get('/partner/:id/usage', async (req, res) => {
             bump(byContext, e.context || 'untagged');
         }
         sum.cost_usd = Number(sum.cost_usd.toFixed(4));
+
+        // Month-to-date spend regardless of the selected range — powers the
+        // budget alert banner, which is always monthly.
+        let mtdSpend = 0;
+        if (range === 'mtd') {
+            mtdSpend = sum.cost_usd;
+        } else {
+            const mtdStart = rangeStart('mtd').toISOString().replace('T', ' ').slice(0, 19);
+            try {
+                const mtdEvents = await pb.collection('usage_events').getFullList({
+                    filter: `partner_id = "${esc(req.params.id)}" && created >= "${mtdStart}"`,
+                    fields: 'cost_usd',
+                });
+                for (const e of mtdEvents) mtdSpend += e.cost_usd || 0;
+                mtdSpend = Number(mtdSpend.toFixed(4));
+            } catch { /* alert simply won't show */ }
+        }
+
         res.json({
             range, since: start,
             totals: sum,
@@ -208,6 +275,7 @@ router.get('/partner/:id/usage', async (req, res) => {
             by_model:   Object.entries(byModel).map(([k, v]) => ({ key: k, ...v, cost_usd: Number(v.cost_usd.toFixed(4)) })).sort((a, b) => b.cost_usd - a.cost_usd),
             by_context: Object.entries(byContext).map(([k, v]) => ({ key: k, ...v, cost_usd: Number(v.cost_usd.toFixed(4)) })).sort((a, b) => b.cost_usd - a.cost_usd),
             monthly_budget_usd: ctx.partner.monthly_budget_usd || 0,
+            mtd_spend_usd: mtdSpend,
         });
     } catch (err) {
         logger.error(`usage rollup failed: ${err.message}`);

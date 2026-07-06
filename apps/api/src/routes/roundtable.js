@@ -4,6 +4,7 @@ import pb from '../utils/pocketbaseClient.js';
 import { getUserBYOK } from './user-keys.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
+import { verifiedPartnerId } from '../partner/membership.js';
 
 const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -312,7 +313,7 @@ const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'host
 router.post('/roundtable', async (req, res) => {
     const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput, phase: rawPhase, partner_id: rawPartnerId } = req.body || {};
     const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
-    const partnerId = typeof rawPartnerId === 'string' && rawPartnerId.trim() ? rawPartnerId.trim() : '';
+    const partnerIdInput = typeof rawPartnerId === 'string' && rawPartnerId.trim() ? rawPartnerId.trim() : '';
     // Normalize an uploaded draft spec (only honored when creating a new chat).
     let uploadedSpec = null;
     if (uploadedSpecInput && typeof uploadedSpecInput === 'object' && typeof uploadedSpecInput.text === 'string' && uploadedSpecInput.text.trim()) {
@@ -351,6 +352,10 @@ router.post('/roundtable', async (req, res) => {
     }
 
     const userId = await getUserIdFromAuth(req);
+    // Never trust a client-supplied partner_id — verify membership before
+    // tagging usage against it, otherwise anyone could attribute spend to
+    // another user's partner.
+    const partnerId = partnerIdInput ? await verifiedPartnerId(partnerIdInput, userId) : '';
     const userBYOK = await getUserBYOK(userId);
     const usingUserKey = !!userBYOK;
 

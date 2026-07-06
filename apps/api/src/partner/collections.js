@@ -15,6 +15,7 @@ const COLLECTIONS = [
             { type: 'text',   name: 'owner_user_id',   required: true },
             { type: 'select', name: 'status',          maxSelect: 1, values: ['active', 'suspended'] },
             { type: 'number', name: 'monthly_budget_usd', min: 0 },
+            { type: 'json',   name: 'team' },
             { type: 'autodate', name: 'created', onCreate: true },
             { type: 'autodate', name: 'updated', onCreate: true, onUpdate: true },
         ],
@@ -73,9 +74,11 @@ const COLLECTIONS = [
 export async function ensurePartnerCollections() {
     if (ready) return;
     for (const def of COLLECTIONS) {
+        let existing = null;
         try {
-            await pb.collections.getOne(def.name);
-        } catch {
+            existing = await pb.collections.getOne(def.name);
+        } catch { /* not created yet */ }
+        if (!existing) {
             try {
                 await pb.send('/api/collections', {
                     method: 'POST',
@@ -84,6 +87,21 @@ export async function ensurePartnerCollections() {
                 logger.info(`partner: created collection ${def.name}`);
             } catch (err) {
                 logger.warn(`partner: could not create collection ${def.name}: ${err.message}`);
+            }
+            continue;
+        }
+        // Self-repair: add any fields the def has gained since the collection
+        // was first created (e.g. partners.team added after initial deploy).
+        const have = new Set((existing.fields || []).map(f => f.name));
+        const missing = def.fields.filter(f => !have.has(f.name));
+        if (missing.length > 0) {
+            try {
+                await pb.collections.update(existing.id, {
+                    fields: [...existing.fields, ...missing],
+                });
+                logger.info(`partner: added fields [${missing.map(f => f.name).join(', ')}] to ${def.name}`);
+            } catch (err) {
+                logger.warn(`partner: could not add fields to ${def.name}: ${err.message}`);
             }
         }
     }
