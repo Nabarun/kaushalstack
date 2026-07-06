@@ -4,6 +4,7 @@
 
 import logger from '../utils/logger.js';
 import { TOOL_DEFINITIONS, executeTool } from './tools.js';
+import { recordUsage } from '../partner/usage.js';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-3-5-sonnet-latest';
@@ -36,6 +37,7 @@ export async function runAnthropicAgent({
     systemPrompt,
     maxTurns    = DEFAULT_MAX_TURNS,
     userIntro   = 'Build this for me',
+    meter,       // { user_id, agent, context } — usage attribution for partner dashboard
     onEvent,
 }) {
     if (!apiKey) throw new Error('Anthropic API key is required');
@@ -120,6 +122,17 @@ export async function runAnthropicAgent({
         cacheReadTokens   += usage.cache_read_input_tokens     || 0;
         inputTokens       += usage.input_tokens                || 0;
         outputTokens      += usage.output_tokens               || 0;
+        if (meter) {
+            recordUsage({
+                provider: 'anthropic', model,
+                usage: {
+                    input_tokens:        (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+                    output_tokens:       usage.output_tokens || 0,
+                    cached_input_tokens: usage.cache_read_input_tokens || 0,
+                },
+                meter,
+            }).catch(() => {});
+        }
 
         // Push the assistant message into history so any tool_result we add
         // next references it correctly.

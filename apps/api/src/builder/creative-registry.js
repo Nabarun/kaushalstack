@@ -496,6 +496,7 @@ export const CREATIVE_AGENTS = {
         ingestsDesignSession: true,             // can consume Maya's session as a design brief
         extraTools:           [CONSULT_AGENT_TOOL], // she asks Hostinger for deployment guidance
         requireConsult:       true,             // design-brief builds must consult Hostinger before finishing
+        meterContext:         'build',
     },
     [MAYA_SKILL_ID]: {
         agentName:            'Maya',
@@ -509,6 +510,7 @@ export const CREATIVE_AGENTS = {
         maxTurns:             36,
         ingestsDesignSession: false,
         producesDesignBrief:  true,             // her result carries styles+screen text so Ananya can inherit it even after the workspace expires
+        meterContext:         'design',
     },
     [KAVYA_SKILL_ID]: {
         agentName:            'Kavya',
@@ -518,6 +520,7 @@ export const CREATIVE_AGENTS = {
         anthropicModel:       'claude-opus-4-7',
         maxTurns:             24,
         ingestsDesignSession: false,
+        meterContext:         'email',
     },
     [TARA_SKILL_ID]: {
         agentName:            'Tara',
@@ -531,6 +534,7 @@ export const CREATIVE_AGENTS = {
         // retries and the occasional tool-error walk-back.
         maxTurns:             44,
         ingestsDesignSession: false,
+        meterContext:         'social',
     },
     [MOBILE_DEV_SKILL_ID]: {
         agentName:            'Meera',
@@ -540,6 +544,7 @@ export const CREATIVE_AGENTS = {
         anthropicModel:       'claude-opus-4-7',
         maxTurns:             28,
         ingestsDesignSession: false,
+        meterContext:         'build',
     },
     [MOBILE_DESIGNER_SKILL_ID]: {
         agentName:            'Priya',
@@ -550,6 +555,7 @@ export const CREATIVE_AGENTS = {
         maxTurns:             28,
         ingestsDesignSession: false,
         producesDesignBrief:  false,
+        meterContext:         'design',
     },
 };
 
@@ -809,6 +815,8 @@ export async function runCreativeAgent({
         // immediately and surface the session id (useful for download/preview).
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
+        const meter = userId ? { user_id: userId, agent: config.agentName, context: config.meterContext || 'creative' } : null;
+
         const openaiRun = () => runBuildAgent({
             sessionId,
             query,
@@ -820,6 +828,7 @@ export async function runCreativeAgent({
             userIntro:    config.userIntro,
             extraTools:   config.extraTools || [],
             requireConsult: !!config.requireConsult,
+            meter,
             onEvent,
         });
 
@@ -836,6 +845,7 @@ export async function runCreativeAgent({
                     systemPrompt: config.systemPrompt,
                     maxTurns:     config.maxTurns,
                     userIntro:    config.userIntro,
+                    meter,
                     onEvent,
                 }));
             } catch (anthErr) {

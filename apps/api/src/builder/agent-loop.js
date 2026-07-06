@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { TOOL_DEFINITIONS, executeTool } from './tools.js';
+import { recordUsage } from '../partner/usage.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -59,6 +60,7 @@ export async function runBuildAgent({
     userIntro    = 'Build this for me',
     extraTools   = [],
     requireConsult = false,   // enforce a consult_agent call before accepting the final answer (design-brief builds)
+    meter,       // { user_id, agent, context } — usage attribution for partner dashboard
     onEvent,
 }) {
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured on server');
@@ -189,6 +191,17 @@ export async function runBuildAgent({
             throw new Error(`openai chat ${r.status}: ${body}`);
         }
         const data = await r.json();
+        if (meter) {
+            recordUsage({
+                provider: 'openai', model,
+                usage: {
+                    input_tokens:        data.usage?.prompt_tokens,
+                    output_tokens:       data.usage?.completion_tokens,
+                    cached_input_tokens: data.usage?.prompt_tokens_details?.cached_tokens || 0,
+                },
+                meter,
+            }).catch(() => {});
+        }
         const msg = data.choices?.[0]?.message;
         if (!msg) throw new Error('openai returned no message');
 
