@@ -15,6 +15,8 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { ensurePartnerCollections } from '../partner/collections.js';
+import { chatComplete } from '../providers/index.js';
+import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -86,6 +88,160 @@ router.get('/partner/mine', async (req, res) => {
     }
 });
 
+// ── Deep research team recommendation ────────────────────────────────────────
+// POST /partner/:id/research-team
+// 1. Scans the partner's assets — fetches live content from link assets,
+//    reads titles/notes from docs — and builds a business profile via LLM.
+// 2. Embeds a targeted search query from that profile to find candidate agents.
+// 3. A second LLM pass selects the team and writes a per-agent "why this
+//    agent, given these assets" rationale.
+// All LLM calls are metered against the partner (context='research').
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const RESEARCH_MODEL = 'gpt-4o-mini';
+const PIPELINE_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
+
+async function fetchLinkText(url) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+        const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'KaushalStack-DeepResearch/1.0' } });
+        if (!r.ok) return '';
+        const html = await r.text();
+        return html
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&[a-z#0-9]+;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 3000);
+    } catch {
+        return '';
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function embedText(text) {
+    const r = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: text.slice(0, 8000) }),
+    });
+    if (!r.ok) throw new Error(`embed failed: ${r.status}`);
+    return (await r.json()).data[0].embedding;
+}
+
+function parseJsonReply(raw) {
+    try { return JSON.parse(raw); } catch { /* try fenced */ }
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch { /* give up */ } }
+    return null;
+}
+
+router.post('/partner/:id/research-team', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'research not configured' });
+    const partnerId = req.params.id;
+    const meter = { user_id: ctx.userId, partner_id: partnerId, agent: 'Deep Research', context: 'research' };
+
+    try {
+        const assets = await pb.collection('partner_assets').getFullList({
+            filter: `partner_id = "${esc(partnerId)}"`, sort: '-created',
+        });
+        if (assets.length === 0) return res.status(400).json({ error: 'add at least one asset first' });
+
+        // ── 1. Scan assets ────────────────────────────────────────────────
+        const links = assets.filter(a => a.kind === 'link' && a.url).slice(0, 5);
+        const linkTexts = await Promise.all(links.map(async (a) => ({
+            title: a.title || a.url,
+            note:  a.note || '',
+            url:   a.url,
+            content: await fetchLinkText(a.url),
+        })));
+        const otherAssets = assets.filter(a => a.kind !== 'link').map(a => ({
+            kind: a.kind, title: a.title || a.file || '', note: a.note || '',
+        }));
+
+        const assetDossier = [
+            ...linkTexts.map(l => `LINK: ${l.title}\nURL: ${l.url}${l.note ? `\nNote: ${l.note}` : ''}${l.content ? `\nPage content (extracted): ${l.content}` : '\n(page could not be fetched)'}`),
+            ...otherAssets.map(a => `${a.kind.toUpperCase()}: ${a.title}${a.note ? `\nNote: ${a.note}` : ''}`),
+        ].join('\n\n---\n\n');
+
+        // ── 2. Business profile + needs analysis ─────────────────────────
+        const profileRaw = await chatComplete('openai', {
+            key: OPENAI_API_KEY,
+            model: RESEARCH_MODEL,
+            systemPrompt: 'You are a business research analyst. You are given the raw asset dossier of a business (links with extracted page content, documents, notes). Analyze it and respond with ONLY valid JSON, no fences.',
+            userPrompt: `Asset dossier for the business "${ctx.partner.name}":\n\n${assetDossier.slice(0, 20000)}\n\nRespond with JSON:\n{\n  "profile": "<3-4 sentence business profile: what the business does, who its customers are, its stage and visible strengths/gaps>",\n  "needs": ["<3-6 specific growth or operational needs you can infer from the assets>"],\n  "search_query": "<one dense sentence describing the expertise this business needs from specialist agents — used for semantic agent search>"\n}`,
+            jsonMode: true,
+            meter,
+        });
+        const profile = parseJsonReply(profileRaw);
+        if (!profile?.search_query) throw new Error('research analysis failed');
+
+        // ── 3. Candidate search ───────────────────────────────────────────
+        await ensureCache();
+        if (cacheSize() === 0) return res.status(500).json({ error: 'agent catalog not ready' });
+        const vector = await embedText(`${profile.search_query} ${(profile.needs || []).join(' ')}`);
+        const candidates = search(vector, 500, null)
+            .filter(s => !PIPELINE_IDS.has(s.id) && s.category !== 'Tech')
+            .slice(0, 15);
+
+        // ── 4. Team selection + per-agent rationale ──────────────────────
+        const candidateList = candidates.map((s, i) =>
+            `${i + 1}. id=${s.id} | ${s.agent_name} — ${s.name} (${s.category})\n   ${(s.description || '').slice(0, 200)}`
+        ).join('\n');
+        const selectionRaw = await chatComplete('openai', {
+            key: OPENAI_API_KEY,
+            model: RESEARCH_MODEL,
+            systemPrompt: 'You assemble specialist agent teams for businesses. Respond with ONLY valid JSON, no fences.',
+            userPrompt: `Business profile:\n${profile.profile}\n\nIdentified needs:\n${(profile.needs || []).map(n => `- ${n}`).join('\n')}\n\nCandidate agents:\n${candidateList}\n\nSelect the 5-8 agents that best cover this business's needs. For each, write ONE sentence explaining why this agent was selected — reference the specific asset evidence or business need it addresses (e.g. "their website shows no online booking, and X specialises in…").\n\nJSON:\n{\n  "team": [ { "id": "<candidate id>", "why": "<one-sentence rationale grounded in the assets>" } ]\n}`,
+            jsonMode: true,
+            meter,
+        });
+        const selection = parseJsonReply(selectionRaw);
+
+        let team;
+        if (Array.isArray(selection?.team) && selection.team.length > 0) {
+            const byId = new Map(candidates.map(s => [s.id, s]));
+            team = selection.team
+                .filter(t => t && byId.has(t.id))
+                .slice(0, 8)
+                .map(t => {
+                    const { _score, ...s } = byId.get(t.id);
+                    return { ...s, why: String(t.why || '').slice(0, 400) };
+                });
+        }
+        // Fallback: LLM selection failed — top candidates without rationale.
+        if (!team || team.length === 0) {
+            team = candidates.slice(0, 6).map(({ _score, ...s }) => ({ ...s, why: '' }));
+        }
+
+        // Persist to the partner so the researched team survives reloads.
+        const savedTeam = team.map(s => ({
+            id: s.id, agent_name: s.agent_name, name: s.name, category: s.category,
+            description: String(s.description || '').slice(0, 1000),
+            associated_tech_skills: String(s.associated_tech_skills || '').slice(0, 500),
+            why: s.why || '',
+        }));
+        await pb.collection('partners').update(partnerId, { team: savedTeam }).catch(() => {});
+
+        logger.info(`research-team: partner=${partnerId} assets=${assets.length} links_fetched=${linkTexts.filter(l => l.content).length} team=${team.length}`);
+        res.json({
+            profile: profile.profile || '',
+            needs: Array.isArray(profile.needs) ? profile.needs : [],
+            scanned: { assets: assets.length, links_fetched: linkTexts.filter(l => l.content).length },
+            team,
+        });
+    } catch (err) {
+        logger.error(`research-team failed: ${err.message}`);
+        res.status(500).json({ error: 'deep research failed — try again' });
+    }
+});
+
 // PATCH /partner/:id — owner updates name and/or monthly budget
 router.patch('/partner/:id', async (req, res) => {
     const ctx = await requireMember(req, res, ['owner']);
@@ -124,6 +280,7 @@ router.put('/partner/:id/team', async (req, res) => {
             category:   String(s.category || '').slice(0, 100),
             description:            String(s.description || '').slice(0, 1000),
             associated_tech_skills: String(s.associated_tech_skills || '').slice(0, 500),
+            why:                    String(s.why || '').slice(0, 400),
         }))
         .filter(s => s.id && s.agent_name);
     try {

@@ -275,18 +275,12 @@ function AssetsTab({ partner }) {
     );
 }
 
-function buildQueryFromAssets(assets) {
-    return assets
-        .map(a => [a.title, a.note].filter(Boolean).join(' '))
-        .filter(Boolean)
-        .join('. ');
-}
-
 function TeamTab({ partner }) {
     const [assets, setAssets]   = useState(null);
     // Seed from the team persisted on this partner record — each partner
     // keeps its own saved team, restored across sessions.
     const [team, setTeam]       = useState(Array.isArray(partner.team) ? partner.team : []);
+    const [profile, setProfile] = useState(null);   // { profile, needs, scanned }
     const [loading, setLoading] = useState(false);
     const [err, setErr]         = useState('');
 
@@ -296,58 +290,68 @@ function TeamTab({ partner }) {
             .catch(() => setAssets([]));
     }, [partner.id]);
 
-    const recommend = async () => {
-        const query = buildQueryFromAssets(assets);
-        if (!query) return;
+    const research = async () => {
         setLoading(true); setErr('');
         try {
-            const data = await api('/recommend', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, size: 10 }),
-            });
-            const skills = data.skills || [];
-            setTeam(skills);
-            // Persist to this partner so the team survives reloads.
-            api(`/partner/${partner.id}/team`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ team: skills }),
-            }).catch(() => {});
+            const data = await api(`/partner/${partner.id}/research-team`, { method: 'POST' });
+            setTeam(data.team || []);
+            setProfile({ profile: data.profile, needs: data.needs || [], scanned: data.scanned });
         } catch (e) { setErr(e.message); } finally { setLoading(false); }
     };
 
     const hasAssets = assets && assets.length > 0;
-    const hasQuery  = hasAssets && buildQueryFromAssets(assets).length > 0;
 
     return (
         <div className="space-y-6">
             <div className="rounded-xl border bg-white p-5">
                 <p className="text-sm text-gray-600">
-                    Recommend agents based on what you've added in the Assets tab — links, docs, and notes become the query context.
+                    Deep Research scans everything in your Assets tab — it fetches your links, reads your notes, profiles the business, and assembles the agent team that covers its actual needs.
                 </p>
                 {assets === null && <p className="mt-3 text-xs text-gray-400">Loading assets…</p>}
                 {assets !== null && !hasAssets && (
-                    <p className="mt-3 text-sm text-amber-600">Add at least one asset with a title or note to get recommendations.</p>
+                    <p className="mt-3 text-sm text-amber-600">Add at least one asset (a website link works best) so Deep Research has something to scan.</p>
                 )}
                 {hasAssets && (
                     <button
-                        onClick={recommend}
-                        disabled={loading || !hasQuery}
+                        onClick={research}
+                        disabled={loading}
                         className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
                     >
-                        {loading ? 'Finding agents…' : `Recommend agents from ${assets.length} asset${assets.length !== 1 ? 's' : ''}`}
+                        {loading
+                            ? `Deep Research is scanning ${assets.length} asset${assets.length !== 1 ? 's' : ''}…`
+                            : `Run Deep Research on ${assets.length} asset${assets.length !== 1 ? 's' : ''}`}
                     </button>
                 )}
                 {err && <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{err}</div>}
             </div>
 
+            {profile?.profile && (
+                <div className="rounded-xl border bg-white p-5">
+                    <h3 className="mb-2 font-medium text-sm">
+                        Business profile
+                        {profile.scanned && (
+                            <span className="ml-2 font-normal text-xs text-gray-400">
+                                from {profile.scanned.assets} asset{profile.scanned.assets !== 1 ? 's' : ''}{profile.scanned.links_fetched > 0 ? `, ${profile.scanned.links_fetched} page${profile.scanned.links_fetched !== 1 ? 's' : ''} fetched` : ''}
+                            </span>
+                        )}
+                    </h3>
+                    <p className="text-sm text-gray-700">{profile.profile}</p>
+                    {profile.needs.length > 0 && (
+                        <ul className="mt-3 space-y-1">
+                            {profile.needs.map((n, i) => (
+                                <li key={i} className="text-sm text-gray-600">• {n}</li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+
             {team.length > 0 && (
                 <div className="rounded-xl border bg-white p-5">
                     <h3 className="mb-4 font-medium text-sm">Recommended team for {partner.name}</h3>
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                         {team.map(s => (
-                            <div key={s.id} className="flex items-center gap-3">
+                            <div key={s.id} className="flex items-start gap-3">
                                 <img
                                     src={avatarUrl(s.agent_name)}
                                     alt={s.agent_name}
@@ -356,6 +360,11 @@ function TeamTab({ partner }) {
                                 <div className="min-w-0">
                                     <div className="text-sm font-semibold">{s.agent_name}</div>
                                     <div className="text-xs text-gray-400">{s.category} · {s.name}</div>
+                                    {s.why && (
+                                        <div className="mt-1 text-xs text-gray-600 bg-blue-50/60 rounded-md px-2 py-1.5">
+                                            {s.why}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
