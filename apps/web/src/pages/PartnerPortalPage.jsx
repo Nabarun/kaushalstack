@@ -339,6 +339,18 @@ export default function PartnerPortalPage() {
                                 {p.name}
                             </button>
                         ))}
+                        <div className="flex gap-1">
+                            <input value={name} onChange={(e) => setName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && create()}
+                                placeholder="New partner…"
+                                className="rounded-full border px-3 py-1 text-sm w-36 focus:outline-none focus:border-blue-500" />
+                            {name.trim() && (
+                                <button onClick={create}
+                                    className="rounded-full bg-blue-600 px-3 py-1 text-sm text-white">
+                                    Add
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <div className="mt-6 flex gap-1 border-b">
                         {[['usage', 'Usage'], ['assets', 'Assets'], ['team', 'Team']].map(([k, label]) => (
