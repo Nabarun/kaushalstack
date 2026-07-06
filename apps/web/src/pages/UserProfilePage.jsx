@@ -546,8 +546,11 @@ function ProviderKeySection() {
               </Button>
             </div>
 
-            {/* Preferred model — fed by the saved provider */}
-            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} />
+            {/* Per-stage model pickers */}
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="roundtable" label="Preferred model for Round Table" />
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="spec" label="Preferred model for Spec Engineer" />
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="design" label="Preferred model for Designer" />
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="build" label="Preferred model for Execution" />
 
             <div className="border-t pt-4">
               <p className="text-xs text-muted-foreground mb-2">Replace with a new key:</p>
@@ -707,7 +710,7 @@ const PROVIDER_DEFAULT_MODEL = {
   google: 'gemini-1.5-flash-latest',
 };
 
-function PreferredModelPicker({ authedFetch, provider }) {
+function PreferredModelPicker({ authedFetch, provider, stage, label }) {
   const defaultModel = PROVIDER_DEFAULT_MODEL[provider] || '';
   const providerLabel = (PROVIDERS && PROVIDERS[provider]?.label) || provider;
 
@@ -724,18 +727,18 @@ function PreferredModelPicker({ authedFetch, provider }) {
       fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`, {
         headers: pb.authStore.token ? { Authorization: `Bearer ${pb.authStore.token}` } : {},
       }).then(r => r.ok ? r.json() : { models: [] }).catch(() => ({ models: [] })),
-      authedFetch('/api/me/provider').then(r => r.ok ? r.json() : { model: null }).catch(() => ({ model: null })),
+      authedFetch('/api/me/provider').then(r => r.ok ? r.json() : {}).catch(() => ({})),
     ]).then(([modelsRes, prefRes]) => {
       if (cancelled) return;
       const list = modelsRes.models || [];
       setOptions(list);
       setOptionsLoading(false);
-      const current = prefRes.model || defaultModel;
+      const current = (stage ? prefRes.stage_models?.[stage] : prefRes.model) || defaultModel;
       setSelected(current);
       setSaved(current);
     });
     return () => { cancelled = true; };
-  }, [provider]);
+  }, [provider, stage]);
 
   const dropdownOptions = (() => {
     const ids = new Set(options.map(o => o.id));
@@ -748,16 +751,21 @@ function PreferredModelPicker({ authedFetch, provider }) {
   async function save() {
     setBusy(true);
     try {
-      const r = await authedFetch('/api/me/byok-model', {
-        method: 'PUT',
-        body: JSON.stringify({ model: selected }),
-      });
+      const r = stage
+        ? await authedFetch('/api/me/stage-model', {
+            method: 'PUT',
+            body: JSON.stringify({ stage, model: selected }),
+          })
+        : await authedFetch('/api/me/byok-model', {
+            method: 'PUT',
+            body: JSON.stringify({ model: selected }),
+          });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
         throw new Error(e.error || 'Failed to save');
       }
       setSaved(selected);
-      toast.success(`Round Table will now use ${selected}.`);
+      toast.success(`${label || 'Model'} set to ${selected}.`);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -768,7 +776,9 @@ function PreferredModelPicker({ authedFetch, provider }) {
   async function resetToDefault() {
     setBusy(true);
     try {
-      const r = await authedFetch('/api/me/byok-model', { method: 'DELETE' });
+      const r = stage
+        ? await authedFetch(`/api/me/stage-model?stage=${encodeURIComponent(stage)}`, { method: 'DELETE' })
+        : await authedFetch('/api/me/byok-model', { method: 'DELETE' });
       if (!r.ok) throw new Error('Failed to reset');
       setSelected(defaultModel);
       setSaved(defaultModel);
@@ -786,7 +796,7 @@ function PreferredModelPicker({ authedFetch, provider }) {
     <div className="bg-muted/30 border rounded-lg px-4 py-3 space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-          Preferred model for Round Table
+          {label || 'Preferred model'}
         </div>
         {saved && saved !== defaultModel && (
           <button onClick={resetToDefault} disabled={busy} className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted">

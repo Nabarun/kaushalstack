@@ -791,7 +791,9 @@ export async function runCreativeAgent({
     const byok   = userId ? await getUserBYOK(userId) : null;
     const useAnthropic = !!(config.anthropicModel && byok && byok.provider === 'anthropic' && byok.key);
     let provider = useAnthropic ? 'anthropic' : 'openai';
-    let model    = useAnthropic ? (byok.model || config.anthropicModel) : config.openaiModel;
+    let model    = useAnthropic
+        ? (byok.models?.[config.meterContext] || byok.model || config.anthropicModel)
+        : config.openaiModel;
     let byokFellBack = false;
 
     let sessionId;

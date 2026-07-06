@@ -361,7 +361,7 @@ router.post('/roundtable', async (req, res) => {
     const providerInUse = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
     const keyInUse = usingUserKey ? userBYOK.key : OPENAI_API_KEY;
     const modelInUse = usingUserKey
-        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
+        ? (userBYOK.models?.roundtable || userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
         : SERVER_DEFAULT_MODEL;
 
     let usesAfter = null;
@@ -618,7 +618,7 @@ router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) =
     let providerInUse = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
     let keyInUse      = usingUserKey ? userBYOK.key : OPENAI_API_KEY;
     let modelInUse    = usingUserKey
-        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
+        ? (userBYOK.models?.roundtable || userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
         : SERVER_DEFAULT_MODEL;
     let fellBackToServer = false;
 
