@@ -299,6 +299,8 @@ export default function PartnerPortalPage() {
     const [tab, setTab] = useState('usage');
     const [name, setName] = useState('');
     const [err, setErr] = useState('');
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -313,6 +315,22 @@ export default function PartnerPortalPage() {
         if (!name.trim()) return;
         try { await api('/partner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); setName(''); load(); }
         catch (e) { setErr(e.message); }
+    };
+
+    const deleteActive = async () => {
+        if (!active) return;
+        setDeleting(true);
+        try {
+            await api(`/partner/${active.id}`, { method: 'DELETE' });
+            setConfirmDelete(false);
+            const updated = (partners || []).filter(p => p.id !== active.id);
+            setPartners(updated);
+            setActive(updated[0] || null);
+        } catch (e) {
+            setErr(e.message);
+        } finally {
+            setDeleting(false);
+        }
     };
 
     return (
@@ -334,7 +352,7 @@ export default function PartnerPortalPage() {
                 <>
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                         {partners.map((p) => (
-                            <button key={p.id} onClick={() => setActive(p)}
+                            <button key={p.id} onClick={() => { setActive(p); setConfirmDelete(false); }}
                                 className={`rounded-full border px-3 py-1 text-sm ${active.id === p.id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white'}`}>
                                 {p.name}
                             </button>
@@ -350,13 +368,33 @@ export default function PartnerPortalPage() {
                             </button>
                         </div>
                     </div>
-                    <div className="mt-6 flex gap-1 border-b">
+                    <div className="mt-6 flex items-center gap-1 border-b">
                         {[['usage', 'Usage'], ['assets', 'Assets'], ['team', 'Team']].map(([k, label]) => (
                             <button key={k} onClick={() => setTab(k)}
                                 className={`px-4 py-2 text-sm font-medium ${tab === k ? 'border-b-2 border-blue-600 text-blue-700' : 'text-gray-500'}`}>
                                 {label}
                             </button>
                         ))}
+                        <div className="ml-auto flex items-center gap-2 pb-1">
+                            {confirmDelete ? (
+                                <>
+                                    <span className="text-xs text-red-600">Delete "{active.name}"?</span>
+                                    <button onClick={deleteActive} disabled={deleting}
+                                        className="rounded px-2 py-1 text-xs bg-red-600 text-white disabled:opacity-50">
+                                        {deleting ? 'Deleting…' : 'Yes, delete'}
+                                    </button>
+                                    <button onClick={() => setConfirmDelete(false)} disabled={deleting}
+                                        className="rounded px-2 py-1 text-xs border text-gray-600">
+                                        Cancel
+                                    </button>
+                                </>
+                            ) : (
+                                <button onClick={() => setConfirmDelete(true)}
+                                    className="text-xs text-gray-400 hover:text-red-500 px-2 py-1">
+                                    Delete partner
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <div className="mt-6">
                         {tab === 'usage' && <UsageTab partner={active} />}

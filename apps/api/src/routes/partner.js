@@ -86,6 +86,24 @@ router.get('/partner/mine', async (req, res) => {
     }
 });
 
+router.delete('/partner/:id', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner']);
+    if (!ctx) return;
+    const partnerId = req.params.id;
+    try {
+        // Delete all related records first, then the partner itself.
+        const assets = await pb.collection('partner_assets').getFullList({ filter: `partner_id = "${esc(partnerId)}"` });
+        for (const a of assets) await pb.collection('partner_assets').delete(a.id).catch(() => {});
+        const members = await pb.collection('partner_members').getFullList({ filter: `partner_id = "${esc(partnerId)}"` });
+        for (const m of members) await pb.collection('partner_members').delete(m.id).catch(() => {});
+        await pb.collection('partners').delete(partnerId);
+        res.json({ ok: true });
+    } catch (err) {
+        logger.error(`partner delete failed: ${err.message}`);
+        res.status(500).json({ error: 'could not delete partner' });
+    }
+});
+
 // ── Assets ───────────────────────────────────────────────────────────────────
 
 router.get('/partner/:id/assets', async (req, res) => {
