@@ -313,8 +313,16 @@ export default function PartnerPortalPage() {
 
     const create = async () => {
         if (!name.trim()) return;
-        try { await api('/partner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); setName(''); load(); }
-        catch (e) { setErr(e.message); }
+        try {
+            const { partner: created } = await api('/partner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+            setName('');
+            const { partners: list } = await api('/partner/mine');
+            const fresh = (list || []).find(p => p.id === created.id) || { ...created, my_role: 'owner' };
+            setPartners(list || []);
+            setActive(fresh);
+            setTab('usage');
+            setConfirmDelete(false);
+        } catch (e) { setErr(e.message); }
     };
 
     const deleteActive = async () => {
@@ -397,9 +405,9 @@ export default function PartnerPortalPage() {
                         </div>
                     </div>
                     <div className="mt-6">
-                        {tab === 'usage' && <UsageTab partner={active} />}
-                        {tab === 'assets' && <AssetsTab partner={active} />}
-                        {tab === 'team' && <TeamTab partner={active} />}
+                        {tab === 'usage' && <UsageTab key={active.id} partner={active} />}
+                        {tab === 'assets' && <AssetsTab key={active.id} partner={active} />}
+                        {tab === 'team' && <TeamTab key={active.id} partner={active} />}
                     </div>
                 </>
             )}
