@@ -344,12 +344,10 @@ export default function PartnerPortalPage() {
                                 onKeyDown={(e) => e.key === 'Enter' && create()}
                                 placeholder="New partner…"
                                 className="rounded-full border px-3 py-1 text-sm w-36 focus:outline-none focus:border-blue-500" />
-                            {name.trim() && (
-                                <button onClick={create}
-                                    className="rounded-full bg-blue-600 px-3 py-1 text-sm text-white">
-                                    Add
-                                </button>
-                            )}
+                            <button onClick={create} disabled={!name.trim()}
+                                className="rounded-full bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                                Add
+                            </button>
                         </div>
                     </div>
                     <div className="mt-6 flex gap-1 border-b">
