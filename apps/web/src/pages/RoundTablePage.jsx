@@ -332,6 +332,7 @@ export default function RoundTablePage() {
   const initQuery = location.state?.query || '';
   const initUploadedSpec = location.state?.uploadedSpec || null;
   const initPhase = location.state?.phase || null;
+  const partnerId = location.state?.partner_id || null;
 
   // The uploaded draft spec, when the user arrived (or uploaded here) from a
   // spec file. Drives the review-framed round table + Aisha's combine/as-is.
@@ -521,6 +522,7 @@ export default function RoundTablePage() {
         body: JSON.stringify({
           query: extraBody.query_override || activeChat.query,
           context,
+          ...(partnerId ? { partner_id: partnerId } : {}),
           ...extraBody,
           query_override: undefined,   // strip the override so the server doesn't see it
         }),
@@ -764,7 +766,7 @@ export default function RoundTablePage() {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         // When seeded from an upload, hand the draft spec to Aisha so she
         // produces a COMBINED spec (upload + the round table's review).
-        body: JSON.stringify({ chat_id: activeChat.id, ...(uploadedSpec?.text ? { raw_spec_text: uploadedSpec.text } : {}) }),
+        body: JSON.stringify({ chat_id: activeChat.id, ...(partnerId ? { partner_id: partnerId } : {}), ...(uploadedSpec?.text ? { raw_spec_text: uploadedSpec.text } : {}) }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -1001,6 +1003,7 @@ export default function RoundTablePage() {
           team: techTeam,
           chat_id: chatId,
           kind: 'tech',
+          ...(partnerId ? { partner_id: partnerId } : {}),
         }),
       });
       if (!rtRes.ok) {
@@ -1353,6 +1356,7 @@ export default function RoundTablePage() {
         body: JSON.stringify({
           query,
           team: teamForRun,
+          ...(partnerId ? { partner_id: partnerId } : {}),
           ...(isFollowUp
             ? { chat_id: activeChat.id, prior_turns: activeChat.turns }
             : { ...(seedFromUpload ? { uploaded_spec: uploadedSpec } : {}), ...(initPhase ? { phase: initPhase } : {}) }),

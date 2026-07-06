@@ -310,8 +310,9 @@ function trimPriorTurns(turns) {
 const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
 router.post('/roundtable', async (req, res) => {
-    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput, phase: rawPhase } = req.body || {};
+    const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput, phase: rawPhase, partner_id: rawPartnerId } = req.body || {};
     const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
+    const partnerId = typeof rawPartnerId === 'string' && rawPartnerId.trim() ? rawPartnerId.trim() : '';
     // Normalize an uploaded draft spec (only honored when creating a new chat).
     let uploadedSpec = null;
     if (uploadedSpecInput && typeof uploadedSpecInput === 'object' && typeof uploadedSpecInput.text === 'string' && uploadedSpecInput.text.trim()) {
@@ -396,7 +397,7 @@ router.post('/roundtable', async (req, res) => {
             userPrompt,
             cachedPrefix,
             jsonMode: true,
-            meter: { user_id: userId || '', agent: 'roundtable', context: 'roundtable' },
+            meter: { user_id: userId || '', partner_id: partnerId, agent: 'roundtable', context: 'roundtable' },
         });
     } catch (err) {
         // BYOK failed for any reason (401/429/504/timeout/quota) — fall
@@ -416,7 +417,7 @@ router.post('/roundtable', async (req, res) => {
                     userPrompt,
                     cachedPrefix,
                     jsonMode: true,
-                    meter: { user_id: userId || '', agent: 'roundtable', context: 'roundtable' },
+                    meter: { user_id: userId || '', partner_id: partnerId, agent: 'roundtable', context: 'roundtable' },
                 });
                 fellBackToServer = true;
             } catch (fallbackErr) {

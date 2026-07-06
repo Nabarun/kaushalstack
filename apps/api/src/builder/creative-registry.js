@@ -739,6 +739,7 @@ export async function runCreativeAgent({
     designBriefInline,   // optional: persisted Maya brief text, used as a fallback
                          // when her workspace (design_session_id) is already gone.
     authHeader,
+    partnerId = '',
     onEvent,        // optional: { kind, ... } callbacks per agent step. Used by
                     // the SSE route to stream progress as the agent works.
 }) {
@@ -817,7 +818,7 @@ export async function runCreativeAgent({
         // immediately and surface the session id (useful for download/preview).
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
-        const meter = userId ? { user_id: userId, agent: config.agentName, context: config.meterContext || 'creative' } : null;
+        const meter = userId ? { user_id: userId, partner_id: partnerId || '', agent: config.agentName, context: config.meterContext || 'creative' } : null;
 
         const openaiRun = () => runBuildAgent({
             sessionId,

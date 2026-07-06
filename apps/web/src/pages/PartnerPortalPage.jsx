@@ -282,7 +282,7 @@ function TeamTab({ partner }) {
                     </div>
                     <Link
                         to="/roundtable"
-                        state={{ team }}
+                        state={{ team, partner_id: partner.id }}
                         className="mt-5 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"
                     >
                         Open Round Table with this team

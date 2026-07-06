@@ -23,6 +23,7 @@ function readAgentInput(req, agentIdOverride) {
         designSessionId:   req.body?.design_session_id,
         designBriefInline: req.body?.design_brief,   // fallback brief text when the design workspace is gone
         authHeader:        req.headers.authorization,
+        partnerId:         typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '',
     };
 }
 

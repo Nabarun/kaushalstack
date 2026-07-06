@@ -297,6 +297,7 @@ router.post('/spec', async (req, res) => {
 
     const chatId = (req.body?.chat_id || '').trim();
     if (!chatId) return res.status(400).json({ error: 'chat_id is required' });
+    const partnerId = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
 
     // Optional uploaded draft spec → produce a COMBINED spec (upload + review).
     // Falls back to the chat's persisted uploaded_spec when the client omits it.
@@ -338,7 +339,7 @@ router.post('/spec', async (req, res) => {
         try {
             return await chatComplete(provider, {
                 key, model, systemPrompt, userPrompt,
-                meter: { user_id: userId, agent: 'Spec Engineer', context: 'spec' },
+                meter: { user_id: userId, partner_id: partnerId, agent: 'Spec Engineer', context: 'spec' },
             });
         } catch (err) {
             // BYOK failed — fall back to server model so the spec still
@@ -356,7 +357,7 @@ router.post('/spec', async (req, res) => {
             fellBackToServer = true;
             return await chatComplete(provider, {
                 key, model, systemPrompt, userPrompt,
-                meter: { user_id: userId, agent: 'Spec Engineer', context: 'spec' },
+                meter: { user_id: userId, partner_id: partnerId, agent: 'Spec Engineer', context: 'spec' },
             });
         }
     };
