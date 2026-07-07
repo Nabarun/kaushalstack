@@ -46,6 +46,39 @@ const AGENT_MD_COMPONENTS = {
   code: ({ node, ...props }) => <code style={{ background: '#1a1d27', padding: '1px 5px', borderRadius: 3, fontSize: '0.9em' }} {...props} />,
 };
 
+// Complexity-routing badge — renders the server's per-turn routing decision
+// ({ tier, model, reason, pinned }) so the user can SEE which model tier
+// handled their prompt and why. Colors: green=light (cheapest), amber=
+// standard, purple=heavy (most capable) — matching the page palette.
+const TIER_STYLES = {
+  light:    { color: '#5cc28a', label: 'light tier' },
+  standard: { color: '#f0a04b', label: 'standard tier' },
+  heavy:    { color: '#b07ef8', label: 'heavy tier' },
+};
+function RoutingBadge({ routing, compact = false }) {
+  if (!routing?.tier) return null;
+  const s = TIER_STYLES[routing.tier] || TIER_STYLES.standard;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      fontSize: 10, fontFamily: 'monospace', color: s.color,
+      background: `${s.color}14`, border: `1px solid ${s.color}33`,
+      borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+      {compact
+        ? s.label
+        : <>routed · {s.label} · {routing.model}
+            {routing.pinned
+              ? <span style={{ color: '#6a6f82' }}>&nbsp;— pinned</span>
+              : routing.reason
+                ? <span style={{ color: '#6a6f82' }}>&nbsp;— {routing.reason}</span>
+                : null}
+          </>}
+    </span>
+  );
+}
+
 // 10-slot palette so teams of 6 (hex viz) and 7–10 (grid viz) both have
 // distinct colors per slot. Slots 0–5 are the originals so existing screens
 // don't shift colors when team size stays at 6.
@@ -1386,7 +1419,11 @@ export default function RoundTablePage() {
         return { ...r, agentIdx: agentIdx >= 0 ? agentIdx : i };
       });
 
-      const newTurn = { query, responses: [] };
+      // Server's complexity-routing decision for this turn (which tier/model
+      // answered and why) — kept on the turn so the badge survives turn
+      // switches. Local-state only; persisted chats rehydrate without it.
+      const routing = data.routing || null;
+      const newTurn = { query, responses: [], routing };
 
       if (isFollowUp) {
         // Append a fresh turn to the existing chat. We keep mutating the
@@ -1425,8 +1462,8 @@ export default function RoundTablePage() {
       // Snapshot the final state into history. For follow-ups we update the
       // existing entry; for fresh chats we prepend a new one.
       const finalTurns = isFollowUp
-        ? [...(activeChat.turns || []), { query, responses: responsesWithIdx }]
-        : [{ query, responses: responsesWithIdx }];
+        ? [...(activeChat.turns || []), { query, responses: responsesWithIdx, routing }]
+        : [{ query, responses: responsesWithIdx, routing }];
 
       if (isFollowUp) {
         setChats(prev => prev.map(c => (
@@ -2062,12 +2099,21 @@ export default function RoundTablePage() {
                           <span style={{ color: '#3a3f52', marginLeft: 6 }}>
                             · {(t.responses || []).length} agent{(t.responses || []).length === 1 ? '' : 's'} replied
                           </span>
+                          {t.routing && <span style={{ marginLeft: 8 }}><RoutingBadge routing={t.routing} compact /></span>}
                         </span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+              {/* Complexity-routing badge for the latest turn — shows which
+                  model tier the router picked for this prompt and why. */}
+              {latestTurn?.routing && !loading && (
+                <div className="mb-4">
+                  <RoutingBadge routing={latestTurn.routing} />
+                </div>
+              )}
+
               <AnimatePresence mode="wait">
                 {limitReached && !activeChat ? (
                   <BYOKScreen key="byok" reason={limitReason} />

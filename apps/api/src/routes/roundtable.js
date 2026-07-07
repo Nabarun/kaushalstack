@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { getUserBYOK } from './user-keys.js';
 import { chatComplete, getProviderMeta } from '../providers/index.js';
+import { routePrompt } from '../providers/model-router.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { verifiedPartnerId } from '../partner/membership.js';
 
@@ -359,16 +360,27 @@ router.post('/roundtable', async (req, res) => {
     const userBYOK = await getUserBYOK(userId);
     const usingUserKey = !!userBYOK;
 
-    // Server-key fallback always uses OpenAI gpt-4o-mini so the free tier is
-    // predictable. When the user is paying, honour their provider + model.
+    // Server-key fallback stays on OpenAI. The BYOK error-path fallback below
+    // still pins gpt-4o-mini so a failing user key never costs the server a
+    // heavy-tier call.
     const SERVER_PROVIDER = 'openai';
     const SERVER_DEFAULT_MODEL = 'gpt-4o-mini';
 
     const providerInUse = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
     const keyInUse = usingUserKey ? userBYOK.key : OPENAI_API_KEY;
-    const modelInUse = usingUserKey
-        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
-        : SERVER_DEFAULT_MODEL;
+
+    // Complexity-aware routing: score the prompt and pick the cheapest model
+    // in the provider's ladder that clears the bar. A BYOK user who explicitly
+    // chose a preferred model keeps it (pinned) — routing only fills the gap
+    // where we'd otherwise fall back to a static default. The decision is
+    // returned to the client as `routing` so the UI can show WHY.
+    const routing = routePrompt({
+        provider: providerInUse,
+        query,
+        priorTurnsCount: priorTurns.length,
+        pinnedModel: usingUserKey ? (userBYOK.model || null) : null,
+    });
+    const modelInUse = routing.model;
 
     let usesAfter = null;
     let remaining = null;
@@ -425,6 +437,9 @@ router.post('/roundtable', async (req, res) => {
                     meter: { user_id: userId || '', partner_id: partnerId, agent: 'roundtable', context: 'roundtable' },
                 });
                 fellBackToServer = true;
+                // Keep the routing metadata truthful about what actually ran.
+                routing.provider = SERVER_PROVIDER;
+                routing.model = SERVER_DEFAULT_MODEL;
             } catch (fallbackErr) {
                 const cm = fallbackErr.cause?.message || fallbackErr.cause?.code || '(no cause)';
                 logger.error(`roundtable server fallback also failed: ${fallbackErr.message} | cause=${cm}`);
@@ -482,7 +497,7 @@ router.post('/roundtable', async (req, res) => {
             }
         }
 
-        logger.info(`roundtable[${kind}]: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query.slice(0, 60)}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, remaining: ${remaining ?? 'unlimited'})`);
+        logger.info(`roundtable[${kind}]: ${isFollowUp ? `[turn ${priorTurns.length + 1}]` : '[new]'} "${query.slice(0, 60)}" → ${parsed.responses.length} responses (user: ${userId || 'anon'}, key: ${usingUserKey ? 'user-byok' : 'server'}, routed: ${routing.tier}/${routing.model}${routing.pinned ? '/pinned' : ''}, remaining: ${remaining ?? 'unlimited'})`);
 
         res.json({
             responses: parsed.responses,
@@ -494,6 +509,10 @@ router.post('/roundtable', async (req, res) => {
             // Client surfaces a small banner so the user knows their key
             // needs attention without hard-blocking the request.
             byok_fell_back: fellBackToServer,
+            // Complexity-routing decision for this turn: { tier, score,
+            // reason, model, provider, pinned }. The UI renders this as a
+            // badge so the user can see which tier handled their prompt.
+            routing,
             ...(remaining !== null ? { remaining, uses: usesAfter, limit: FREE_LIMIT } : {}),
         });
     } catch (err) {
