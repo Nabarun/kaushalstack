@@ -116,9 +116,9 @@ function App() {
               <Route
                 path="/partner"
                 element={
-                  <ProtectedRoute>
+                  <AdminProtectedRoute>
                     <PartnerPortalPage />
-                  </ProtectedRoute>
+                  </AdminProtectedRoute>
                 }
               />
               <Route

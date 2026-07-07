@@ -39,11 +39,7 @@ const Header = () => {
     { name: 'Developers', path: '/developers' },
     { name: 'Contact', path: '/contact' }
   ];
-  // Non-admin authenticated users get a plain Partner link
-  if (isAuthenticated && !isAdminAuthenticated) {
-    navLinks.splice(navLinks.length - 1, 0, { name: 'Partner', path: '/partner' });
-  }
-
+  // Partner is admin-only — non-admins get no Partner nav entry at all.
   // Admin: merged Partner dropdown replaces both nav items
   const partnerDropdownLinks = isAdminAuthenticated ? [
     { name: 'Partner Portal', path: '/partner' },
