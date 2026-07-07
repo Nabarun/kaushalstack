@@ -546,11 +546,9 @@ function ProviderKeySection() {
               </Button>
             </div>
 
-            {/* Per-stage model pickers */}
-            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="roundtable" label="Preferred model for Round Table" />
-            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="spec" label="Preferred model for Spec Engineer" />
-            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="design" label="Preferred model for Designer" />
-            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} stage="build" label="Preferred model for Execution" />
+            {/* One preferred model for Round Table, Spec Engineer and Designer.
+                Execution agents are pinned server-side and ignore this. */}
+            <PreferredModelPicker authedFetch={authedFetch} provider={status.provider} />
 
             <div className="border-t pt-4">
               <p className="text-xs text-muted-foreground mb-2">Replace with a new key:</p>
@@ -710,7 +708,8 @@ const PROVIDER_DEFAULT_MODEL = {
   google: 'gemini-1.5-flash-latest',
 };
 
-function PreferredModelPicker({ authedFetch, provider, stage, label }) {
+function PreferredModelPicker({ authedFetch, provider }) {
+  const label = 'Preferred model — Round Table, Spec Engineer & Designer';
   const defaultModel = PROVIDER_DEFAULT_MODEL[provider] || '';
   const providerLabel = (PROVIDERS && PROVIDERS[provider]?.label) || provider;
 
@@ -733,12 +732,12 @@ function PreferredModelPicker({ authedFetch, provider, stage, label }) {
       const list = modelsRes.models || [];
       setOptions(list);
       setOptionsLoading(false);
-      const current = (stage ? prefRes.stage_models?.[stage] : prefRes.model) || defaultModel;
+      const current = prefRes.model || defaultModel;
       setSelected(current);
       setSaved(current);
     });
     return () => { cancelled = true; };
-  }, [provider, stage]);
+  }, [provider]);
 
   const dropdownOptions = (() => {
     const ids = new Set(options.map(o => o.id));
@@ -751,21 +750,16 @@ function PreferredModelPicker({ authedFetch, provider, stage, label }) {
   async function save() {
     setBusy(true);
     try {
-      const r = stage
-        ? await authedFetch('/api/me/stage-model', {
-            method: 'PUT',
-            body: JSON.stringify({ stage, model: selected }),
-          })
-        : await authedFetch('/api/me/byok-model', {
-            method: 'PUT',
-            body: JSON.stringify({ model: selected }),
-          });
+      const r = await authedFetch('/api/me/byok-model', {
+        method: 'PUT',
+        body: JSON.stringify({ model: selected }),
+      });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
         throw new Error(e.error || 'Failed to save');
       }
       setSaved(selected);
-      toast.success(`${label || 'Model'} set to ${selected}.`);
+      toast.success(`Round Table, Spec & Designer will now use ${selected}.`);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -776,9 +770,7 @@ function PreferredModelPicker({ authedFetch, provider, stage, label }) {
   async function resetToDefault() {
     setBusy(true);
     try {
-      const r = stage
-        ? await authedFetch(`/api/me/stage-model?stage=${encodeURIComponent(stage)}`, { method: 'DELETE' })
-        : await authedFetch('/api/me/byok-model', { method: 'DELETE' });
+      const r = await authedFetch('/api/me/byok-model', { method: 'DELETE' });
       if (!r.ok) throw new Error('Failed to reset');
       setSelected(defaultModel);
       setSaved(defaultModel);
@@ -826,7 +818,7 @@ function PreferredModelPicker({ authedFetch, provider, stage, label }) {
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
-        Only chat-completion models are listed. Calls billed to your {providerLabel} account.
+        Only chat-completion models are listed. Calls billed to your {providerLabel} account. Execution agents always run their pinned model regardless of this setting.
       </p>
     </div>
   );

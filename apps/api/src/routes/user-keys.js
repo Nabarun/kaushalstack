@@ -7,20 +7,12 @@ import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
-const VALID_STAGES = ['roundtable', 'spec', 'design', 'build'];
-
-function parseStageModels(raw) {
-    if (!raw) return {};
-    try { return JSON.parse(raw); } catch { return {}; }
-}
-
 function shapeStatus(user) {
     return {
         provider: user.provider || null,
         has_key: !!user.byok_key_encrypted,
         last4: user.byok_key_last4 || null,
         model: user.preferred_model || null,
-        stage_models: parseStageModels(user.preferred_models),
     };
 }
 
@@ -129,47 +121,6 @@ router.delete('/me/byok-model', async (req, res) => {
     try {
         await pb.collection('users').update(userId, { preferred_model: '' });
         res.json({ ok: true, model: null });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// PUT /me/stage-model — set model for a specific pipeline stage
-router.put('/me/stage-model', async (req, res) => {
-    const userId = await getUserIdFromAuth(req);
-    if (!userId) return res.status(401).json({ error: 'unauthorized' });
-    const stage = (req.body?.stage || '').trim();
-    const model = (req.body?.model || '').trim();
-    if (!VALID_STAGES.includes(stage)) {
-        return res.status(400).json({ error: `stage must be one of: ${VALID_STAGES.join(', ')}` });
-    }
-    if (!model) return res.status(400).json({ error: 'model is required' });
-    if (model.length > 100) return res.status(400).json({ error: 'model id too long' });
-    try {
-        const user = await pb.collection('users').getOne(userId);
-        const current = parseStageModels(user.preferred_models);
-        current[stage] = model;
-        await pb.collection('users').update(userId, { preferred_models: JSON.stringify(current) });
-        res.json({ ok: true, stage, model });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// DELETE /me/stage-model?stage=xxx — clear model for a specific stage
-router.delete('/me/stage-model', async (req, res) => {
-    const userId = await getUserIdFromAuth(req);
-    if (!userId) return res.status(401).json({ error: 'unauthorized' });
-    const stage = (req.query?.stage || '').trim();
-    if (!VALID_STAGES.includes(stage)) {
-        return res.status(400).json({ error: `stage must be one of: ${VALID_STAGES.join(', ')}` });
-    }
-    try {
-        const user = await pb.collection('users').getOne(userId);
-        const current = parseStageModels(user.preferred_models);
-        delete current[stage];
-        await pb.collection('users').update(userId, { preferred_models: JSON.stringify(current) });
-        res.json({ ok: true, stage, model: null });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -286,7 +237,6 @@ export async function getUserBYOK(userId) {
             provider: user.provider || 'openai',
             key,
             model: user.preferred_model || null,
-            models: parseStageModels(user.preferred_models),
         };
     } catch {
         return null;

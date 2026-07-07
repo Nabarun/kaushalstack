@@ -499,7 +499,7 @@ export const CREATIVE_AGENTS = {
         systemPrompt:         ANANYA_SYSTEM_PROMPT,
         userIntro:            'Build this for me',
         openaiModel:          'gpt-4o-mini',
-        anthropicModel:       null,             // Ananya stays on OpenAI for now
+        anthropicModel:       'claude-fable-5', // execution is pinned to fable-5 on Anthropic BYOK
         maxTurns:             24,               // +4 over baseline: consult_agent + DEPLOY.md add turns
         ingestsDesignSession: true,             // can consume Maya's session as a design brief
         extraTools:           [CONSULT_AGENT_TOOL], // she asks Hostinger for deployment guidance
@@ -549,7 +549,7 @@ export const CREATIVE_AGENTS = {
         systemPrompt:         MOBILE_DEV_SYSTEM_PROMPT,
         userIntro:            'Build this mobile app for me',
         openaiModel:          'gpt-4o',
-        anthropicModel:       'claude-opus-4-7',
+        anthropicModel:       'claude-fable-5', // execution is pinned to fable-5 on Anthropic BYOK
         maxTurns:             28,
         ingestsDesignSession: false,
         meterContext:         'build',
@@ -803,8 +803,11 @@ export async function runCreativeAgent({
     const byok   = userId ? await getUserBYOK(userId) : null;
     const useAnthropic = !!(config.anthropicModel && byok && byok.provider === 'anthropic' && byok.key);
     let provider = useAnthropic ? 'anthropic' : 'openai';
+    // Execution (build) agents are PINNED to their configured model — the
+    // user's preferred model only applies to design agents. Round Table and
+    // Spec honor it in their own routes.
     let model    = useAnthropic
-        ? (byok.models?.[config.meterContext] || byok.model || config.anthropicModel)
+        ? (config.meterContext === 'build' ? config.anthropicModel : (byok.model || config.anthropicModel))
         : config.openaiModel;
     let byokFellBack = false;
 

@@ -328,7 +328,7 @@ router.post('/spec', async (req, res) => {
     let provider = usingUserKey ? userBYOK.provider : SERVER_PROVIDER;
     let key      = usingUserKey ? userBYOK.key      : OPENAI_API_KEY;
     let model    = usingUserKey
-        ? (userBYOK.models?.spec || userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
+        ? (userBYOK.model || getProviderMeta(userBYOK.provider).defaultModel)
         : SERVER_DEFAULT_MODEL;
     let fellBackToServer = false;
 
