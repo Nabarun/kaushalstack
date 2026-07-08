@@ -788,7 +788,7 @@ export default function RoundTablePage() {
   };
 
   // Spec Engineer — synthesize a structured spec doc from the round-table
-  // transcript. One-shot LLM call, not the SSE-streamed creative pipeline.
+  // transcript. Uses SSE so the connection stays alive during the ~30s LLM call.
   async function generateSpec() {
     if (!activeChat?.id) return;
     setSpec(s => ({ ...s, status: 'running', error: null }));
@@ -805,16 +805,44 @@ export default function RoundTablePage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Spec failed (${res.status})`);
       }
-      const data = await res.json();
-      const result = {
-        text: data.spec_text,
-        authors: data.authors || [],
-        generated_at: data.generated_at,
-        edited_at: null,
-        engine: data.engine || null,
-      };
-      setSpec({ status: 'done', result, error: null, editing: result.text, dirty: false });
-      persistSpec(result);
+      // Read SSE stream — server sends result/error events over text/event-stream
+      // so the connection stays alive during the long LLM call.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop(); // keep incomplete last block
+        for (const block of blocks) {
+          let eventName = '';
+          let eventData = '';
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+            else if (line.startsWith('data: ')) eventData = line.slice(6).trim();
+          }
+          if (!eventName || eventName === 'ping' || !eventData) continue;
+          const payload = JSON.parse(eventData);
+          if (eventName === 'result') {
+            const result = {
+              text: payload.spec_text,
+              authors: payload.authors || [],
+              generated_at: payload.generated_at,
+              edited_at: null,
+              engine: payload.engine || null,
+            };
+            setSpec({ status: 'done', result, error: null, editing: result.text, dirty: false });
+            persistSpec(result);
+            break outer;
+          }
+          if (eventName === 'error') {
+            throw new Error(payload.error || 'Spec generation failed');
+          }
+          if (eventName === 'done') break outer;
+        }
+      }
     } catch (err) {
       setSpec(s => ({ ...s, status: 'error', error: err.message }));
     }

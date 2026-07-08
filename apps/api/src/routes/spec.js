@@ -364,6 +364,28 @@ router.post('/spec', async (req, res) => {
         }
     };
 
+    // Switch to SSE now — all validation passed, LLM call is next.
+    // Sending headers immediately keeps Traefik from closing the connection
+    // during the ~30s blocking Anthropic call (no data would otherwise flow
+    // until res.json() at the very end, which trips proxy response-header
+    // timeouts and shows up as Morgan status "-").
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendEvent = (name, data) => {
+        try { res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* socket gone */ }
+    };
+
+    const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch { clearInterval(heartbeat); } }, 10_000);
+
+    const finish = (name, data) => {
+        clearInterval(heartbeat);
+        sendEvent(name, data);
+        try { res.write('event: done\ndata: {}\n\n'); res.end(); } catch { /* already closed */ }
+    };
+
     try {
         const userPrompt = buildSpecUserPrompt(chat, rawSpecText);
         let spec_text = stampMetadata(await generate(userPrompt), authors);
@@ -401,7 +423,7 @@ router.post('/spec', async (req, res) => {
 
         logger.info(`spec: chat=${chatId} phase=${chat?.phase || 'default'} template=${isMarketing ? 'marketing' : 'software'} authors=${authors.length} chars=${spec_text.length} provider=${provider}${fellBackToServer ? ' (BYOK fallback)' : ''} coverage=${coverage.ratio.toFixed(2)}${repaired ? ' repaired' : ''}${appended ? ` appended=${appended}` : ''} unsourced_numbers=${unsourced.length}`);
 
-        res.json({
+        finish('result', {
             spec_text,
             authors,
             generated_at: new Date().toISOString(),
@@ -420,7 +442,7 @@ router.post('/spec', async (req, res) => {
     } catch (err) {
         const causeMsg = err.cause?.message || err.cause?.code || (err.cause ? String(err.cause) : '(no cause)');
         logger.error(`spec error chat=${chatId}: ${err.message} | cause=${causeMsg} | provider=${provider} model=${model}`);
-        res.status(500).json({ error: 'Spec generation failed' });
+        finish('error', { error: 'Spec generation failed' });
     }
 });
 
