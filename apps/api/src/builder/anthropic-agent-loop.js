@@ -91,22 +91,43 @@ export async function runAnthropicAgent({
     let inputTokens       = 0;
     let outputTokens      = 0;
 
+    // 120s per-turn abort: generous enough for a 16k-token tool-call
+    // response on Opus 4.7 (~60 tok/s → ~270s worst case, but typical
+    // tool calls are 200-2000 tokens = 3-35s). Catches hung connections
+    // without aborting legitimate slow turns.
+    const TURN_TIMEOUT_MS = 120_000;
+
     for (let turn = 0; turn < maxTurns; turn++) {
-        const r = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': ANTHROPIC_VERSION,
-            },
-            body: JSON.stringify({
-                model,
-                max_tokens: MAX_TOKENS,
-                system: cachedSystem,
-                tools: cachedTools,
-                messages,
-            }),
-        });
+        const ctrl = new AbortController();
+        const tId  = setTimeout(() => ctrl.abort(), TURN_TIMEOUT_MS);
+        let r;
+        try {
+            r = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': ANTHROPIC_VERSION,
+                },
+                body: JSON.stringify({
+                    model,
+                    max_tokens: MAX_TOKENS,
+                    system: cachedSystem,
+                    tools: cachedTools,
+                    messages,
+                }),
+                signal: ctrl.signal,
+            });
+        } catch (fetchErr) {
+            clearTimeout(tId);
+            if (fetchErr.name === 'AbortError') {
+                const e = new Error(`anthropic turn ${turn} timed out after ${TURN_TIMEOUT_MS / 1000}s`);
+                e.status = 504;
+                throw e;
+            }
+            throw fetchErr;
+        }
+        clearTimeout(tId);
         if (!r.ok) {
             const body = (await r.text()).slice(0, 400);
             const err = new Error(`anthropic messages ${r.status}: ${body}`);
