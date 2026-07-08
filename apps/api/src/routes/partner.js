@@ -192,32 +192,45 @@ router.post('/partner/:id/research-team', async (req, res) => {
 
         // ── 4. Team selection + per-agent rationale ──────────────────────
         const candidateList = candidates.map((s, i) =>
-            `${i + 1}. id=${s.id} | ${s.agent_name} — ${s.name} (${s.category})\n   ${(s.description || '').slice(0, 200)}`
+            `${i + 1}. ${s.agent_name} — ${s.name} (${s.category})\n   ${(s.description || '').slice(0, 200)}`
         ).join('\n');
+        // The model references candidates by NUMBER, not id — small models
+        // reliably copy "3" but mangle 15-char random record ids, which
+        // previously collapsed the team to whichever single id survived.
         const selectionRaw = await chatComplete('openai', {
             key: OPENAI_API_KEY,
             model: RESEARCH_MODEL,
             systemPrompt: 'You assemble specialist agent teams for businesses. Respond with ONLY valid JSON, no fences.',
-            userPrompt: `Business profile:\n${profile.profile}\n\nIdentified needs:\n${(profile.needs || []).map(n => `- ${n}`).join('\n')}\n\nCandidate agents:\n${candidateList}\n\nSelect the 5-8 agents that best cover this business's needs. For each, write ONE sentence explaining why this agent was selected — reference the specific asset evidence or business need it addresses (e.g. "their website shows no online booking, and X specialises in…").\n\nJSON:\n{\n  "team": [ { "id": "<candidate id>", "why": "<one-sentence rationale grounded in the assets>" } ]\n}`,
+            userPrompt: `Business profile:\n${profile.profile}\n\nIdentified needs:\n${(profile.needs || []).map(n => `- ${n}`).join('\n')}\n\nCandidate agents (numbered):\n${candidateList}\n\nSelect the 5-8 agents that best cover this business's needs. For each, write ONE sentence explaining why this agent was selected — reference the specific asset evidence or business need it addresses (e.g. "their website shows no online booking, and X specialises in…").\n\nJSON (n = the candidate's number from the list above):\n{\n  "team": [ { "n": 3, "why": "<one-sentence rationale grounded in the assets>" } ]\n}`,
             jsonMode: true,
             meter,
         });
         const selection = parseJsonReply(selectionRaw);
 
-        let team;
-        if (Array.isArray(selection?.team) && selection.team.length > 0) {
-            const byId = new Map(candidates.map(s => [s.id, s]));
-            team = selection.team
-                .filter(t => t && byId.has(t.id))
-                .slice(0, 8)
-                .map(t => {
-                    const { _score, ...s } = byId.get(t.id);
-                    return { ...s, why: String(t.why || '').slice(0, 400) };
-                });
+        let team = [];
+        if (Array.isArray(selection?.team)) {
+            const seen = new Set();
+            for (const t of selection.team) {
+                if (!t || typeof t !== 'object') continue;
+                const idx = Number(t.n) - 1;
+                const cand = Number.isInteger(idx) && idx >= 0 ? candidates[idx] : null;
+                if (!cand || seen.has(cand.id)) continue;
+                seen.add(cand.id);
+                const { _score, ...s } = cand;
+                team.push({ ...s, why: String(t.why || '').slice(0, 400) });
+                if (team.length >= 8) break;
+            }
         }
-        // Fallback: LLM selection failed — top candidates without rationale.
-        if (!team || team.length === 0) {
-            team = candidates.slice(0, 6).map(({ _score, ...s }) => ({ ...s, why: '' }));
+        // Top up: if the selection came back thin (bad JSON, too few picks),
+        // fill to 5 with the highest-scoring remaining candidates.
+        if (team.length < 5) {
+            const have = new Set(team.map(s => s.id));
+            for (const cand of candidates) {
+                if (team.length >= 5) break;
+                if (have.has(cand.id)) continue;
+                const { _score, ...s } = cand;
+                team.push({ ...s, why: '' });
+            }
         }
 
         // Persist to the partner so the researched team survives reloads.
