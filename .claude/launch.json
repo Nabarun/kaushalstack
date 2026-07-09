@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mrnmr-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/nabarunsengupta/Projects/mrnmr/mrnmr-web && npm run dev"],
+      "port": 8099
+    },
+    {
+      "name": "kaushalstack-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/web && npm run dev"],
+      "port": 3000
+    }
+  ]
+}

@@ -304,6 +304,13 @@ export default defineConfig({
 			'.app-preview.com',
 			'.app-preview.io',
 		],
+		// apiServerClient.js hardcodes '/api'; the local docker nginx proxy only
+		// maps /hcgi/api, so a host-run `vite dev` needs its own forward to the
+		// api container's published port. Dev-only — never applies to `vite build`.
+		proxy: isDev ? {
+			'/api': { target: 'http://localhost:3001', changeOrigin: true },
+			'/pb': { target: 'http://localhost:8090', changeOrigin: true, rewrite: (p) => p.replace(/^\/pb/, '') },
+		} : undefined,
 		fs: {
 			strict: true,
 			allow: [

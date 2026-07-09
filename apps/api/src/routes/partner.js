@@ -5,6 +5,9 @@
 //   POST   /partner/:id/assets           add link (json) or doc/media (multipart "file")
 //   DELETE /partner/:id/assets/:assetId  remove an asset
 //   GET    /partner/:id/usage?range=today|mtd|7d   spend + tokens rollup
+//   GET    /partner/:id/manual-charges           list manually-logged charges + total
+//   POST   /partner/:id/manual-charges           log a charge { description, amount_usd }
+//   DELETE /partner/:id/manual-charges/:chargeId  remove a logged charge
 //
 // All routes require auth. Membership is enforced server-side on every call —
 // the partner_id in a URL is never trusted on its own.
@@ -450,6 +453,57 @@ router.get('/partner/:id/usage', async (req, res) => {
     } catch (err) {
         logger.error(`usage rollup failed: ${err.message}`);
         res.status(500).json({ error: 'could not compute usage' });
+    }
+});
+
+// ── Manual charges ───────────────────────────────────────────────────────────
+// Spend that never touches providers/index.js — a VPS bill, ad spend, a CLI
+// tool run outside kaushalstack — logged by hand so a partner's true cost
+// isn't undercounted by LLM-only usage_events.
+
+router.get('/partner/:id/manual-charges', async (req, res) => {
+    const ctx = await requireMember(req, res);
+    if (!ctx) return;
+    try {
+        const items = await pb.collection('partner_manual_charges').getFullList({
+            filter: `partner_id = "${esc(req.params.id)}"`, sort: '-created',
+        });
+        const total = Number(items.reduce((sum, c) => sum + (c.amount_usd || 0), 0).toFixed(4));
+        res.json({ charges: items, total_usd: total });
+    } catch (err) {
+        logger.error(`manual charges list failed: ${err.message}`);
+        res.status(500).json({ error: 'could not list charges' });
+    }
+});
+
+router.post('/partner/:id/manual-charges', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    const description = (req.body?.description || '').trim().slice(0, 500);
+    const amount = Number(req.body?.amount_usd);
+    if (!description) return res.status(400).json({ error: 'description is required' });
+    if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ error: 'amount_usd must be a non-negative number' });
+    try {
+        const rec = await pb.collection('partner_manual_charges').create({
+            partner_id: req.params.id, description, amount_usd: amount, added_by: ctx.userId,
+        });
+        res.json({ charge: rec });
+    } catch (err) {
+        logger.error(`manual charge add failed: ${err.message}`);
+        res.status(500).json({ error: 'could not add charge' });
+    }
+});
+
+router.delete('/partner/:id/manual-charges/:chargeId', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    try {
+        const charge = await pb.collection('partner_manual_charges').getOne(req.params.chargeId);
+        if (charge.partner_id !== req.params.id) return res.status(404).json({ error: 'charge not found' });
+        await pb.collection('partner_manual_charges').delete(charge.id);
+        res.json({ ok: true });
+    } catch {
+        res.status(404).json({ error: 'charge not found' });
     }
 });
 

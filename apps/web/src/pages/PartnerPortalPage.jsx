@@ -116,6 +116,88 @@ function BudgetEditor({ partner, currentBudget, onSaved }) {
     );
 }
 
+function ManualChargesSection({ partner }) {
+    const [charges, setCharges] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [description, setDescription] = useState('');
+    const [amount, setAmount] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    const load = useCallback(async () => {
+        try {
+            const d = await api(`/partner/${partner.id}/manual-charges`);
+            setCharges(d.charges || []);
+            setTotal(d.total_usd || 0);
+        } catch (e) { setErr(e.message); }
+    }, [partner.id]);
+    useEffect(() => { load(); }, [load]);
+
+    const add = async () => {
+        const desc = description.trim();
+        const n = Number(amount);
+        if (!desc) { setErr('Enter a description'); return; }
+        if (!Number.isFinite(n) || n < 0) { setErr('Enter a valid amount'); return; }
+        setBusy(true); setErr('');
+        try {
+            await api(`/partner/${partner.id}/manual-charges`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ description: desc, amount_usd: n }),
+            });
+            setDescription(''); setAmount(''); load();
+        } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    };
+
+    const remove = async (id) => {
+        try { await api(`/partner/${partner.id}/manual-charges/${id}`, { method: 'DELETE' }); load(); }
+        catch (e) { setErr(e.message); }
+    };
+
+    return (
+        <div className="rounded-xl border bg-white p-4">
+            <div className="flex items-center justify-between">
+                <h3 className="font-medium">Additional charges</h3>
+                <span className="text-sm text-gray-600">{fmtUSD(total)} total</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+                Costs outside kaushalstack — a VPS bill, ad spend, something running in your terminal — logged by hand so {partner.name}'s true spend isn't undercounted.
+            </p>
+            {err && <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+            <div className="mt-4 flex flex-col gap-2 md:flex-row">
+                <input value={description} onChange={(e) => setDescription(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && add()}
+                    placeholder="Description — e.g. VPS hosting for July"
+                    className="flex-1 rounded-lg border px-3 py-2 text-sm" />
+                <div className="flex items-center gap-1 rounded-lg border px-3 py-2 md:w-32">
+                    <span className="text-sm text-gray-500">$</span>
+                    <input value={amount} onChange={(e) => setAmount(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && add()}
+                        placeholder="Value" inputMode="decimal"
+                        className="w-full text-sm outline-none" />
+                </div>
+                <button onClick={add} disabled={busy}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+                    {busy ? 'Adding…' : 'Add charge'}
+                </button>
+            </div>
+            <div className="mt-4 space-y-2">
+                {charges.map((c) => (
+                    <div key={c.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm">{c.description}</div>
+                            <div className="text-xs text-gray-400">{new Date(c.created).toLocaleDateString()}</div>
+                        </div>
+                        <span className="text-sm font-medium tabular-nums">{fmtUSD(c.amount_usd)}</span>
+                        <button onClick={() => remove(c.id)} className="text-xs text-red-500 hover:underline">remove</button>
+                    </div>
+                ))}
+                {charges.length === 0 && <div className="text-sm text-gray-400">No additional charges logged yet.</div>}
+            </div>
+        </div>
+    );
+}
+
 function UsageTab({ partner }) {
     const [range, setRange] = useState('today');
     const [data, setData] = useState(null);
@@ -189,6 +271,7 @@ function UsageTab({ partner }) {
                     <Bars rows={data?.by_model || []} />
                 </div>
             </div>
+            <ManualChargesSection partner={partner} />
         </div>
     );
 }

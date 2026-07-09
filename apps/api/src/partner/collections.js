@@ -69,6 +69,20 @@ const COLLECTIONS = [
             { type: 'autodate', name: 'created', onCreate: true },
         ],
     },
+    {
+        // Manually-logged spend that never passes through providers/index.js
+        // (e.g. VPS/hosting bills, a CLI tool run outside kaushalstack, ad
+        // spend) — the user records it by hand so the partner's true total
+        // cost isn't undercounted by LLM-only usage_events.
+        name: 'partner_manual_charges',
+        fields: [
+            { type: 'text',   name: 'partner_id',  required: true },
+            { type: 'text',   name: 'description', required: true, max: 500 },
+            { type: 'number', name: 'amount_usd',  required: true, min: 0 },
+            { type: 'text',   name: 'added_by',    required: true },
+            { type: 'autodate', name: 'created', onCreate: true },
+        ],
+    },
 ];
 
 export async function ensurePartnerCollections() {
