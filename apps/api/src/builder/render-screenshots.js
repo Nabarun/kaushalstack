@@ -76,11 +76,36 @@ export async function renderPlatformScreenshots(sessionDirAbs, manifest) {
                 await page.setViewport({ width: viewportW, height: viewportH, deviceScaleFactor: 1 });
                 await page.goto(`file://${absHtml}`, { waitUntil: 'networkidle0', timeout: NAV_TIMEOUT_MS });
 
-                // Tara's own template consistently wraps each post in one
-                // element directly under <body> (e.g. <div class="fb-frame">)
-                // — screenshot that element specifically so the output is the
-                // post itself, not the padding/centering wrapper around it.
-                const handle = await page.evaluateHandle(() => document.body.firstElementChild);
+                // networkidle0 fires on network quiescence, not on webfont
+                // SWAP completion — a real (if rare) race where Fraunces/Inter
+                // haven't painted yet and text renders in the fallback font
+                // or briefly invisible (FOIT). Wait on the font-loading API
+                // directly, plus every <img> and CSS background-image being
+                // fully decoded, before capturing anything.
+                await page.evaluate(() => document.fonts.ready).catch(() => {});
+                await page.evaluate(async () => {
+                    const imgs = Array.from(document.images).map((img) =>
+                        img.complete ? Promise.resolve() : new Promise((res) => { img.onload = img.onerror = res; }));
+                    const bgUrls = [];
+                    for (const el of document.querySelectorAll('*')) {
+                        const bg = getComputedStyle(el).backgroundImage;
+                        const matches = bg && bg.match(/url\(["']?([^"')]+)["']?\)/g);
+                        if (matches) matches.forEach((u) => bgUrls.push(u.slice(4).replace(/^["']|["']?\)$/g, '')));
+                    }
+                    const bgs = bgUrls.map((src) => new Promise((res) => {
+                        const i = new Image(); i.onload = i.onerror = res; i.src = src;
+                    }));
+                    await Promise.all([...imgs, ...bgs]);
+                }).catch(() => {});
+
+                // Tara's system prompt mandates data-render-target="true" on
+                // the post's outer frame div (e.g. <div class="fb-frame"
+                // data-render-target="true">) — sessions generated before
+                // that prompt change won't have it, so fall back to "first
+                // element under body", which was the sole strategy before
+                // and matched every real session observed.
+                const handle = await page.evaluateHandle(() =>
+                    document.querySelector('[data-render-target]') || document.body.firstElementChild);
                 const el = handle.asElement();
 
                 // Tara's CSS frame is typically built at "preview widget" size

@@ -246,6 +246,8 @@ OUTPUT STRUCTURE:
 - posts/<platform>/meta.json            → { format, dimensions, aspect_ratio, hashtags, alt_text, recommended_post_time, character_count }
 - styles.css                            → shared brand palette + typography tokens (linked from each post file)
 
+RENDER TARGET (MANDATORY): the outermost element of the post itself — the one platform-chrome frame div directly under <body>, e.g. <div class="fb-frame">...</div> — MUST carry the attribute data-render-target="true". This is how the platform screenshots each post to a PNG after you finish; without it, the exported image falls back to guessing the frame (correct today, but fragile), so always add it explicitly regardless of what class name you pick for that div.
+
 PLATFORM CHROME — render each post inside a CSS-drawn UI frame that looks like the real platform:
 
 INSTAGRAM feed post:

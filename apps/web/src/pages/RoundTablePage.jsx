@@ -254,6 +254,32 @@ function CreativeToolPanel({
               ))}
             </div>
           )}
+          {/* Tara's per-platform PNGs (see render-screenshots.js) — actual
+              postable images, not just an entry in the file list above. Only
+              renders when present, so Kavya's email panel (no matching
+              files) is unaffected. */}
+          {result.files?.some(f => /^posts\/[^/]+\/[^/]+\.png$/.test(f.path)) && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10,
+              marginBottom: 14,
+            }}>
+              {result.files.filter(f => /^posts\/[^/]+\/[^/]+\.png$/.test(f.path)).map(f => {
+                const platform = f.path.split('/')[1];
+                const src = `/api${result.preview_url.replace(/^\/api/, '')}${f.path}`;
+                return (
+                  <a key={f.path} href={src} download target="_blank" rel="noopener noreferrer" style={{
+                    display: 'block', border: '1px solid #1e2130', borderRadius: 8, overflow: 'hidden',
+                    textDecoration: 'none', background: '#0a0c12',
+                  }}>
+                    <img src={src} alt={`${platform} post`} loading="lazy" style={{ width: '100%', display: 'block', aspectRatio: '4 / 5', objectFit: 'cover' }} />
+                    <div style={{ fontSize: 10, color: '#8a91a8', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '6px 8px' }}>
+                      {platform}
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {result.preview_url && (
               <a href={`/api${result.preview_url.replace(/^\/api/, '')}`} target="_blank" rel="noopener noreferrer" style={{
