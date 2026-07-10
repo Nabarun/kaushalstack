@@ -15,6 +15,7 @@ import { getUserBYOK } from '../routes/user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { verifiedPartnerId } from '../partner/membership.js';
 import { checkPartnerCredit } from '../partner/usage.js';
+import { renderPlatformScreenshots } from './render-screenshots.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Skill IDs (mirrored from PocketBase). Kept here so the route layer doesn't
@@ -544,6 +545,12 @@ export const CREATIVE_AGENTS = {
         maxTurns:             44,
         ingestsDesignSession: false,
         meterContext:         'social',
+        // Her posts/<platform>/<format>.html files are CSS-drawn platform
+        // mockups (fake Insta/FB/LinkedIn/X chrome around a real photo) —
+        // not something a user can upload to those platforms directly. Render
+        // each to a flat PNG as a deterministic post-process (see
+        // render-screenshots.js) so the actual deliverable is postable.
+        renderScreenshots:    true,
     },
     [MOBILE_DEV_SKILL_ID]: {
         agentName:            'Meera',
@@ -897,7 +904,12 @@ export async function runCreativeAgent({
         } else {
             ({ final, trace } = await openaiRun());
         }
-        const manifest = await fileManifest(sessionId);
+        let manifest = await fileManifest(sessionId);
+
+        if (config.renderScreenshots) {
+            const pngs = await renderPlatformScreenshots(await sessionDir(sessionId), manifest);
+            if (pngs.length > 0) manifest = manifest.concat(pngs);
+        }
 
         // Design-source agents (Maya) carry their brief TEXT on the result so it
         // can be persisted on the chat and handed to Ananya later even if this
