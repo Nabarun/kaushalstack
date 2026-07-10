@@ -71,11 +71,9 @@ export async function renderPlatformScreenshots(sessionDirAbs, manifest) {
                 // to the frame's ACTUAL rendered bounding box regardless of
                 // whether it matches the declared dimensions exactly, so this
                 // doesn't need to be precise, just large enough.
-                await page.setViewport({
-                    width: Math.max(1400, dims.w + 200),
-                    height: Math.max(1800, dims.h + 200),
-                    deviceScaleFactor: 1, // 1:1 CSS px so output matches the platform's required upload pixels
-                });
+                const viewportW = Math.max(1400, dims.w + 200);
+                const viewportH = Math.max(1800, dims.h + 200);
+                await page.setViewport({ width: viewportW, height: viewportH, deviceScaleFactor: 1 });
                 await page.goto(`file://${absHtml}`, { waitUntil: 'networkidle0', timeout: NAV_TIMEOUT_MS });
 
                 // Tara's own template consistently wraps each post in one
@@ -84,6 +82,23 @@ export async function renderPlatformScreenshots(sessionDirAbs, manifest) {
                 // post itself, not the padding/centering wrapper around it.
                 const handle = await page.evaluateHandle(() => document.body.firstElementChild);
                 const el = handle.asElement();
+
+                // Tara's CSS frame is typically built at "preview widget" size
+                // (a few hundred px), not the literal platform upload pixel
+                // count. Measure the actual rendered box, then bump the device
+                // scale factor so the exported PNG lands near the platform's
+                // native resolution instead of a soft, undersized crop —
+                // upscaling via DPR (a true re-raster) rather than resizing
+                // the PNG after the fact, so text stays crisp.
+                if (el) {
+                    const box = await el.boundingBox();
+                    if (box?.width > 0) {
+                        const scale = Math.min(4, Math.max(1, dims.w / box.width));
+                        if (scale > 1.05) {
+                            await page.setViewport({ width: viewportW, height: viewportH, deviceScaleFactor: scale });
+                        }
+                    }
+                }
 
                 const outRel = relHtml.replace(/\.html$/, '.png');
                 const outAbs = path.join(sessionDirAbs, outRel);
