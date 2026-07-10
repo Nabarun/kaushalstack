@@ -15,6 +15,11 @@ const COLLECTIONS = [
             { type: 'text',   name: 'owner_user_id',   required: true },
             { type: 'select', name: 'status',          maxSelect: 1, values: ['active', 'suspended'] },
             { type: 'number', name: 'monthly_budget_usd', min: 0 },
+            // Hard lifetime credit: when > 0, roundtable/spec calls tagged
+            // with this partner are rejected (402) once lifetime spend hits
+            // the cap. 0/absent = uncapped. monthly_budget_usd only alerts;
+            // this one blocks.
+            { type: 'number', name: 'credit_cap_usd', min: 0 },
             { type: 'json',   name: 'team' },
             { type: 'autodate', name: 'created', onCreate: true },
             { type: 'autodate', name: 'updated', onCreate: true, onUpdate: true },

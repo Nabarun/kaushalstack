@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
+import pb from '../utils/pocketbaseClient.js';
 import { ensureCache, search, cacheSize, getSkillById } from '../embeddings/cache.js';
 
 const router = Router();
@@ -325,6 +326,36 @@ router.post('/recommend/tech', async (req, res) => {
     } catch (err) {
         logger.error('recommend/tech error:', err.message);
         res.status(500).json({ error: 'tech recommendation failed', skills: [] });
+    }
+});
+
+// GET /agents/catalog — the curated persona-agent roster, for external
+// clients (MCP, partner portals) that need a browsable list rather than a
+// per-prompt recommendation. Persona agents are the single-word first names;
+// the ~5k auto-extracted topic skills (multi-word agent_name) and the
+// pipeline-only agents are excluded, matching what /recommend can return.
+// Public data (the skills collection is publicly listable) — no auth needed.
+const PIPELINE_ONLY_AGENTS = new Set(['Maya', 'Ananya', 'Hostinger', 'Tara', 'Kavya', 'Aisha']);
+let catalogCache = { at: 0, items: [] };
+const CATALOG_TTL_MS = 10 * 60 * 1000;
+
+router.get('/agents/catalog', async (req, res) => {
+    try {
+        if (Date.now() - catalogCache.at > CATALOG_TTL_MS || catalogCache.items.length === 0) {
+            const items = await pb.collection('skills').getFullList({
+                filter: `agent_name != '' && agent_name !~ ' ' && private != true`,
+                fields: 'id,agent_name,name,category,phase,difficulty_level',
+                sort: 'agent_name',
+            });
+            catalogCache = {
+                at: Date.now(),
+                items: items.filter((s) => !PIPELINE_ONLY_AGENTS.has(s.agent_name)),
+            };
+        }
+        res.json({ agents: catalogCache.items });
+    } catch (err) {
+        logger.error('agents/catalog error:', err.message);
+        res.status(500).json({ error: 'could not load agent catalog', agents: [] });
     }
 });
 

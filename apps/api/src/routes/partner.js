@@ -271,6 +271,11 @@ router.patch('/partner/:id', async (req, res) => {
         if (!Number.isFinite(b) || b < 0) return res.status(400).json({ error: 'monthly_budget_usd must be a non-negative number' });
         patch.monthly_budget_usd = b;
     }
+    if (req.body?.credit_cap_usd !== undefined) {
+        const c = Number(req.body.credit_cap_usd);
+        if (!Number.isFinite(c) || c < 0) return res.status(400).json({ error: 'credit_cap_usd must be a non-negative number' });
+        patch.credit_cap_usd = c;
+    }
     if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'nothing to update' });
     try {
         const partner = await pb.collection('partners').update(req.params.id, patch);
@@ -449,6 +454,7 @@ router.get('/partner/:id/usage', async (req, res) => {
             by_model:   Object.entries(byModel).map(([k, v]) => ({ key: k, ...v, cost_usd: Number(v.cost_usd.toFixed(4)) })).sort((a, b) => b.cost_usd - a.cost_usd),
             by_context: Object.entries(byContext).map(([k, v]) => ({ key: k, ...v, cost_usd: Number(v.cost_usd.toFixed(4)) })).sort((a, b) => b.cost_usd - a.cost_usd),
             monthly_budget_usd: ctx.partner.monthly_budget_usd || 0,
+            credit_cap_usd: ctx.partner.credit_cap_usd || 0,
             mtd_spend_usd: mtdSpend,
         });
     } catch (err) {

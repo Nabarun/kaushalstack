@@ -46,6 +46,38 @@ export function computeCostUSD(model, inputTokens, outputTokens, cachedTokens = 
     return Number(usd.toFixed(6));
 }
 
+const esc = (s) => String(s || '').replace(/"/g, '\\"');
+
+// Lifetime spend for a partner — the basis for hard credit caps.
+export async function lifetimeSpendUSD(partnerId) {
+    if (!partnerId) return 0;
+    try {
+        await ensurePartnerCollections();
+        const rows = await pb.collection('usage_events').getFullList({
+            filter: `partner_id = "${esc(partnerId)}"`,
+            fields: 'cost_usd',
+        });
+        return Number(rows.reduce((sum, r) => sum + (r.cost_usd || 0), 0).toFixed(6));
+    } catch {
+        return 0;
+    }
+}
+
+// Hard-cap gate for partner-tagged calls. cap 0/absent = uncapped.
+// Fails OPEN on read errors: a metering hiccup must not take every
+// roundtable down — the cap is a spend control, not a security boundary.
+export async function checkPartnerCredit(partnerId) {
+    if (!partnerId) return { blocked: false, spent_usd: 0, cap_usd: 0 };
+    let cap = 0;
+    try {
+        const p = await pb.collection('partners').getOne(partnerId);
+        cap = Number(p.credit_cap_usd) || 0;
+    } catch { /* fail open */ }
+    if (cap <= 0) return { blocked: false, spent_usd: 0, cap_usd: 0 };
+    const spent = await lifetimeSpendUSD(partnerId);
+    return { blocked: spent >= cap, spent_usd: spent, cap_usd: cap };
+}
+
 // Fire-and-forget: metering must never break or slow a chat call.
 export async function recordUsage({ provider, model, usage, promptChars, completionChars, meter }) {
     try {

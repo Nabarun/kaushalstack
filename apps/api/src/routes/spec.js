@@ -29,6 +29,7 @@ import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { getUserBYOK } from './user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { verifiedPartnerId } from '../partner/membership.js';
+import { checkPartnerCredit } from '../partner/usage.js';
 import {
     todayISO, stampMetadata, missingSections,
     coverageReport, appendCarryover, unsourcedNumbers,
@@ -300,6 +301,18 @@ router.post('/spec', async (req, res) => {
     if (!chatId) return res.status(400).json({ error: 'chat_id is required' });
     const partnerIdInput = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
     const partnerId = partnerIdInput ? await verifiedPartnerId(partnerIdInput, userId) : '';
+
+    // Same hard credit cap as /roundtable — spec generation is metered spend too.
+    if (partnerId) {
+        const credit = await checkPartnerCredit(partnerId);
+        if (credit.blocked) {
+            return res.status(402).json({
+                error: 'credit_cap_reached',
+                spent_usd: credit.spent_usd,
+                cap_usd: credit.cap_usd,
+            });
+        }
+    }
 
     // Optional uploaded draft spec → produce a COMBINED spec (upload + review).
     // Falls back to the chat's persisted uploaded_spec when the client omits it.

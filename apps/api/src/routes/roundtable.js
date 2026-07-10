@@ -6,6 +6,7 @@ import { chatComplete, getProviderMeta } from '../providers/index.js';
 import { routePrompt } from '../providers/model-router.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { verifiedPartnerId } from '../partner/membership.js';
+import { checkPartnerCredit } from '../partner/usage.js';
 
 const router = Router();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -357,6 +358,21 @@ router.post('/roundtable', async (req, res) => {
     // tagging usage against it, otherwise anyone could attribute spend to
     // another user's partner.
     const partnerId = partnerIdInput ? await verifiedPartnerId(partnerIdInput, userId) : '';
+
+    // Hard credit cap: a partner with credit_cap_usd set gets a 402 once its
+    // lifetime spend reaches the cap — enforced here at the source so client
+    // portals can't leak spend past their advertised budget.
+    if (partnerId) {
+        const credit = await checkPartnerCredit(partnerId);
+        if (credit.blocked) {
+            return res.status(402).json({
+                error: 'credit_cap_reached',
+                spent_usd: credit.spent_usd,
+                cap_usd: credit.cap_usd,
+            });
+        }
+    }
+
     const userBYOK = await getUserBYOK(userId);
     const usingUserKey = !!userBYOK;
 
