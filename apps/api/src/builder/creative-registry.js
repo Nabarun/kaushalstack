@@ -14,6 +14,7 @@ import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { verifiedPartnerId } from '../partner/membership.js';
+import { checkPartnerCredit } from '../partner/usage.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Skill IDs (mirrored from PocketBase). Kept here so the route layer doesn't
@@ -833,6 +834,19 @@ export async function runCreativeAgent({
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
         const meterPartnerId = (partnerId && userId) ? await verifiedPartnerId(partnerId, userId) : '';
+
+        // Same hard credit cap as /roundtable and /spec — creative runs are
+        // the most expensive metered spend of all (multi-turn agent loops).
+        if (meterPartnerId) {
+            const credit = await checkPartnerCredit(meterPartnerId);
+            if (credit.blocked) {
+                const err = new Error('credit_cap_reached');
+                err.status = 402;
+                err.sessionId = sessionId;
+                throw err;
+            }
+        }
+
         const meter = userId ? { user_id: userId, partner_id: meterPartnerId, agent: config.agentName, context: config.meterContext || 'creative' } : null;
 
         const openaiRun = () => runBuildAgent({
