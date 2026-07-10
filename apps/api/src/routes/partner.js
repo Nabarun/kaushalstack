@@ -391,6 +391,7 @@ router.delete('/partner/:id/assets/:assetId', async (req, res) => {
 
 function rangeStart(range) {
     const now = new Date();
+    if (range === 'all') return new Date(0); // lifetime — for hard credit caps, not just monthly alerts
     if (range === 'mtd') return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     if (range === '7d')  return new Date(Date.now() - 7 * 24 * 3600 * 1000);
     // today (UTC midnight — PocketBase `created` is UTC)
@@ -400,7 +401,7 @@ function rangeStart(range) {
 router.get('/partner/:id/usage', async (req, res) => {
     const ctx = await requireMember(req, res);
     if (!ctx) return;
-    const range = ['today', 'mtd', '7d'].includes(req.query.range) ? req.query.range : 'today';
+    const range = ['today', 'mtd', '7d', 'all'].includes(req.query.range) ? req.query.range : 'today';
     const start = rangeStart(range).toISOString().replace('T', ' ').slice(0, 19);
     try {
         const events = await pb.collection('usage_events').getFullList({
