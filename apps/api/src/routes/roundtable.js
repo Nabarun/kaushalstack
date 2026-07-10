@@ -433,13 +433,15 @@ router.post('/roundtable', async (req, res) => {
             meter: { user_id: userId || '', partner_id: partnerId, agent: 'roundtable', context: 'roundtable' },
         });
     } catch (err) {
-        // BYOK failed for any reason (401/429/504/timeout/quota) — fall
-        // back to the server's OpenAI gpt-4o-mini so the user is never
-        // hard-blocked. Counts toward the free tier on the way out.
-        const isBYOKFailure = usingUserKey && (
-            err.status === 401 || err.status === 429 || err.status === 504 ||
-            err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
-        );
+        // BYOK failed for any reason (401/429/504/timeout/insufficient
+        // credit/etc.) — fall back to the server's OpenAI gpt-4o-mini so the
+        // user is never hard-blocked. Counts toward the free tier on the way
+        // out. Was previously an allowlist of specific status codes that
+        // didn't actually include credit-exhaustion 400s (e.g. Anthropic's
+        // "credit balance is too low") despite the comment claiming it did —
+        // any BYOK failure is safe to retry on the server key, so gate on
+        // usingUserKey alone. Matches creative-registry.js's policy.
+        const isBYOKFailure = usingUserKey;
         if (isBYOKFailure) {
             const causeMsg = err.cause?.message || err.cause?.code || err.message;
             logger.warn(`roundtable BYOK failed (provider=${providerInUse} model=${modelInUse} cause=${causeMsg}) — falling back to server gpt-4o-mini`);

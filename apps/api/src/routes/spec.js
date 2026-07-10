@@ -357,12 +357,12 @@ router.post('/spec', async (req, res) => {
                 meter: { user_id: userId, partner_id: partnerId, agent: 'Spec Engineer', context: 'spec' },
             });
         } catch (err) {
-            // BYOK failed — fall back to server model so the spec still
-            // lands. Match /api/roundtable's fallback policy.
-            const isBYOKFailure = usingUserKey && (
-                err.status === 401 || err.status === 429 || err.status === 504 ||
-                err.cause?.code === 'ETIMEDOUT' || err.cause?.code === 'ECONNRESET'
-            );
+            // BYOK failed for any reason (401/429/504/timeout/insufficient
+            // credit/etc.) — fall back to the server model so the spec still
+            // lands. Any BYOK failure is safe to retry on the server key, so
+            // gate on usingUserKey alone (matches roundtable.js + the
+            // unconditional fallback in creative-registry.js).
+            const isBYOKFailure = usingUserKey;
             if (!isBYOKFailure) throw err;
             const causeMsg = err.cause?.message || err.cause?.code || err.message;
             logger.warn(`spec BYOK failed (provider=${provider} model=${model} cause=${causeMsg}) — falling back to server ${SERVER_DEFAULT_MODEL}`);
