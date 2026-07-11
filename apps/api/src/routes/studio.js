@@ -123,12 +123,21 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .composer { display: flex; flex-direction: column; gap: 16px; }
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
   #card-img-wrap { position: relative; width: 100%; height: 56%; flex: none; }
+  #card.overlay-text #card-img-wrap { height: 100%; }
+  #card.overlay-text #card-body { display: none; }
+  #card.overlay-text #card-brand { position: absolute; bottom: 8px; right: 10px; padding: 3px 9px; background: rgba(0,0,0,.4); border-radius: 6px; color: #fff; z-index: 3; }
   #card-img { width: 100%; height: 100%; object-fit: cover; background: #e2e8f0; display: block; }
   #img-gradient { position: absolute; inset: 0; pointer-events: none; }
   #card-body { flex: 1; padding: 18px 22px 6px; overflow: hidden; }
   #card-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
   #card-text:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
   #card-text:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
+  #card-text.overlay-top, #card-text.overlay-middle, #card-text.overlay-bottom {
+    position: absolute; left: 0; right: 0; padding: 20px 22px; text-shadow: 0 1px 4px rgba(0,0,0,.55); z-index: 2;
+  }
+  #card-text.overlay-top { top: 0; }
+  #card-text.overlay-middle { top: 50%; transform: translateY(-50%); }
+  #card-text.overlay-bottom { bottom: 0; padding-bottom: 36px; }
   #card-brand { padding: 0 22px 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; flex: none; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .controls input { flex: 1 1 200px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
@@ -203,6 +212,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     </div>
     <div class="panel">
       <h2>Style</h2>
+      <div class="style-row">
+        <label for="textPosition">Position</label>
+        <select id="textPosition" onchange="applyTextPosition(this.value)">
+          <option value="below">Below image</option>
+          <option value="over-top">Over image — top</option>
+          <option value="over-middle">Over image — middle</option>
+          <option value="over-bottom">Over image — bottom</option>
+        </select>
+      </div>
       <div class="style-row">
         <label for="gradientSelect">Gradient</label>
         <select id="gradientSelect" onchange="applyGradient(this.value)">
@@ -280,6 +298,35 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   };
   function applyGradient(key) {
     document.getElementById('img-gradient').style.background = GRADIENTS[key] || '';
+  }
+  var lastTextPosition = 'below';
+  function applyTextPosition(pos) {
+    var card = document.getElementById('card');
+    var wrap = document.getElementById('card-img-wrap');
+    var body = document.getElementById('card-body');
+    var text = document.getElementById('card-text');
+    text.classList.remove('overlay-top', 'overlay-middle', 'overlay-bottom');
+    if (pos === 'below') {
+      card.classList.remove('overlay-text');
+      body.insertBefore(text, body.firstChild);
+    } else {
+      var enteringOverlay = lastTextPosition === 'below';
+      card.classList.add('overlay-text');
+      wrap.appendChild(text);
+      text.classList.add('overlay-' + pos.replace('over-', ''));
+      // First time moving text onto the image, nudge toward a combo that's
+      // actually legible — dark text on a busy photo with no gradient is a
+      // common first-try mistake. Still fully overridable afterwards.
+      if (enteringOverlay) {
+        document.getElementById('textColor').value = '#ffffff';
+        applyColor('#ffffff');
+        if (document.getElementById('gradientSelect').value === 'none') {
+          document.getElementById('gradientSelect').value = 'darkbottom';
+          applyGradient('darkbottom');
+        }
+      }
+    }
+    lastTextPosition = pos;
   }
   function applyFont(key) {
     document.getElementById('card-text').style.fontFamily = FONTS[key] || FONTS.system;
