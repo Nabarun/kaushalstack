@@ -205,6 +205,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .recs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .rec-thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; cursor: pointer; border: 2px solid transparent; }
   .rec-thumb:hover, .rec-thumb.sel { border-color: #2563eb; }
+  .rec-text-item { margin-bottom: 4px; }
+  .rec-text-meta { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+  .rec-text-platform { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #2563eb; flex: none; }
+  .rec-text-why { font-size: 11.5px; color: #94a3b8; font-style: italic; }
   .rec-text { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; cursor: pointer; background: #f8fafc; }
   .rec-text:hover { border-color: #2563eb; background: #eff6ff; }
   .rec-error { grid-column: 1 / -1; font-size: 13px; color: #b91c1c; background: #fef2f2; border-radius: 8px; padding: 10px 12px; }
@@ -257,11 +261,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
                 hx-post="recommend-text"
                 hx-vals="js:{text: document.getElementById(activeTextId).innerText}"
                 hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
-          Get 3 copy variants
+          Get more text variants
         </button>
         <button class="btn btn-dark" onclick="downloadCard()">Download card as PNG</button>
       </div>
-      <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get 3 copy variants” rewrites it with AI · download when it looks right.</div>
+      <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download when it looks right.</div>
     </div>
   </section>
   <section class="composer-side">
@@ -323,8 +327,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 images” to see alternatives here.</div></div>
     </div>
     <div class="panel">
-      <h2>Copy variants <span id="text-spin" class="htmx-indicator">writing variants…</span></h2>
-      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get 3 copy variants” to rewrite the current caption.</div></div>
+      <h2>Text variants <span id="text-spin" class="htmx-indicator">writing variants…</span></h2>
+      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get more text variants” for a LinkedIn/Facebook/Twitter/Instagram rewrite of the current caption.</div></div>
     </div>
   </section>
 </div>
@@ -607,7 +611,7 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are a senior social media copywriter. Rewrite the caption you are given in 3 distinct ways: (1) punchier and shorter, (2) warmer and more story-driven, (3) a bold hook-first version. Keep the same language, keep any hashtags or emojis that fit, and stay close to the original length unless the variant style demands otherwise. Respond with JSON: {"variants": ["...", "...", "..."]}',
+                        content: 'You are a senior social media copywriter. Rewrite the caption you are given as 4 platform-tailored variants: LinkedIn, Facebook, Twitter/X, and Instagram. Tune tone, length, and hashtag/emoji use to what actually performs on each platform (LinkedIn: professional, credibility-led, minimal emoji; Facebook: warm, conversational, community-oriented; Twitter/X: short, punchy, hook-first; Instagram: visual-storytelling, emoji-friendly, hashtag-friendly). Keep the same language and core message as the original. For each variant also give a one-sentence "why" explaining the specific tailoring choice for that platform\'s audience/format — this is shown to the user as context, never inserted into the post itself, so it should explain the REASONING, not repeat the copy. Respond with JSON: {"variants": [{"platform": "LinkedIn", "text": "...", "why": "..."}, {"platform": "Facebook", "text": "...", "why": "..."}, {"platform": "Twitter/X", "text": "...", "why": "..."}, {"platform": "Instagram", "text": "...", "why": "..."}]}',
                     },
                     { role: 'user', content: text },
                 ],
@@ -617,11 +621,24 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
         const data = await r.json();
         let variants = [];
         try { variants = JSON.parse(data.choices?.[0]?.message?.content || '{}').variants || []; } catch { /* fall through */ }
-        variants = variants.filter(v => typeof v === 'string' && v.trim()).slice(0, 3);
+        variants = variants
+            .filter(v => v && typeof v.text === 'string' && v.text.trim())
+            .map(v => ({
+                platform: typeof v.platform === 'string' && v.platform.trim() ? v.platform.trim().slice(0, 30) : 'Variant',
+                text: v.text.trim().slice(0, 800),
+                why: typeof v.why === 'string' ? v.why.trim().slice(0, 200) : '',
+            }))
+            .slice(0, 4);
         if (!variants.length) return sendFragment(res, errFragment('The model did not return usable variants — try again.'));
 
         const html = variants.map(v => `
-            <div class="rec-text" title="Click to use this copy" onclick="selectText(this)">${esc(v.trim())}</div>`).join('');
+            <div class="rec-text-item">
+              <div class="rec-text-meta">
+                <span class="rec-text-platform">${esc(v.platform)}</span>
+                ${v.why ? `<span class="rec-text-why">${esc(v.why)}</span>` : ''}
+              </div>
+              <div class="rec-text" title="Click to use this copy" onclick="selectText(this)">${esc(v.text)}</div>
+            </div>`).join('');
         sendFragment(res, html);
     } catch (err) {
         logger.error(`studio recommend-text error session=${id}: ${err.message}`);
