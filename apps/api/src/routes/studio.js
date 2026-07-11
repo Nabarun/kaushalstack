@@ -231,6 +231,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <div id="card-body">
           <div id="card-text" class="card-text-layer" contenteditable="true" spellcheck="false"
                data-position="below" data-font-key="system" data-color-hex="#0f172a"
+               onfocus="selectLayer('card-text')" onmousedown="selectLayer('card-text')"
                title="Click to edit the caption directly">${esc(firstText)}</div>
         </div>
         <div id="card-brand">kaushalstack</div>
@@ -411,6 +412,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     el.dataset.fontKey = 'system';
     el.dataset.colorHex = '#ffffff';
     el.style.color = '#ffffff';
+    el.addEventListener('focus', function () { selectLayer(id); });
+    el.addEventListener('mousedown', function () { selectLayer(id); });
     layers.push(id);
     moveTextLayerToPosition(el, 'over-top');
     // A second text box almost always means "on the image" — match the
