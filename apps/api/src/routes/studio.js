@@ -101,9 +101,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         const firstQuery = images[0] ? slugToQuery(images[0].path) : '';
 
         const thumbsHtml = images.map(f => `
-            <img class="thumb" loading="lazy" src="${esc(previewBase + f.path)}"
-                 data-slug="${esc(slugToQuery(f.path))}" title="${esc(f.path)}"
-                 onclick="selectImage(this)">`).join('');
+            <div class="thumb-wrap">
+              <img class="thumb" loading="lazy" src="${esc(previewBase + f.path)}"
+                   data-slug="${esc(slugToQuery(f.path))}" title="${esc(f.path)}"
+                   onclick="selectImage(this)">
+              <button class="thumb-del" type="button" data-path="${esc(f.path)}" title="Delete this image">✕</button>
+            </div>`).join('');
 
         const textsHtml = texts.map(t => `
             <div class="txt-item" onclick="selectText(this.querySelector('.txt-body'))">
@@ -145,9 +148,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 0 0 10px; }
   aside.panel { max-height: calc(100vh - 110px); overflow-y: auto; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
-  .thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid transparent; }
+  .thumb-wrap { position: relative; }
+  .thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid transparent; display: block; }
   .thumb:hover { border-color: #93c5fd; }
   .thumb.sel { border-color: #2563eb; }
+  .thumb-del { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; line-height: 16px; padding: 0;
+    border: none; border-radius: 50%; background: rgba(15,23,42,.65); color: #fff; font-size: 11px; cursor: pointer;
+    opacity: 0; transition: opacity .12s; }
+  .thumb-wrap:hover .thumb-del { opacity: 1; }
+  .thumb-del:hover { background: #dc2626; }
   .txt-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
   .txt-item:hover { border-color: #93c5fd; background: #f8fafc; }
   .txt-path { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; margin-bottom: 4px; }
@@ -212,7 +221,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 </header>
 <div class="layout">
   <aside class="panel">
-    <h2>Images (${images.length})</h2>
+    <h2 id="imagesHeading">Images (${images.length})</h2>
     <div class="thumbs">${thumbsHtml || '<div class="hint">No images in this session.</div>'}</div>
     <h2>Texts (${texts.length})</h2>
     ${textsHtml || '<div class="hint">No caption files in this session.</div>'}
@@ -327,6 +336,26 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
     el.classList.add('sel');
   }
+  function deleteImage(path, wrapEl) {
+    if (!confirm('Delete this image from the session? This can\\'t be undone.')) return;
+    fetch('image', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path })
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Delete failed (' + r.status + ')'); });
+      if (wrapEl) wrapEl.remove();
+      var heading = document.getElementById('imagesHeading');
+      if (heading) heading.textContent = 'Images (' + document.querySelectorAll('.thumb-wrap').length + ')';
+    }).catch(function (err) { alert(err.message); });
+  }
+  document.addEventListener('click', function (e) {
+    var del = e.target.closest('.thumb-del');
+    if (del) {
+      e.stopPropagation();
+      deleteImage(del.dataset.path, del.closest('.thumb-wrap'));
+    }
+  });
   function selectText(el) {
     document.getElementById(activeTextId).innerText = el.innerText;
   }
@@ -597,6 +626,22 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
     } catch (err) {
         logger.error(`studio recommend-text error session=${id}: ${err.message}`);
         sendFragment(res, errFragment('Variant generation failed — try again.'));
+    }
+});
+
+// ------------------------------------------------------- delete-image (JSON)
+
+router.delete(/^\/build\/([a-f0-9]{16})\/studio\/image$/, async (req, res) => {
+    const id = req.params[0];
+    const relPath = String(req.body?.path || '');
+    if (!IMG_RE.test(relPath)) return res.status(400).json({ error: 'Not an image path.' });
+    try {
+        const abs = await safeResolve(id, relPath);
+        await fs.unlink(abs);
+        res.json({ ok: true });
+    } catch (err) {
+        logger.error(`studio delete-image error session=${id} path=${relPath}: ${err.message}`);
+        res.status(404).json({ error: 'Could not delete that file — it may already be gone.' });
     }
 });
 
