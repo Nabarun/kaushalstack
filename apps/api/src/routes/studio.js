@@ -197,7 +197,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <button class="btn btn-blue"
                 hx-post="recommend-images" hx-include="#img-query"
                 hx-target="#img-recs" hx-swap="innerHTML" hx-indicator="#img-spin">
-          Recommend 3 from Unsplash
+          Recommend 3 images
         </button>
         <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
         <button class="btn btn-blue"
@@ -261,7 +261,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     </div>
     <div class="panel">
       <h2>Image recommendations <span id="img-spin2" class="htmx-indicator"></span></h2>
-      <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 from Unsplash” to see alternatives here.</div></div>
+      <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 images” to see alternatives here.</div></div>
     </div>
     <div class="panel">
       <h2>Copy variants <span id="text-spin" class="htmx-indicator">writing variants…</span></h2>
