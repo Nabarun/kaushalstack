@@ -215,6 +215,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       </div>
       <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get 3 copy variants” rewrites it with AI · download when it looks right.</div>
     </div>
+  </section>
+  <section class="composer-side">
     <div class="panel">
       <h2>Style</h2>
       <div class="style-row">
@@ -264,8 +266,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
       </div>
     </div>
-  </section>
-  <section class="composer-side">
     <div class="panel">
       <h2>Image recommendations <span id="img-spin2" class="htmx-indicator"></span></h2>
       <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 images” to see alternatives here.</div></div>
