@@ -13,6 +13,7 @@ import socialRouter from './social.js';
 import notificationsRouter from './notifications.js';
 import openaiModelsRouter from './openai-models.js';
 import buildRouter from './build.js';
+import studioRouter from './studio.js';
 import mockupRouter from './mockup.js';
 import creativeRouter from './creative.js';
 import hostingerRouter from './hostinger.js';
@@ -44,6 +45,7 @@ export default () => {
     router.use('/', notificationsRouter);
     router.use('/', openaiModelsRouter);
     router.use('/', buildRouter);
+    router.use('/', studioRouter);
     router.use('/', mockupRouter);
     router.use('/', creativeRouter);
     router.use('/', hostingerRouter);

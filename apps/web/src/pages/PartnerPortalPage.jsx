@@ -465,6 +465,45 @@ function TeamTab({ partner }) {
     );
 }
 
+function StudioTab({ partner }) {
+    const storageKey = `studio_session_${partner.id}`;
+    const [input, setInput] = useState('');
+    const [sessionId, setSessionId] = useState(() => localStorage.getItem(storageKey) || '');
+    const [err, setErr] = useState('');
+
+    const load = () => {
+        const m = String(input).match(/[a-f0-9]{16}/);
+        if (!m) { setErr('Paste a preview link or a 16-character session id.'); return; }
+        localStorage.setItem(storageKey, m[0]);
+        setSessionId(m[0]); setInput(''); setErr('');
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="rounded-xl border bg-white p-4">
+                <p className="text-sm text-gray-600">
+                    Remix a campaign's cards — swap in fresh Unsplash images, get AI copy variants, and download the finished card as a PNG. Paste the preview link (or session id) from any agent build.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 md:flex-row">
+                    <input value={input} onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && load()}
+                        placeholder="https://kaushalstack.com/api/build/…/preview/ or session id"
+                        className="flex-1 rounded-lg border px-3 py-2 text-sm" />
+                    <button onClick={load} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">Open in Studio</button>
+                </div>
+                {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+                {sessionId && <div className="mt-2 text-xs text-gray-400">Session: <span className="font-mono">{sessionId}</span></div>}
+            </div>
+            {sessionId ? (
+                <iframe src={`/api/build/${sessionId}/studio/`} title="Card Studio"
+                    className="w-full rounded-xl border bg-white" style={{ height: '78vh' }} />
+            ) : (
+                <div className="text-sm text-gray-400">No session loaded yet.</div>
+            )}
+        </div>
+    );
+}
+
 export default function PartnerPortalPage() {
     const [partners, setPartners] = useState(null);
     const [active, setActive] = useState(null);
@@ -549,7 +588,7 @@ export default function PartnerPortalPage() {
                         </div>
                     </div>
                     <div className="mt-6 flex items-center gap-1 border-b">
-                        {[['usage', 'Usage'], ['assets', 'Assets'], ['team', 'Team']].map(([k, label]) => (
+                        {[['usage', 'Usage'], ['assets', 'Assets'], ['team', 'Team'], ['studio', 'Studio']].map(([k, label]) => (
                             <button key={k} onClick={() => setTab(k)}
                                 className={`px-4 py-2 text-sm font-medium ${tab === k ? 'border-b-2 border-blue-600 text-blue-700' : 'text-gray-500'}`}>
                                 {label}
@@ -580,6 +619,7 @@ export default function PartnerPortalPage() {
                         {tab === 'usage' && <UsageTab key={active.id} partner={active} />}
                         {tab === 'assets' && <AssetsTab key={active.id} partner={active} />}
                         {tab === 'team' && <TeamTab key={active.id} partner={active} />}
+                        {tab === 'studio' && <StudioTab key={active.id} partner={active} />}
                     </div>
                 </>
             )}
