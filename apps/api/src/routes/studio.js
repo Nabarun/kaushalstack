@@ -161,17 +161,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #card.overlay-text #card-brand { position: absolute; bottom: 8px; right: 10px; padding: 3px 9px; background: rgba(0,0,0,.4); border-radius: 6px; color: #fff; z-index: 3; }
   #card-img { width: 100%; height: 100%; object-fit: cover; background: #e2e8f0; display: block; }
   #img-gradient { position: absolute; inset: 0; pointer-events: none; }
+  .zone { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; gap: 6px; padding: 16px 20px; z-index: 2; pointer-events: none; }
+  .zone > * { pointer-events: auto; }
+  #zone-top { top: 0; }
+  #zone-middle { top: 50%; transform: translateY(-50%); }
+  #zone-bottom { bottom: 0; padding-bottom: 36px; }
   #card-body { flex: 1; padding: 18px 22px 6px; overflow: hidden; }
-  #card-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
-  #card-text:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
-  #card-text:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
-  #card-text.overlay-top, #card-text.overlay-middle, #card-text.overlay-bottom {
-    position: absolute; left: 0; right: 0; padding: 20px 22px; text-shadow: 0 1px 4px rgba(0,0,0,.55); z-index: 2;
-  }
-  #card-text.overlay-top { top: 0; }
-  #card-text.overlay-middle { top: 50%; transform: translateY(-50%); }
-  #card-text.overlay-bottom { bottom: 0; padding-bottom: 36px; }
+  .card-text-layer { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-text-layer:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
+  .card-text-layer:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
+  #card-img-wrap .card-text-layer { text-shadow: 0 1px 4px rgba(0,0,0,.55); }
   #card-brand { padding: 0 22px 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; flex: none; }
+  .layer-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .layer-pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #475569; background: #fff; }
+  .layer-pill.sel { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+  .layer-pill .rm { color: #94a3b8; cursor: pointer; }
+  .layer-pill .rm:hover { color: #dc2626; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .controls input { flex: 1 1 200px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
   .btn { border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; font-weight: 500; }
@@ -219,9 +224,13 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <div id="card-img-wrap">
           <img id="card-img" src="${esc(firstImg)}" crossorigin="anonymous">
           <div id="img-gradient"></div>
+          <div class="zone" id="zone-top"></div>
+          <div class="zone" id="zone-middle"></div>
+          <div class="zone" id="zone-bottom"></div>
         </div>
         <div id="card-body">
-          <div id="card-text" contenteditable="true" spellcheck="false"
+          <div id="card-text" class="card-text-layer" contenteditable="true" spellcheck="false"
+               data-position="below" data-font-key="system" data-color-hex="#0f172a"
                title="Click to edit the caption directly">${esc(firstText)}</div>
         </div>
         <div id="card-brand">kaushalstack</div>
@@ -236,7 +245,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
         <button class="btn btn-blue"
                 hx-post="recommend-text"
-                hx-vals="js:{text: document.getElementById('card-text').innerText}"
+                hx-vals="js:{text: document.getElementById(activeTextId).innerText}"
                 hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
           Get 3 copy variants
         </button>
@@ -248,6 +257,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   <section class="composer-side">
     <div class="panel">
       <h2>Style</h2>
+      <div class="style-row">
+        <div id="layerPills" class="layer-pills"></div>
+        <button class="btn btn-blue" type="button" onclick="addTextLayer()" style="padding:6px 12px;font-size:12px">+ Add text box</button>
+      </div>
       <div class="style-row">
         <label for="textPosition">Position</label>
         <select id="textPosition" onchange="applyTextPosition(this.value)">
@@ -314,7 +327,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     el.classList.add('sel');
   }
   function selectText(el) {
-    document.getElementById('card-text').innerText = el.innerText;
+    document.getElementById(activeTextId).innerText = el.innerText;
   }
 
   var GRADIENTS = {
@@ -335,61 +348,138 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function applyGradient(key) {
     document.getElementById('img-gradient').style.background = GRADIENTS[key] || '';
   }
-  var lastTextPosition = 'below';
-  function applyTextPosition(pos) {
-    var card = document.getElementById('card');
-    var wrap = document.getElementById('card-img-wrap');
+
+  // ---- Text layers: multiple independent, selectable text boxes on one card.
+  var layers = ['card-text'];
+  var activeTextId = 'card-text';
+  var layerSeq = 1;
+
+  function renderLayerPills() {
+    var html = layers.map(function (id, i) {
+      var sel = id === activeTextId ? ' sel' : '';
+      var rm = layers.length > 1
+        ? '<span class="rm" onclick="event.stopPropagation();removeTextLayer(\\'' + id + '\\')">✕</span>'
+        : '';
+      return '<span class="layer-pill' + sel + '" onclick="selectLayer(\\'' + id + '\\')">Text ' + (i + 1) + rm + '</span>';
+    }).join('');
+    document.getElementById('layerPills').innerHTML = html;
+  }
+
+  function syncControlsToLayer(el) {
+    document.getElementById('textPosition').value = el.dataset.position || 'below';
+    document.getElementById('fontSelect').value = el.dataset.fontKey || 'system';
+    document.getElementById('fontSize').value = parseInt(el.style.fontSize, 10) || 14;
+    document.getElementById('textColor').value = el.dataset.colorHex || '#0f172a';
+    document.getElementById('boldBtn').classList.toggle('sel', el.style.fontWeight === '700');
+    document.getElementById('italicBtn').classList.toggle('sel', el.style.fontStyle === 'italic');
+    var align = el.style.textAlign || 'left';
+    document.querySelectorAll('[data-align]').forEach(function (b) {
+      b.classList.toggle('sel', b.dataset.align === align);
+    });
+  }
+
+  function selectLayer(id) {
+    activeTextId = id;
+    renderLayerPills();
+    syncControlsToLayer(document.getElementById(id));
+  }
+
+  function updateOverlayTextClass() {
     var body = document.getElementById('card-body');
-    var text = document.getElementById('card-text');
-    text.classList.remove('overlay-top', 'overlay-middle', 'overlay-bottom');
+    document.getElementById('card').classList.toggle('overlay-text', body.children.length === 0);
+  }
+
+  function moveTextLayerToPosition(el, pos) {
+    el.dataset.position = pos;
     if (pos === 'below') {
-      card.classList.remove('overlay-text');
-      body.insertBefore(text, body.firstChild);
+      document.getElementById('card-body').appendChild(el);
     } else {
-      var enteringOverlay = lastTextPosition === 'below';
-      card.classList.add('overlay-text');
-      wrap.appendChild(text);
-      text.classList.add('overlay-' + pos.replace('over-', ''));
-      // First time moving text onto the image, nudge toward a combo that's
-      // actually legible — dark text on a busy photo with no gradient is a
-      // common first-try mistake. Still fully overridable afterwards.
-      if (enteringOverlay) {
-        document.getElementById('textColor').value = '#ffffff';
-        applyColor('#ffffff');
-        if (document.getElementById('gradientSelect').value === 'none') {
-          document.getElementById('gradientSelect').value = 'darkbottom';
-          applyGradient('darkbottom');
-        }
+      document.getElementById('zone-' + pos.replace('over-', '')).appendChild(el);
+    }
+    updateOverlayTextClass();
+  }
+
+  function addTextLayer() {
+    layerSeq++;
+    var id = 'text-layer-' + layerSeq;
+    var el = document.createElement('div');
+    el.id = id;
+    el.className = 'card-text-layer';
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    el.innerText = 'New text';
+    el.dataset.fontKey = 'system';
+    el.dataset.colorHex = '#ffffff';
+    el.style.color = '#ffffff';
+    layers.push(id);
+    moveTextLayerToPosition(el, 'over-top');
+    // A second text box almost always means "on the image" — match the
+    // same legibility nudge applyTextPosition does for the first switch.
+    if (document.getElementById('gradientSelect').value === 'none') {
+      document.getElementById('gradientSelect').value = 'darkbottom';
+      applyGradient('darkbottom');
+    }
+    selectLayer(id);
+  }
+
+  function removeTextLayer(id) {
+    if (layers.length <= 1) return;
+    var el = document.getElementById(id);
+    if (el) el.remove();
+    layers = layers.filter(function (x) { return x !== id; });
+    if (activeTextId === id) activeTextId = layers[0];
+    renderLayerPills();
+    syncControlsToLayer(document.getElementById(activeTextId));
+    updateOverlayTextClass();
+  }
+
+  function applyTextPosition(pos) {
+    var el = document.getElementById(activeTextId);
+    var enteringOverlay = pos !== 'below' && el.dataset.position === 'below';
+    moveTextLayerToPosition(el, pos);
+    // First time moving THIS layer onto the image, nudge toward a combo
+    // that's actually legible — dark text on a busy photo with no gradient
+    // is a common first-try mistake. Still fully overridable afterwards.
+    if (enteringOverlay) {
+      document.getElementById('textColor').value = '#ffffff';
+      applyColor('#ffffff');
+      if (document.getElementById('gradientSelect').value === 'none') {
+        document.getElementById('gradientSelect').value = 'darkbottom';
+        applyGradient('darkbottom');
       }
     }
-    lastTextPosition = pos;
   }
   function applyFont(key) {
-    document.getElementById('card-text').style.fontFamily = FONTS[key] || FONTS.system;
+    var el = document.getElementById(activeTextId);
+    el.dataset.fontKey = key;
+    el.style.fontFamily = FONTS[key] || FONTS.system;
   }
   function applyFontSize(px) {
-    document.getElementById('card-text').style.fontSize = px + 'px';
+    document.getElementById(activeTextId).style.fontSize = px + 'px';
   }
   function applyColor(hex) {
-    document.getElementById('card-text').style.color = hex;
+    var el = document.getElementById(activeTextId);
+    el.dataset.colorHex = hex;
+    el.style.color = hex;
   }
   function toggleBold() {
-    var t = document.getElementById('card-text');
+    var t = document.getElementById(activeTextId);
     var on = t.style.fontWeight === '700';
     t.style.fontWeight = on ? '' : '700';
     document.getElementById('boldBtn').classList.toggle('sel', !on);
   }
   function toggleItalic() {
-    var t = document.getElementById('card-text');
+    var t = document.getElementById(activeTextId);
     var on = t.style.fontStyle === 'italic';
     t.style.fontStyle = on ? '' : 'italic';
     document.getElementById('italicBtn').classList.toggle('sel', !on);
   }
   function applyAlign(align, btn) {
-    document.getElementById('card-text').style.textAlign = align;
+    document.getElementById(activeTextId).style.textAlign = align;
     btn.parentElement.querySelectorAll('button').forEach(function (b) { b.classList.remove('sel'); });
     btn.classList.add('sel');
   }
+  renderLayerPills();
 
   function downloadCard() {
     var card = document.getElementById('card');
