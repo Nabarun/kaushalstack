@@ -46,6 +46,26 @@ function sendFragment(res, html, status = 200) {
 
 const errFragment = (msg) => `<div class="rec-error">${esc(msg)}</div>`;
 
+// Visual reference scale for the space meter, not an enforced quota — a
+// build workspace is mostly generated HTML/text plus a handful of images,
+// so 50MB is already an unusually large session worth calling out.
+const SPACE_METER_SCALE_BYTES = 50 * 1024 * 1024;
+
+function humanBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderSpaceMeter(totalBytes, fileCount) {
+    const pct = Math.min(100, (totalBytes / SPACE_METER_SCALE_BYTES) * 100);
+    const level = pct >= 100 ? 'over' : pct >= 70 ? 'high' : 'ok';
+    return `<span class="space-meter" title="${esc(fileCount)} files, ${esc(humanBytes(totalBytes))} total">
+        <span class="space-bar"><span class="space-fill ${level}" style="width:${pct.toFixed(1)}%"></span></span>
+        <span class="space-label">${esc(humanBytes(totalBytes))}</span>
+      </span>`;
+}
+
 // ---------------------------------------------------------------- main page
 
 router.get('/build/:id/studio', (req, res) => {
@@ -64,6 +84,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 
         const previewBase = `/api/build/${id}/preview/`;
         const images = manifest.filter(f => IMG_RE.test(f.path)).slice(0, 60);
+        const totalBytes = manifest.reduce((sum, f) => sum + (f.bytes || 0), 0);
+        const spaceMeter = renderSpaceMeter(totalBytes, manifest.length);
 
         const texts = [];
         for (const f of manifest.filter(f => f.path.endsWith('.txt')).slice(0, 20)) {
@@ -107,6 +129,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   header .sid { font-size: 12px; color: #94a3b8; font-family: ui-monospace, monospace; }
   header a { margin-left: auto; font-size: 13px; color: #2563eb; text-decoration: none; }
+  .space-meter { display: inline-flex; align-items: center; gap: 6px; }
+  .space-bar { width: 60px; height: 6px; border-radius: 4px; background: #e2e8f0; overflow: hidden; }
+  .space-fill { display: block; height: 100%; border-radius: 4px; background: #2563eb; }
+  .space-fill.high { background: #d97706; }
+  .space-fill.over { background: #dc2626; }
+  .space-label { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; }
   /* minmax lets the middle (card) column shrink first — #card itself has
      max-width:100%, so it degrades gracefully instead of needing an early
      hard breakpoint. This kept the 3rd column from ever showing inside the
@@ -174,6 +202,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 <header>
   <h1>Card Studio</h1>
   <span class="sid">${esc(id)}</span>
+  ${spaceMeter}
   <a href="${esc(previewBase)}" target="_blank" rel="noopener">Open full preview →</a>
 </header>
 <div class="layout">
