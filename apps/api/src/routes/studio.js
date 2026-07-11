@@ -15,7 +15,11 @@ const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
 
 // Same relaxation as the preview route: htmx + html2canvas load from CDNs.
-const STUDIO_CSP = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:;";
+// frame-ancestors is explicit (not just omitted) so it supersedes helmet's
+// default X-Frame-Options: SAMEORIGIN and lets partner portals (e.g. the
+// Mr n Mr admin studio tab) embed this page cross-origin.
+const STUDIO_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
+const STUDIO_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${STUDIO_FRAME_ANCESTORS.join(' ')};`;
 
 const IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
 
