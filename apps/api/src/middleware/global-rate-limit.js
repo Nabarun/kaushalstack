@@ -7,7 +7,11 @@ const PREVIEW_RE = /^\/build\/[a-f0-9]{16}\/preview(\/|$)/;
 
 export const globalRateLimit = rateLimit({
 	windowMs: 5 * 60 * 1000,
-	max: 100,
+	// Was 100 — too easily exhausted by a single legitimate integration (a
+	// campaign run alone is a roundtable call + spec SSE + 4 Tara SSE streams
+	// + budget checks; add a partner portal's own polling/validity checks on
+	// top and 100/5min was gone before any real abuse was in play).
+	max: 500,
 	standardHeaders: true,
 	legacyHeaders: false,
 	message: { error: 'Too many requests, please try again later' },
