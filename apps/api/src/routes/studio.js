@@ -107,9 +107,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   header .sid { font-size: 12px; color: #94a3b8; font-family: ui-monospace, monospace; }
   header a { margin-left: auto; font-size: 13px; color: #2563eb; text-decoration: none; }
-  .layout { display: grid; grid-template-columns: 320px 1fr 340px; gap: 20px; padding: 20px; max-width: 1560px; margin: 0 auto; }
-  @media (max-width: 1300px) { .layout { grid-template-columns: 320px 1fr; } .composer-side { grid-column: 1 / -1; } }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .composer-side { grid-column: auto; } }
+  /* minmax lets the middle (card) column shrink first — #card itself has
+     max-width:100%, so it degrades gracefully instead of needing an early
+     hard breakpoint. This kept the 3rd column from ever showing inside the
+     ~1200-1280px Mr n Mr iframe under the old 1300px breakpoint. */
+  .layout { display: grid; grid-template-columns: minmax(260px, 300px) minmax(380px, 1fr) minmax(260px, 320px); gap: 16px; padding: 20px; max-width: 1560px; margin: 0 auto; }
+  @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
   .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 0 0 10px; }
   aside.panel { max-height: calc(100vh - 110px); overflow-y: auto; }
