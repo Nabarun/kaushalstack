@@ -117,8 +117,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
   #card-img { width: 100%; height: 56%; object-fit: cover; background: #e2e8f0; flex: none; }
   #card-body { flex: 1; padding: 18px 22px 6px; overflow: hidden; }
-  #card-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+  #card-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
   #card-text:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
+  #card-text:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
   #card-brand { padding: 0 22px 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; flex: none; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .controls input { flex: 1 1 200px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
@@ -155,10 +156,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       <div id="card">
         <img id="card-img" src="${esc(firstImg)}" crossorigin="anonymous">
         <div id="card-body">
-          <div id="card-text" title="Click to get 3 copy variants"
-               hx-post="recommend-text"
-               hx-vals="js:{text: document.getElementById('card-text').innerText}"
-               hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">${esc(firstText)}</div>
+          <div id="card-text" contenteditable="true" spellcheck="false"
+               title="Click to edit the caption directly">${esc(firstText)}</div>
         </div>
         <div id="card-brand">kaushalstack</div>
       </div>
@@ -170,9 +169,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           Recommend 3 from Unsplash
         </button>
         <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
+        <button class="btn btn-blue"
+                hx-post="recommend-text"
+                hx-vals="js:{text: document.getElementById('card-text').innerText}"
+                hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
+          Get 3 copy variants
+        </button>
         <button class="btn btn-dark" onclick="downloadCard()">Download card as PNG</button>
       </div>
-      <div class="hint" style="margin-top:8px">Pick an image on the left · click the caption for 3 AI variants · download when it looks right.</div>
+      <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get 3 copy variants” rewrites it with AI · download when it looks right.</div>
     </div>
     <div class="panel">
       <h2>Image recommendations <span id="img-spin2" class="htmx-indicator"></span></h2>
@@ -180,7 +185,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     </div>
     <div class="panel">
       <h2>Copy variants <span id="text-spin" class="htmx-indicator">writing variants…</span></h2>
-      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Click the caption on the card to get 3 rewrites.</div></div>
+      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get 3 copy variants” to rewrite the current caption.</div></div>
     </div>
   </section>
 </div>
