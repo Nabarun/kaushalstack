@@ -97,6 +97,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 <title>Card Studio · ${esc(id)}</title>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Poppins:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f4f5f7; color: #0f172a; }
@@ -119,7 +122,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .txt-body { font-size: 13px; line-height: 1.45; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
-  #card-img { width: 100%; height: 56%; object-fit: cover; background: #e2e8f0; flex: none; }
+  #card-img-wrap { position: relative; width: 100%; height: 56%; flex: none; }
+  #card-img { width: 100%; height: 100%; object-fit: cover; background: #e2e8f0; display: block; }
+  #img-gradient { position: absolute; inset: 0; pointer-events: none; }
   #card-body { flex: 1; padding: 18px 22px 6px; overflow: hidden; }
   #card-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
   #card-text:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
@@ -131,6 +136,16 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .btn-blue { background: #2563eb; color: #fff; }
   .btn-dark { background: #0f172a; color: #fff; }
   .hint { font-size: 12px; color: #94a3b8; }
+  .style-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .style-row:last-child { margin-bottom: 0; }
+  .style-row label { font-size: 12px; color: #64748b; min-width: 52px; }
+  .style-row select, .style-row input[type=color] { border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font-size: 13px; background: #fff; }
+  .style-row input[type=range] { flex: 1 1 100px; }
+  .style-row input[type=color] { padding: 2px; width: 40px; height: 32px; cursor: pointer; }
+  .seg { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; background: #fff; padding: 6px 11px; font-size: 13px; cursor: pointer; color: #475569; }
+  .seg button + button { border-left: 1px solid #cbd5e1; }
+  .seg button.sel { background: #2563eb; color: #fff; }
   .recs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .rec-thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; cursor: pointer; border: 2px solid transparent; }
   .rec-thumb:hover, .rec-thumb.sel { border-color: #2563eb; }
@@ -158,7 +173,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     <div class="panel">
       <h2>Card preview</h2>
       <div id="card">
-        <img id="card-img" src="${esc(firstImg)}" crossorigin="anonymous">
+        <div id="card-img-wrap">
+          <img id="card-img" src="${esc(firstImg)}" crossorigin="anonymous">
+          <div id="img-gradient"></div>
+        </div>
         <div id="card-body">
           <div id="card-text" contenteditable="true" spellcheck="false"
                title="Click to edit the caption directly">${esc(firstText)}</div>
@@ -184,6 +202,46 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get 3 copy variants” rewrites it with AI · download when it looks right.</div>
     </div>
     <div class="panel">
+      <h2>Style</h2>
+      <div class="style-row">
+        <label for="gradientSelect">Gradient</label>
+        <select id="gradientSelect" onchange="applyGradient(this.value)">
+          <option value="none">None</option>
+          <option value="darkbottom">Dark fade (bottom)</option>
+          <option value="darktop">Dark fade (top)</option>
+          <option value="warm">Warm sunset</option>
+          <option value="cool">Cool blue</option>
+          <option value="brand">Brand pink</option>
+        </select>
+      </div>
+      <div class="style-row">
+        <label for="fontSelect">Font</label>
+        <select id="fontSelect" onchange="applyFont(this.value)">
+          <option value="system">System</option>
+          <option value="serif">Georgia (serif)</option>
+          <option value="fraunces">Fraunces</option>
+          <option value="poppins">Poppins</option>
+          <option value="playfair">Playfair Display</option>
+        </select>
+        <label for="fontSize" style="min-width:32px">Size</label>
+        <input type="range" id="fontSize" min="11" max="28" value="14" oninput="applyFontSize(this.value)">
+      </div>
+      <div class="style-row">
+        <label>Style</label>
+        <div class="seg">
+          <button id="boldBtn" type="button" onclick="toggleBold()"><b>B</b></button>
+          <button id="italicBtn" type="button" onclick="toggleItalic()"><i>I</i></button>
+        </div>
+        <label for="textColor" style="min-width:32px">Color</label>
+        <input type="color" id="textColor" value="#0f172a" oninput="applyColor(this.value)">
+        <div class="seg">
+          <button class="sel" data-align="left" onclick="applyAlign('left', this)">⟸</button>
+          <button data-align="center" onclick="applyAlign('center', this)">≡</button>
+          <button data-align="right" onclick="applyAlign('right', this)">⟹</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
       <h2>Image recommendations <span id="img-spin2" class="htmx-indicator"></span></h2>
       <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 from Unsplash” to see alternatives here.</div></div>
     </div>
@@ -204,9 +262,59 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function selectText(el) {
     document.getElementById('card-text').innerText = el.innerText;
   }
+
+  var GRADIENTS = {
+    none: '',
+    darkbottom: 'linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0) 60%)',
+    darktop: 'linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,0) 55%)',
+    warm: 'linear-gradient(135deg, rgba(232,93,117,.45), rgba(244,162,97,.15))',
+    cool: 'linear-gradient(135deg, rgba(76,110,245,.4), rgba(139,92,246,.15))',
+    brand: 'linear-gradient(180deg, rgba(232,93,117,.5), rgba(232,93,117,0) 55%)'
+  };
+  var FONTS = {
+    system: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+    serif: "Georgia, 'Times New Roman', serif",
+    fraunces: "'Fraunces', serif",
+    poppins: "'Poppins', sans-serif",
+    playfair: "'Playfair Display', serif"
+  };
+  function applyGradient(key) {
+    document.getElementById('img-gradient').style.background = GRADIENTS[key] || '';
+  }
+  function applyFont(key) {
+    document.getElementById('card-text').style.fontFamily = FONTS[key] || FONTS.system;
+  }
+  function applyFontSize(px) {
+    document.getElementById('card-text').style.fontSize = px + 'px';
+  }
+  function applyColor(hex) {
+    document.getElementById('card-text').style.color = hex;
+  }
+  function toggleBold() {
+    var t = document.getElementById('card-text');
+    var on = t.style.fontWeight === '700';
+    t.style.fontWeight = on ? '' : '700';
+    document.getElementById('boldBtn').classList.toggle('sel', !on);
+  }
+  function toggleItalic() {
+    var t = document.getElementById('card-text');
+    var on = t.style.fontStyle === 'italic';
+    t.style.fontStyle = on ? '' : 'italic';
+    document.getElementById('italicBtn').classList.toggle('sel', !on);
+  }
+  function applyAlign(align, btn) {
+    document.getElementById('card-text').style.textAlign = align;
+    btn.parentElement.querySelectorAll('button').forEach(function (b) { b.classList.remove('sel'); });
+    btn.classList.add('sel');
+  }
+
   function downloadCard() {
     var card = document.getElementById('card');
-    html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' }).then(function (canvas) {
+    // Webfonts (Fraunces/Poppins/Playfair) load async — capturing before
+    // they're ready silently rasterizes the fallback font instead.
+    (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
+      return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' });
+    }).then(function (canvas) {
       var a = document.createElement('a');
       a.download = 'card-' + Date.now() + '.png';
       a.href = canvas.toDataURL('image/png');
