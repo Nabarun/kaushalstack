@@ -107,8 +107,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   header .sid { font-size: 12px; color: #94a3b8; font-family: ui-monospace, monospace; }
   header a { margin-left: auto; font-size: 13px; color: #2563eb; text-decoration: none; }
-  .layout { display: grid; grid-template-columns: 360px 1fr; gap: 20px; padding: 20px; max-width: 1280px; margin: 0 auto; }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .layout { display: grid; grid-template-columns: 320px 1fr 340px; gap: 20px; padding: 20px; max-width: 1560px; margin: 0 auto; }
+  @media (max-width: 1300px) { .layout { grid-template-columns: 320px 1fr; } .composer-side { grid-column: 1 / -1; } }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .composer-side { grid-column: auto; } }
   .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 0 0 10px; }
   aside.panel { max-height: calc(100vh - 110px); overflow-y: auto; }
@@ -121,6 +122,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .txt-path { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; margin-bottom: 4px; }
   .txt-body { font-size: 13px; line-height: 1.45; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
+  .composer-side { display: flex; flex-direction: column; gap: 16px; }
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
   #card-img-wrap { position: relative; width: 100%; height: 56%; flex: none; }
   #card.overlay-text #card-img-wrap { height: 100%; }
@@ -259,6 +261,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
       </div>
     </div>
+  </section>
+  <section class="composer-side">
     <div class="panel">
       <h2>Image recommendations <span id="img-spin2" class="htmx-indicator"></span></h2>
       <div id="img-recs" class="recs"><div class="hint">Hit “Recommend 3 images” to see alternatives here.</div></div>
