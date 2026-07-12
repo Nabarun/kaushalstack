@@ -48,9 +48,19 @@ const AboutPage = () => {
             <div className="text-center mb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full mb-3">
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
-                <span className="text-xs font-semibold text-primary uppercase tracking-widest">Latest · June 14</span>
+                <span className="text-xs font-semibold text-primary uppercase tracking-widest">Latest · Card Studio</span>
               </div>
               <h2 className="text-2xl md:text-3xl font-bold mb-2">See kaushalstack in action</h2>
+              <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+                Card Studio in action with our partner Mr n Mr — swap photos, remix captions with AI, and download platform-ready social cards.
+              </p>
+            </div>
+            <DemoVideoCard src="/card-studio-demo.mp4" poster="/card-studio-poster.jpg" duration="5 min" />
+
+            <div className="text-center mt-14 mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-muted rounded-full mb-3">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">June 14</span>
+              </div>
               <p className="text-sm text-muted-foreground max-w-xl mx-auto">
                 Maya designs the mockups, Ananya builds the production website from her design system, you download the ZIP.
               </p>
