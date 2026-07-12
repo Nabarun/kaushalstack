@@ -124,7 +124,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Poppins:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Poppins:wght@400;600;700&family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Lora:wght@400;600;700&family=Merriweather:wght@400;700&family=Oswald:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&family=DM+Serif+Display&family=Bebas+Neue&family=Dancing+Script:wght@400;700&family=Anton&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f4f5f7; color: #0f172a; }
@@ -303,9 +303,19 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           <option value="fraunces">Fraunces</option>
           <option value="poppins">Poppins</option>
           <option value="playfair">Playfair Display</option>
+          <option value="montserrat">Montserrat</option>
+          <option value="lora">Lora</option>
+          <option value="merriweather">Merriweather</option>
+          <option value="spacegrotesk">Space Grotesk</option>
+          <option value="dmserif">DM Serif Display</option>
+          <option value="oswald">Oswald (condensed)</option>
+          <option value="bebas">Bebas Neue (display)</option>
+          <option value="anton">Anton (heavy)</option>
+          <option value="dancing">Dancing Script</option>
         </select>
         <label for="fontSize" style="min-width:32px">Size</label>
-        <input type="range" id="fontSize" min="11" max="28" value="14" oninput="applyFontSize(this.value)">
+        <input type="range" id="fontSize" min="11" max="96" value="14" oninput="applyFontSize(this.value)">
+        <span id="fontSizeVal" style="min-width:36px;font-size:12px;color:#64748b;font-variant-numeric:tabular-nums">14px</span>
       </div>
       <div class="style-row">
         <label>Style</label>
@@ -377,7 +387,16 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     serif: "Georgia, 'Times New Roman', serif",
     fraunces: "'Fraunces', serif",
     poppins: "'Poppins', sans-serif",
-    playfair: "'Playfair Display', serif"
+    playfair: "'Playfair Display', serif",
+    montserrat: "'Montserrat', sans-serif",
+    lora: "'Lora', serif",
+    merriweather: "'Merriweather', serif",
+    spacegrotesk: "'Space Grotesk', sans-serif",
+    dmserif: "'DM Serif Display', serif",
+    oswald: "'Oswald', sans-serif",
+    bebas: "'Bebas Neue', sans-serif",
+    anton: "'Anton', sans-serif",
+    dancing: "'Dancing Script', cursive"
   };
   function applyGradient(key) {
     document.getElementById('img-gradient').style.background = GRADIENTS[key] || '';
@@ -402,7 +421,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function syncControlsToLayer(el) {
     document.getElementById('textPosition').value = el.dataset.position || 'below';
     document.getElementById('fontSelect').value = el.dataset.fontKey || 'system';
-    document.getElementById('fontSize').value = parseInt(el.style.fontSize, 10) || 14;
+    var _fs = parseInt(el.style.fontSize, 10) || 14;
+    document.getElementById('fontSize').value = _fs;
+    document.getElementById('fontSizeVal').textContent = _fs + 'px';
     document.getElementById('textColor').value = el.dataset.colorHex || '#0f172a';
     document.getElementById('boldBtn').classList.toggle('sel', el.style.fontWeight === '700');
     document.getElementById('italicBtn').classList.toggle('sel', el.style.fontStyle === 'italic');
@@ -492,6 +513,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
   function applyFontSize(px) {
     document.getElementById(activeTextId).style.fontSize = px + 'px';
+    document.getElementById('fontSizeVal').textContent = px + 'px';
   }
   function applyColor(hex) {
     var el = document.getElementById(activeTextId);
