@@ -4,6 +4,26 @@ import { Helmet } from 'react-helmet';
 import ReactMarkdown from 'react-markdown';
 import { Calendar, Tag, ArrowLeft } from 'lucide-react';
 
+// Markdown image syntax pointing at a video file renders as a playable
+// <video> instead — lets posts embed demos without allowing raw HTML.
+const markdownComponents = {
+  img: ({ src, alt, ...props }) => {
+    if (/\.(mp4|webm)(\?|$)/i.test(src || '')) {
+      return (
+        <video
+          src={src}
+          controls
+          playsInline
+          preload="metadata"
+          className="w-full rounded-xl border shadow-lg my-6 bg-black"
+          aria-label={alt || 'video'}
+        />
+      );
+    }
+    return <img src={src} alt={alt} {...props} />;
+  },
+};
+
 function formatDate(dateStr) {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -92,7 +112,7 @@ export default function BlogPostPage() {
           prose-ol:my-4
           prose-blockquote:border-l-4 prose-blockquote:border-primary/40 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-muted-foreground
           prose-hr:border-border">
-          <ReactMarkdown>{post.content || ''}</ReactMarkdown>
+          <ReactMarkdown components={markdownComponents}>{post.content || ''}</ReactMarkdown>
         </div>
 
         <div className="mt-16 pt-8 border-t">
