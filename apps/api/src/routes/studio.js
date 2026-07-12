@@ -243,7 +243,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
         <div id="card-body">
           <div id="card-text" class="card-text-layer" contenteditable="true" spellcheck="false"
-               data-position="below" data-font-key="system" data-color-hex="#0f172a"
+               data-position="below" data-font-key="system" data-color-hex="#0f172a" data-blur="0"
                onfocus="selectLayer('card-text')" onmousedown="selectLayer('card-text')"
                title="Click to edit the caption directly">${esc(firstText)}</div>
         </div>
@@ -322,6 +322,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <div class="seg">
           <button id="boldBtn" type="button" onclick="toggleBold()"><b>B</b></button>
           <button id="italicBtn" type="button" onclick="toggleItalic()"><i>I</i></button>
+          <button id="blurBtn" type="button" title="Blur / redact this text so it can't be read (stays blurred in the download)" onclick="toggleBlur()">Blur</button>
         </div>
         <label for="textColor" style="min-width:32px">Color</label>
         <input type="color" id="textColor" value="#0f172a" oninput="applyColor(this.value)">
@@ -427,6 +428,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     document.getElementById('textColor').value = el.dataset.colorHex || '#0f172a';
     document.getElementById('boldBtn').classList.toggle('sel', el.style.fontWeight === '700');
     document.getElementById('italicBtn').classList.toggle('sel', el.style.fontStyle === 'italic');
+    document.getElementById('blurBtn').classList.toggle('sel', el.dataset.blur === '1');
     var align = el.style.textAlign || 'left';
     document.querySelectorAll('[data-align]').forEach(function (b) {
       b.classList.toggle('sel', b.dataset.align === align);
@@ -465,6 +467,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     el.innerText = 'New text';
     el.dataset.fontKey = 'system';
     el.dataset.colorHex = '#ffffff';
+    el.dataset.blur = '0';
     el.style.color = '#ffffff';
     el.addEventListener('focus', function () { selectLayer(id); });
     el.addEventListener('mousedown', function () { selectLayer(id); });
@@ -515,10 +518,30 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     document.getElementById(activeTextId).style.fontSize = px + 'px';
     document.getElementById('fontSizeVal').textContent = px + 'px';
   }
+  // Redaction-safe blur: html2canvas (used for the PNG download) ignores CSS
+  // filter:blur, so we blur via transparent text + a heavy text-shadow, which
+  // it DOES paint — the name exports as an unreadable smear. Radius is in em so
+  // it stays unreadable at any font size; the text colour drives the smear tint.
+  function applyLayerColorBlur(el) {
+    var hex = el.dataset.colorHex || '#0f172a';
+    if (el.dataset.blur === '1') {
+      el.style.color = 'transparent';
+      el.style.textShadow = '0 0 0.55em ' + hex + ', 0 0 0.32em ' + hex + ', 0 0 0.32em ' + hex;
+    } else {
+      el.style.color = hex;
+      el.style.textShadow = 'none';
+    }
+  }
   function applyColor(hex) {
     var el = document.getElementById(activeTextId);
     el.dataset.colorHex = hex;
-    el.style.color = hex;
+    applyLayerColorBlur(el);
+  }
+  function toggleBlur() {
+    var el = document.getElementById(activeTextId);
+    el.dataset.blur = el.dataset.blur === '1' ? '0' : '1';
+    applyLayerColorBlur(el);
+    document.getElementById('blurBtn').classList.toggle('sel', el.dataset.blur === '1');
   }
   function toggleBold() {
     var t = document.getElementById(activeTextId);
