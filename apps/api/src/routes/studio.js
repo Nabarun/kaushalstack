@@ -224,11 +224,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .layer-pill.sel { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
   .layer-pill .rm { color: #94a3b8; cursor: pointer; }
   .layer-pill .rm:hover { color: #dc2626; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .controls input { flex: 1 1 200px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
-  .btn { border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .controls { margin-top: 14px; }
+  .ctl-group { margin-top: 12px; }
+  .ctl-group:first-child { margin-top: 0; }
+  .ctl-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
+  .ctl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ctl-search { display: flex; gap: 8px; align-items: center; }
+  .ctl-search input { flex: 1 1 160px; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  .btn { border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; font-weight: 500; white-space: nowrap; }
   .btn-blue { background: #2563eb; color: #fff; }
   .btn-dark { background: #0f172a; color: #fff; }
+  .btn:disabled { opacity: .55; cursor: default; }
   .hint { font-size: 12px; color: #94a3b8; }
   .style-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
   .style-row:last-child { margin-bottom: 0; }
@@ -291,26 +297,41 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
         <div id="card-brand">kaushalstack</div>
       </div>
-      <div class="controls" style="margin-top:14px">
-        <input id="img-query" name="query" value="${esc(firstQuery)}" placeholder="Image search query">
-        <button class="btn btn-blue"
-                hx-post="recommend-images" hx-include="#img-query"
-                hx-target="#img-recs" hx-swap="innerHTML" hx-indicator="#img-spin">
-          Recommend 3 images
-        </button>
-        <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
-        <button class="btn btn-blue"
-                hx-post="recommend-text"
-                hx-vals="js:{text: document.getElementById(activeTextId).innerText}"
-                hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
-          Get more text variants
-        </button>
-        <button class="btn btn-blue" type="button" onclick="addBlurBox()" title="Drag a soft-blur box over the image to hide a value (e.g. a number on a chart)">+ Blur box on image</button>
-        <button class="btn btn-dark" onclick="downloadCard()">Download card as PNG</button>
-        <button class="btn btn-dark" id="videoExportBtn" style="display:none" onclick="downloadVideoWithOverlay()"
-                title="Burns the gradient and text into the video itself — comes back as a ready-to-post MP4">Download as video</button>
+      <div class="controls">
+        <div class="ctl-group">
+          <div class="ctl-label">Find a new image</div>
+          <div class="ctl-search">
+            <input id="img-query" name="query" value="${esc(firstQuery)}" placeholder="Search Unsplash…">
+            <button class="btn btn-blue"
+                    hx-post="recommend-images" hx-include="#img-query"
+                    hx-target="#img-recs" hx-swap="innerHTML" hx-indicator="#img-spin">
+              Recommend 3 images
+            </button>
+          </div>
+          <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
+        </div>
+        <div class="ctl-group">
+          <div class="ctl-label">Edit</div>
+          <div class="ctl-row">
+            <button class="btn btn-blue"
+                    hx-post="recommend-text"
+                    hx-vals="js:{text: document.getElementById(activeTextId).innerText}"
+                    hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
+              Get more text variants
+            </button>
+            <button class="btn btn-blue" type="button" onclick="addBlurBox()" title="Drag a soft-blur box over the image or video to hide a value (e.g. a number on a chart)">+ Blur box</button>
+          </div>
+        </div>
+        <div class="ctl-group">
+          <div class="ctl-label">Download</div>
+          <div class="ctl-row">
+            <button class="btn btn-dark" onclick="downloadCard()">Download as image (PNG)</button>
+            <button class="btn btn-dark" id="videoExportBtn" style="display:none" onclick="downloadVideoWithOverlay()"
+                    title="Burns the gradient and text into the video itself — comes back as a ready-to-post MP4">Download as video (MP4)</button>
+          </div>
+        </div>
       </div>
-      <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download when it looks right.</div>
+      <div class="hint" style="margin-top:12px">Pick an image or video on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download as a PNG image, or as an MP4 video with your text and gradient burned in.</div>
     </div>
   </section>
   <section class="composer-side">
