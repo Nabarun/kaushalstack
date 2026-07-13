@@ -1028,22 +1028,35 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/upload$/, (req, res) => {
 const FFMPEG_TIMEOUT_MS = 3 * 60 * 1000;
 const RENDER_MAX_SECONDS = 120; // hard cap on output duration as a CPU guard
 
-function runFfmpeg(args) {
+function runCmd(cmd, args) {
     return new Promise((resolve, reject) => {
-        const child = spawn('ffmpeg', args);
+        const child = spawn(cmd, args);
+        let stdout = '';
         let stderr = '';
         const timer = setTimeout(() => {
             child.kill('SIGKILL');
-            reject(new Error('ffmpeg timed out'));
+            reject(new Error(`${cmd} timed out`));
         }, FFMPEG_TIMEOUT_MS);
+        child.stdout.on('data', d => { stdout += d.toString(); });
         child.stderr.on('data', d => { stderr += d.toString(); });
         child.on('error', err => { clearTimeout(timer); reject(err); });
         child.on('close', code => {
             clearTimeout(timer);
-            if (code === 0) resolve();
-            else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-400).trim()}`));
+            if (code === 0) resolve(stdout);
+            else reject(new Error(`${cmd} exited ${code}: ${stderr.slice(-400).trim()}`));
         });
     });
+}
+
+async function probeVideoDims(videoAbs) {
+    const out = await runCmd('ffprobe', [
+        '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height',
+        '-of', 'csv=p=0:s=x', videoAbs,
+    ]);
+    const m = out.trim().match(/^(\d+)x(\d+)/);
+    if (!m) throw new Error(`could not probe video dimensions: ${out.slice(0, 100)}`);
+    return { w: Number(m[1]), h: Number(m[2]) };
 }
 
 router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) => {
@@ -1060,12 +1073,19 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) 
         await fs.writeFile(overlayAbs, Buffer.from(m[1], 'base64'));
         const outRel = `assets/export-${Date.now()}.mp4`;
         const outAbs = await safeResolve(id, outRel);
-        // scale2ref stretches the overlay to the video's exact dimensions —
-        // the client's snapshot has the same aspect ratio as the displayed
-        // video region (object-fit: cover of the same box), so no distortion.
-        await runFfmpeg([
+        // Probe the video's dimensions and scale the overlay to match with a
+        // plain scale filter — the canonical still-watermark pattern. The
+        // previous scale2ref approach (deprecated in ffmpeg 8) ended the video
+        // track after ONE frame when the scaled input was a single image,
+        // which played back as a frozen frame for the whole clip. With plain
+        // scale + overlay, the still's last frame repeats across every video
+        // frame (overlay's default eof_action=repeat). The client's snapshot
+        // has the same aspect ratio as the displayed video region
+        // (object-fit: cover of the same box), so no distortion.
+        const dims = await probeVideoDims(videoAbs);
+        await runCmd('ffmpeg', [
             '-y', '-i', videoAbs, '-i', overlayAbs,
-            '-filter_complex', '[1:v][0:v]scale2ref[ov][base];[base][ov]overlay=0:0:format=auto',
+            '-filter_complex', `[1:v]scale=${dims.w}:${dims.h}[ov];[0:v][ov]overlay=0:0:format=auto`,
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
             '-c:a', 'copy', '-t', String(RENDER_MAX_SECONDS),
             '-movflags', '+faststart', outAbs,
