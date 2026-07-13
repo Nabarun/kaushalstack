@@ -169,8 +169,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
   .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 0 0 10px; }
-  aside.panel { max-height: calc(100vh - 110px); overflow-y: auto; }
-  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+  /* Left panel is a fixed-height flex column: only the media thumbnails
+     scroll, so the Elements palette + hint below stay visible instead of
+     the whole column scrolling the palette out of reach. */
+  aside.panel { max-height: calc(100vh - 110px); overflow: hidden; display: flex; flex-direction: column; }
+  aside.panel > h2, aside.panel > .palette, aside.panel > .hint, aside.panel > button, aside.panel > input, aside.panel > #uploadStatus { flex: none; }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; flex: 1 1 auto; min-height: 96px; max-height: 340px; overflow-y: auto; }
   .thumb-wrap { position: relative; }
   .thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid transparent; display: block; }
   .thumb:hover { border-color: #93c5fd; }
@@ -191,10 +195,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .dragover-zone { background: rgba(37,99,235,.06); border-radius: 6px; }
   .cblock { position: relative; margin: 6px 0; }
   .cblock:hover { outline: 1px dashed #93c5fd; outline-offset: 3px; border-radius: 4px; }
-  .cblock-handle { position: absolute; left: -16px; top: 2px; font-size: 11px; color: #94a3b8; cursor: grab; opacity: 0; }
-  .cblock-del { position: absolute; right: -14px; top: 0; width: 16px; height: 16px; border: none; border-radius: 50%;
-    background: rgba(15,23,42,.55); color: #fff; font-size: 9px; line-height: 16px; padding: 0; cursor: pointer; opacity: 0; }
-  .cblock:hover .cblock-handle, .cblock:hover .cblock-del { opacity: 1; }
+  /* Controls sit INSIDE the block — the card clips overflow, so the old
+     negative-inset positions made them invisible. Delete is always shown so
+     every dropped section has an obvious remove control. */
+  .cblock-handle { position: absolute; left: 2px; top: 2px; font-size: 10px; color: #fff; background: rgba(15,23,42,.5);
+    border-radius: 4px; padding: 1px 3px; cursor: grab; opacity: 0; z-index: 4; }
+  .cblock-del { position: absolute; right: 2px; top: 2px; width: 17px; height: 17px; border: none; border-radius: 50%;
+    background: rgba(220,38,38,.9); color: #fff; font-size: 9px; line-height: 17px; padding: 0; cursor: pointer; z-index: 4; }
+  .cblock-del:hover { background: #dc2626; }
+  .cblock:hover .cblock-handle { opacity: 1; }
   .blk-header { font-size: 22px; font-weight: 700; line-height: 1.25; }
   .blk-paragraph { font-size: 13px; line-height: 1.5; color: #334155; }
   .blk-divider { border-top: 1px solid #e2e8f0; margin: 8px 0; }
@@ -246,7 +255,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #zone-top { top: 0; }
   #zone-middle { top: 50%; transform: translateY(-50%); }
   #zone-bottom { bottom: 0; padding-bottom: 36px; }
-  #card-body { flex: 1; padding: 18px 22px 6px; overflow: hidden; }
+  #card-body { flex: 1; padding: 18px 22px 6px; overflow-y: auto; }
   .card-text-layer { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
   .card-text-layer:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
   .card-text-layer:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
@@ -1119,10 +1128,30 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var card = document.getElementById('card');
     card.classList.add('exporting'); // hide block/blur-box chrome in the PNG
 
+    var restores = [];
+
+    // The card body scrolls while editing, so a tall stack of dropped blocks
+    // would export clipped to the visible square. Freeze the image area's
+    // pixel height, then let the card + body grow to their full content so
+    // the capture includes everything. (Only relevant with blocks below the
+    // image — overlay-text mode hides the body entirely.)
+    var body = document.getElementById('card-body');
+    if (body && !card.classList.contains('overlay-text') && body.scrollHeight > body.clientHeight + 2) {
+      var wrap = document.getElementById('card-img-wrap');
+      var pWrapH = wrap.style.height, pCardH = card.style.height, pAR = card.style.aspectRatio, pOv = body.style.overflow;
+      wrap.style.height = wrap.offsetHeight + 'px';
+      card.style.aspectRatio = 'auto';
+      card.style.height = 'auto';
+      body.style.overflow = 'visible';
+      restores.push(function () {
+        wrap.style.height = pWrapH; card.style.height = pCardH; card.style.aspectRatio = pAR; body.style.overflow = pOv;
+      });
+    }
+
     // html2canvas can't paint <video> elements at all — it leaves the region
     // blank. Swap EVERY visible video in the card (main media + any dropped
     // media blocks) for a still of its current frame, capture, then restore.
-    var restores = [];
+    var videoSnapped = false;
     Array.prototype.forEach.call(card.querySelectorAll('video'), function (v) {
       if (!v.currentSrc || v.offsetParent === null || v.style.display === 'none') return;
       try {
@@ -1134,6 +1163,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
         v.style.display = 'none';
         v.parentNode.insertBefore(snap, v);
+        videoSnapped = true;
         restores.push(function () { snap.remove(); v.style.display = 'block'; });
       } catch (e) { /* cross-origin or decode failure — export what html2canvas can see */ }
     });
@@ -1144,7 +1174,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' });
     }).then(function (canvas) {
       var a = document.createElement('a');
-      a.download = 'card-' + Date.now() + (restores.length ? '-frame' : '') + '.png';
+      a.download = 'card-' + Date.now() + (videoSnapped ? '-frame' : '') + '.png';
       a.href = canvas.toDataURL('image/png');
       a.click();
     }).finally(function () {
