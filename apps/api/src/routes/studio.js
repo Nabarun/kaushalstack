@@ -241,7 +241,21 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .picker-thumb:hover { border-color: #2563eb; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
   .composer-side { display: flex; flex-direction: column; gap: 16px; }
-  #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
+  #card { position: relative; width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
+  /* inline delete controls for the card's own image and caption */
+  .media-del { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border: none; border-radius: 50%;
+    background: rgba(220,38,38,.9); color: #fff; font-size: 11px; line-height: 22px; padding: 0; cursor: pointer; z-index: 5; opacity: 0; transition: opacity .12s; }
+  #card-img-wrap:hover .media-del { opacity: 1; }
+  .media-del:hover { background: #dc2626; }
+  #card-img-wrap.media-empty { background: repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 10px,#e9eef4 10px,#e9eef4 20px); }
+  #card-img-wrap.media-empty #card-img, #card-img-wrap.media-empty #card-video { display: none !important; }
+  .media-empty-hint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #94a3b8; font-size: 12px; pointer-events: none; }
+  #card-img-wrap.media-empty .media-empty-hint { display: flex; }
+  .layer-del-float { position: absolute; width: 18px; height: 18px; border: none; border-radius: 50%; background: rgba(220,38,38,.92);
+    color: #fff; font-size: 9px; line-height: 18px; padding: 0; cursor: pointer; z-index: 6; display: none; }
+  #card.exporting .media-del, #card.exporting .layer-del-float { display: none !important; }
+  #card.exporting #card-img-wrap.media-empty { background: #fff; }
+  #card.exporting .media-empty-hint { display: none !important; }
   #card-img-wrap { position: relative; width: 100%; height: 56%; flex: none; }
   #card.overlay-text #card-img-wrap { height: 100%; }
   #card.overlay-text #card-body { display: none; }
@@ -345,6 +359,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           <div class="zone" id="zone-top"></div>
           <div class="zone" id="zone-middle"></div>
           <div class="zone" id="zone-bottom"></div>
+          <div class="media-empty-hint">No image — pick one from the left</div>
+          <button class="media-del" type="button" onclick="clearCardImage()" title="Remove this image / video">✕</button>
         </div>
         <div id="card-body">
           <div id="card-text" class="card-text-layer" contenteditable="true" spellcheck="false"
@@ -483,6 +499,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function selectMedia(el) {
     var img = document.getElementById('card-img');
     var vid = document.getElementById('card-video');
+    document.getElementById('card-img-wrap').classList.remove('media-empty'); // picking media undoes a delete
     var isVideo = (el.getAttribute('data-type') || el.tagName).toLowerCase() === 'video';
     var src = el.getAttribute('src') || '';
     if (isVideo) {
@@ -503,6 +520,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     if (slug) document.getElementById('img-query').value = slug;
     document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
     el.classList.add('sel');
+  }
+  // Delete the card's main image/video — clears it to an empty placeholder;
+  // pick any thumbnail on the left to fill it again.
+  function clearCardImage() {
+    var img = document.getElementById('card-img');
+    var vid = document.getElementById('card-video');
+    img.removeAttribute('src'); img.style.display = 'none';
+    vid.pause(); vid.removeAttribute('src'); vid.style.display = 'none';
+    document.getElementById('card-img-wrap').classList.add('media-empty');
+    document.getElementById('videoExportBtn').style.display = 'none';
+    document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
   }
   function deleteMedia(path, wrapEl) {
     if (!confirm('Delete this from the session? This can\\'t be undone.')) return;
@@ -610,12 +638,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function renderLayerPills() {
     var html = layers.map(function (id, i) {
       var sel = id === activeTextId ? ' sel' : '';
-      var rm = layers.length > 1
-        ? '<span class="rm" onclick="event.stopPropagation();removeTextLayer(\\'' + id + '\\')">✕</span>'
-        : '';
+      var rm = '<span class="rm" onclick="event.stopPropagation();removeTextLayer(\\'' + id + '\\')">✕</span>';
       return '<span class="layer-pill' + sel + '" onclick="selectLayer(\\'' + id + '\\')">Text ' + (i + 1) + rm + '</span>';
     }).join('');
-    document.getElementById('layerPills').innerHTML = html;
+    document.getElementById('layerPills').innerHTML = html || '<span class="hint" style="font-size:11px">No caption — “+ Add text box” to add one.</span>';
   }
 
   function syncControlsToLayer(el) {
@@ -635,9 +661,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
 
   function selectLayer(id) {
-    activeTextId = id;
+    activeTextId = id || '';
     renderLayerPills();
-    syncControlsToLayer(document.getElementById(id));
+    var el = document.getElementById(activeTextId);
+    if (el) syncControlsToLayer(el);
   }
 
   function updateOverlayTextClass() {
@@ -670,6 +697,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     el.style.color = '#ffffff';
     el.addEventListener('focus', function () { selectLayer(id); });
     el.addEventListener('mousedown', function () { selectLayer(id); });
+    attachLayerHoverDelete(el);
     layers.push(id);
     moveTextLayerToPosition(el, 'over-top');
     // A second text box almost always means "on the image" — match the
@@ -681,19 +709,23 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     selectLayer(id);
   }
 
+  // Removes a caption layer entirely — including the last one, so the card
+  // can have no caption at all (called from the pill ✕ and the on-card ✕).
   function removeTextLayer(id) {
-    if (layers.length <= 1) return;
     var el = document.getElementById(id);
     if (el) el.remove();
     layers = layers.filter(function (x) { return x !== id; });
-    if (activeTextId === id) activeTextId = layers[0];
+    if (activeTextId === id) activeTextId = layers[0] || '';
     renderLayerPills();
-    syncControlsToLayer(document.getElementById(activeTextId));
+    var act = document.getElementById(activeTextId);
+    if (act) syncControlsToLayer(act);
     updateOverlayTextClass();
+    hideLayerDel();
   }
 
   function applyTextPosition(pos) {
     var el = document.getElementById(activeTextId);
+    if (!el) return;
     var enteringOverlay = pos !== 'below' && el.dataset.position === 'below';
     moveTextLayerToPosition(el, pos);
     // First time moving THIS layer onto the image, nudge toward a combo
@@ -710,11 +742,14 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
   function applyFont(key) {
     var el = document.getElementById(activeTextId);
+    if (!el) return;
     el.dataset.fontKey = key;
     el.style.fontFamily = FONTS[key] || FONTS.system;
   }
   function applyFontSize(px) {
-    document.getElementById(activeTextId).style.fontSize = px + 'px';
+    var el = document.getElementById(activeTextId);
+    if (!el) return;
+    el.style.fontSize = px + 'px';
     document.getElementById('fontSizeVal').textContent = px + 'px';
   }
   // Redaction-safe blur: html2canvas (used for the PNG download) ignores CSS
@@ -733,32 +768,66 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
   function applyColor(hex) {
     var el = document.getElementById(activeTextId);
+    if (!el) return;
     el.dataset.colorHex = hex;
     applyLayerColorBlur(el);
   }
   function toggleBlur() {
     var el = document.getElementById(activeTextId);
+    if (!el) return;
     el.dataset.blur = el.dataset.blur === '1' ? '0' : '1';
     applyLayerColorBlur(el);
     document.getElementById('blurBtn').classList.toggle('sel', el.dataset.blur === '1');
   }
   function toggleBold() {
     var t = document.getElementById(activeTextId);
+    if (!t) return;
     var on = t.style.fontWeight === '700';
     t.style.fontWeight = on ? '' : '700';
     document.getElementById('boldBtn').classList.toggle('sel', !on);
   }
   function toggleItalic() {
     var t = document.getElementById(activeTextId);
+    if (!t) return;
     var on = t.style.fontStyle === 'italic';
     t.style.fontStyle = on ? '' : 'italic';
     document.getElementById('italicBtn').classList.toggle('sel', !on);
   }
   function applyAlign(align, btn) {
-    document.getElementById(activeTextId).style.textAlign = align;
+    var el = document.getElementById(activeTextId);
+    if (!el) return;
+    el.style.textAlign = align;
     btn.parentElement.querySelectorAll('button').forEach(function (b) { b.classList.remove('sel'); });
     btn.classList.add('sel');
   }
+
+  // ---- On-card caption delete: a floating ✕ that follows the hovered text
+  // layer. Kept OUT of the contenteditable element so the ✕ glyph never leaks
+  // into the caption's innerText (which drives copy variants + form saves).
+  var layerDel = document.createElement('button');
+  layerDel.type = 'button'; layerDel.className = 'layer-del-float'; layerDel.textContent = '✕';
+  layerDel.title = 'Delete this caption';
+  document.getElementById('card').appendChild(layerDel);
+  var layerDelTarget = null, layerDelTimer = null;
+  function hideLayerDel() { layerDel.style.display = 'none'; layerDelTarget = null; }
+  function showLayerDelFor(el) {
+    clearTimeout(layerDelTimer);
+    var cardR = document.getElementById('card').getBoundingClientRect();
+    var r = el.getBoundingClientRect();
+    layerDel.style.left = Math.min(cardR.width - 20, Math.max(2, r.right - cardR.left - 20)) + 'px';
+    layerDel.style.top = Math.max(2, r.top - cardR.top + 2) + 'px';
+    layerDel.style.display = 'block';
+    layerDelTarget = el;
+  }
+  function attachLayerHoverDelete(el) {
+    el.addEventListener('mouseenter', function () { showLayerDelFor(el); });
+    el.addEventListener('mouseleave', function () { layerDelTimer = setTimeout(hideLayerDel, 350); });
+  }
+  layerDel.addEventListener('mouseenter', function () { clearTimeout(layerDelTimer); });
+  layerDel.addEventListener('mouseleave', hideLayerDel);
+  layerDel.addEventListener('click', function () { if (layerDelTarget) removeTextLayer(layerDelTarget.id); });
+  attachLayerHoverDelete(document.getElementById('card-text'));
+
   renderLayerPills();
 
   // ---- Blur boxes: redact a region of the card IMAGE (e.g. a value on a
