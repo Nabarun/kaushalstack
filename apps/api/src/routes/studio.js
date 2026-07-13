@@ -8,11 +8,21 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import multer from 'multer';
 import logger from '../utils/logger.js';
 import { safeResolve, fileManifest } from '../builder/workspace.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
+
+// Partner-uploaded media, in-memory then written straight to the session
+// workspace (same place Unsplash pulls land) — 80MB covers a short marketing
+// clip comfortably without letting one upload blow out the session's disk use.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 80 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => cb(null, /^(image\/(jpeg|png|webp|gif)|video\/(mp4|webm|quicktime))$/.test(file.mimetype)),
+});
 
 // Same relaxation as the preview route: htmx + html2canvas load from CDNs.
 // frame-ancestors is explicit (not just omitted) so it supersedes helmet's
@@ -22,6 +32,8 @@ const STUDIO_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANC
 const STUDIO_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${STUDIO_FRAME_ANCESTORS.join(' ')};`;
 
 const IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
+const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
+const MEDIA_RE = /\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$/i;
 
 const router = Router({ strict: true });
 
@@ -46,10 +58,11 @@ function sendFragment(res, html, status = 200) {
 
 const errFragment = (msg) => `<div class="rec-error">${esc(msg)}</div>`;
 
-// Visual reference scale for the space meter, not an enforced quota — a
-// build workspace is mostly generated HTML/text plus a handful of images,
-// so 50MB is already an unusually large session worth calling out.
-const SPACE_METER_SCALE_BYTES = 50 * 1024 * 1024;
+// Visual reference scale for the space meter, not an enforced quota. Raised
+// from 50MB now that partners can upload their own video — a single short
+// clip can legitimately be tens of MB, so the old scale flagged completely
+// normal usage as "high".
+const SPACE_METER_SCALE_BYTES = 200 * 1024 * 1024;
 
 function humanBytes(n) {
     if (n < 1024) return `${n} B`;
@@ -84,6 +97,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 
         const previewBase = `/api/build/${id}/preview/`;
         const images = manifest.filter(f => IMG_RE.test(f.path)).slice(0, 60);
+        const videos = manifest.filter(f => VIDEO_RE.test(f.path)).slice(0, 20);
+        // Order preserved as it appears in the manifest so uploads/generated
+        // assets interleave naturally rather than always sorting images first.
+        const media = manifest.filter(f => MEDIA_RE.test(f.path)).slice(0, 80)
+            .map(f => ({ ...f, type: VIDEO_RE.test(f.path) ? 'video' : 'image' }));
         const totalBytes = manifest.reduce((sum, f) => sum + (f.bytes || 0), 0);
         const spaceMeter = renderSpaceMeter(totalBytes, manifest.length);
 
@@ -96,15 +114,24 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
             } catch { /* unreadable — skip */ }
         }
 
+        // Default view is always a static image, never a video — keeps the
+        // initial card state simple (no video-vs-image branching on load).
         const firstImg  = images[0] ? previewBase + images[0].path : '';
         const firstText = texts[0] ? texts[0].text : 'Click a text on the left to place it here — then click this caption to get 3 AI variants.';
         const firstQuery = images[0] ? slugToQuery(images[0].path) : '';
 
-        const thumbsHtml = images.map(f => `
+        const thumbsHtml = media.map(f => f.type === 'video' ? `
+            <div class="thumb-wrap">
+              <video class="thumb" muted preload="metadata" title="${esc(f.path)}"
+                     src="${esc(previewBase + f.path)}#t=0.1" data-type="video"
+                     onclick="selectMedia(this)"></video>
+              <span class="thumb-badge">▶ video</span>
+              <button class="thumb-del" type="button" data-path="${esc(f.path)}" title="Delete this video">✕</button>
+            </div>` : `
             <div class="thumb-wrap">
               <img class="thumb" loading="lazy" src="${esc(previewBase + f.path)}"
-                   data-slug="${esc(slugToQuery(f.path))}" title="${esc(f.path)}"
-                   onclick="selectImage(this)">
+                   data-slug="${esc(slugToQuery(f.path))}" data-type="image" title="${esc(f.path)}"
+                   onclick="selectMedia(this)">
               <button class="thumb-del" type="button" data-path="${esc(f.path)}" title="Delete this image">✕</button>
             </div>`).join('');
 
@@ -157,6 +184,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     opacity: 0; transition: opacity .12s; }
   .thumb-wrap:hover .thumb-del { opacity: 1; }
   .thumb-del:hover { background: #dc2626; }
+  .thumb-badge { position: absolute; left: 5px; bottom: 5px; font-size: 9.5px; font-weight: 600; letter-spacing: .02em;
+    padding: 2px 6px; border-radius: 999px; background: rgba(15,23,42,.65); color: #fff; pointer-events: none; }
   .txt-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
   .txt-item:hover { border-color: #93c5fd; background: #f8fafc; }
   .txt-path { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; margin-bottom: 4px; }
@@ -168,7 +197,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #card.overlay-text #card-img-wrap { height: 100%; }
   #card.overlay-text #card-body { display: none; }
   #card.overlay-text #card-brand { position: absolute; bottom: 8px; right: 10px; padding: 3px 9px; background: rgba(0,0,0,.4); border-radius: 6px; color: #fff; z-index: 3; }
-  #card-img { width: 100%; height: 100%; object-fit: cover; background: #e2e8f0; display: block; }
+  #card-img, #card-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #card-img { background: #e2e8f0; }
+  #card-video { background: #000; }
   #img-gradient { position: absolute; inset: 0; pointer-events: none; }
   .zone { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; gap: 6px; padding: 16px 20px; z-index: 2; pointer-events: none; }
   .zone > * { pointer-events: auto; }
@@ -231,8 +262,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 </header>
 <div class="layout">
   <aside class="panel">
-    <h2 id="imagesHeading">Images (${images.length})</h2>
-    <div class="thumbs">${thumbsHtml || '<div class="hint">No images in this session.</div>'}</div>
+    <button class="btn btn-blue" type="button" onclick="document.getElementById('uploadInput').click()" style="width:100%;margin-bottom:12px">⬆ Upload image or video</button>
+    <input type="file" id="uploadInput" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" style="display:none" onchange="uploadMedia(this.files[0])">
+    <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
+    <h2 id="mediaHeading">Media (${media.length})</h2>
+    <div class="thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
     <h2>Texts (${texts.length})</h2>
     ${textsHtml || '<div class="hint">No caption files in this session.</div>'}
   </aside>
@@ -242,6 +276,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       <div id="card">
         <div id="card-img-wrap">
           <img id="card-img" src="${esc(firstImg)}" crossorigin="anonymous">
+          <video id="card-video" muted loop playsinline style="display:none"></video>
           <div id="img-gradient"></div>
           <div class="zone" id="zone-top"></div>
           <div class="zone" id="zone-middle"></div>
@@ -351,25 +386,91 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   </section>
 </div>
 <script>
-  function selectImage(el) {
-    document.getElementById('card-img').src = el.getAttribute('src');
+  // A thumbnail is either an <img> (data-type="image") or a <video>
+  // (data-type="video") — selecting either shows/hides the matching element
+  // in the card so the gradient + text zones (siblings of both, in
+  // #card-img-wrap) overlay identically no matter which is active.
+  function selectMedia(el) {
+    var img = document.getElementById('card-img');
+    var vid = document.getElementById('card-video');
+    var isVideo = (el.getAttribute('data-type') || el.tagName).toLowerCase() === 'video';
+    var src = el.getAttribute('src') || '';
+    if (isVideo) {
+      vid.src = src.replace(/#t=[\\d.]+$/, ''); // drop the thumbnail poster-frame fragment
+      vid.style.display = 'block';
+      img.style.display = 'none';
+      vid.currentTime = 0;
+      vid.play().catch(function () {});
+    } else {
+      img.src = src;
+      img.style.display = 'block';
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.style.display = 'none';
+    }
     var slug = el.getAttribute('data-slug');
     if (slug) document.getElementById('img-query').value = slug;
     document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
     el.classList.add('sel');
   }
-  function deleteImage(path, wrapEl) {
-    if (!confirm('Delete this image from the session? This can\\'t be undone.')) return;
-    fetch('image', {
+  function deleteMedia(path, wrapEl) {
+    if (!confirm('Delete this from the session? This can\\'t be undone.')) return;
+    fetch('media', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: path })
     }).then(function (r) {
       if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Delete failed (' + r.status + ')'); });
       if (wrapEl) wrapEl.remove();
-      var heading = document.getElementById('imagesHeading');
-      if (heading) heading.textContent = 'Images (' + document.querySelectorAll('.thumb-wrap').length + ')';
+      var heading = document.getElementById('mediaHeading');
+      if (heading) heading.textContent = 'Media (' + document.querySelectorAll('.thumb-wrap').length + ')';
     }).catch(function (err) { alert(err.message); });
+  }
+  function uploadMedia(file) {
+    if (!file) return;
+    var status = document.getElementById('uploadStatus');
+    status.style.display = 'block';
+    status.textContent = 'Uploading ' + file.name + '…';
+    var fd = new FormData();
+    fd.append('file', file);
+    fetch('upload', { method: 'POST', body: fd }).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Upload failed (' + r.status + ')'); return d; });
+    }).then(function (d) {
+      status.style.display = 'none';
+      var previewBase = location.href.replace(/studio\\/$/, 'preview/');
+      var wrap = document.createElement('div');
+      wrap.className = 'thumb-wrap';
+      var mediaEl;
+      if (d.type === 'video') {
+        mediaEl = document.createElement('video');
+        mediaEl.className = 'thumb'; mediaEl.muted = true; mediaEl.preload = 'metadata';
+        mediaEl.src = previewBase + d.path + '#t=0.1';
+        mediaEl.dataset.type = 'video';
+        var badge = document.createElement('span');
+        badge.className = 'thumb-badge'; badge.textContent = '▶ video';
+        wrap.appendChild(mediaEl); wrap.appendChild(badge);
+      } else {
+        mediaEl = document.createElement('img');
+        mediaEl.className = 'thumb'; mediaEl.loading = 'lazy';
+        mediaEl.src = previewBase + d.path;
+        mediaEl.dataset.type = 'image';
+        wrap.appendChild(mediaEl);
+      }
+      mediaEl.title = d.path;
+      mediaEl.onclick = function () { selectMedia(mediaEl); };
+      var del = document.createElement('button');
+      del.className = 'thumb-del'; del.type = 'button'; del.title = 'Delete this';
+      del.dataset.path = d.path; del.textContent = '✕';
+      wrap.appendChild(del);
+      var thumbs = document.querySelector('.thumbs');
+      thumbs.insertBefore(wrap, thumbs.firstChild);
+      var heading = document.getElementById('mediaHeading');
+      if (heading) heading.textContent = 'Media (' + document.querySelectorAll('.thumb-wrap').length + ')';
+      selectMedia(mediaEl);
+    }).catch(function (err) {
+      status.textContent = err.message;
+      setTimeout(function () { status.style.display = 'none'; }, 4000);
+    }).finally(function () { document.getElementById('uploadInput').value = ''; });
   }
   document.addEventListener('click', function (e) {
     var del = e.target.closest('.thumb-del');
@@ -663,17 +764,48 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 
   function downloadCard() {
     var card = document.getElementById('card');
+    var video = document.getElementById('card-video');
+    var img = document.getElementById('card-img');
     card.classList.add('exporting'); // hide blur-box handles/borders in the PNG
+
+    // html2canvas can't paint a <video> element at all — it leaves the
+    // region blank. If a video is the active media, grab its current frame
+    // onto an offscreen canvas and swap it in as the <img> src just for the
+    // capture, so the export is a still of exactly what's on screen —
+    // gradient, text zones and all — rather than an empty box.
+    var restoreVideo = null;
+    if (video.style.display !== 'none' && video.currentSrc) {
+      try {
+        var vw = video.videoWidth, vh = video.videoHeight;
+        var off = document.createElement('canvas');
+        off.width = vw; off.height = vh;
+        off.getContext('2d').drawImage(video, 0, 0, vw, vh);
+        var frameUrl = off.toDataURL('image/png');
+        var prevImgSrc = img.src, prevImgDisplay = img.style.display;
+        img.src = frameUrl;
+        img.style.display = 'block';
+        video.style.display = 'none';
+        restoreVideo = function () {
+          img.src = prevImgSrc;
+          img.style.display = prevImgDisplay;
+          video.style.display = 'block';
+        };
+      } catch (e) { /* cross-origin or decode failure — export what html2canvas can see */ }
+    }
+
     // Webfonts (Fraunces/Poppins/Playfair) load async — capturing before
     // they're ready silently rasterizes the fallback font instead.
     (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
       return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' });
     }).then(function (canvas) {
       var a = document.createElement('a');
-      a.download = 'card-' + Date.now() + '.png';
+      a.download = 'card-' + Date.now() + (restoreVideo ? '-frame' : '') + '.png';
       a.href = canvas.toDataURL('image/png');
       a.click();
-    }).finally(function () { card.classList.remove('exporting'); });
+    }).finally(function () {
+      card.classList.remove('exporting');
+      if (restoreVideo) restoreVideo();
+    });
   }
 </script>
 </body>
@@ -728,9 +860,9 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-images$/, async (req, r
 
         const previewBase = `/api/build/${id}/preview/`;
         const html = saved.map(s => `
-            <img class="rec-thumb" src="${esc(previewBase + s.path)}"
+            <img class="rec-thumb" data-type="image" src="${esc(previewBase + s.path)}"
                  data-slug="${esc(query)}" title="${esc(s.photographer ? 'Photo: ' + s.photographer : s.path)}"
-                 onclick="selectImage(this)">`).join('');
+                 onclick="selectMedia(this)">`).join('');
         sendFragment(res, html);
     } catch (err) {
         logger.error(`studio recommend-images error session=${id}: ${err.message}`);
@@ -791,20 +923,49 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
     }
 });
 
-// ------------------------------------------------------- delete-image (JSON)
+// ------------------------------------------------------- delete-media (JSON)
 
-router.delete(/^\/build\/([a-f0-9]{16})\/studio\/image$/, async (req, res) => {
+router.delete(/^\/build\/([a-f0-9]{16})\/studio\/media$/, async (req, res) => {
     const id = req.params[0];
     const relPath = String(req.body?.path || '');
-    if (!IMG_RE.test(relPath)) return res.status(400).json({ error: 'Not an image path.' });
+    if (!MEDIA_RE.test(relPath)) return res.status(400).json({ error: 'Not an image or video path.' });
     try {
         const abs = await safeResolve(id, relPath);
         await fs.unlink(abs);
         res.json({ ok: true });
     } catch (err) {
-        logger.error(`studio delete-image error session=${id} path=${relPath}: ${err.message}`);
+        logger.error(`studio delete-media error session=${id} path=${relPath}: ${err.message}`);
         res.status(404).json({ error: 'Could not delete that file — it may already be gone.' });
     }
+});
+
+// ------------------------------------------------------------ upload (JSON)
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/upload$/, (req, res) => {
+    upload.single('file')(req, res, async (err) => {
+        const id = req.params[0];
+        if (err) {
+            const msg = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (80MB max).' : 'Upload rejected — only JPEG/PNG/WebP/GIF images or MP4/WebM/MOV video are accepted.';
+            return res.status(400).json({ error: msg });
+        }
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+        try {
+            const isVideo = req.file.mimetype.startsWith('video/');
+            const extFromName = path.extname(req.file.originalname || '').toLowerCase();
+            const ext = isVideo
+                ? (/^\.(mp4|webm|mov|m4v)$/i.test(extFromName) ? extFromName : '.mp4')
+                : (/^\.(jpe?g|png|webp|gif)$/i.test(extFromName) ? extFromName : '.jpg');
+            const relPath = `assets/upload-${Date.now()}${ext}`;
+            const abs = await safeResolve(id, relPath);
+            await fs.mkdir(path.dirname(abs), { recursive: true });
+            await fs.writeFile(abs, req.file.buffer);
+            const stat = await fs.stat(abs);
+            res.json({ path: relPath, bytes: stat.size, type: isVideo ? 'video' : 'image' });
+        } catch (uploadErr) {
+            logger.error(`studio upload error session=${id}: ${uploadErr.message}`);
+            res.status(500).json({ error: 'Upload failed — try again.' });
+        }
+    });
 });
 
 export default router;
