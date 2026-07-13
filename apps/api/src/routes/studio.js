@@ -831,12 +831,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     btn.disabled = true;
     btn.textContent = 'Rendering video… (can take a minute)';
     card.classList.add('exporting');
-    vid.style.visibility = 'hidden'; // hide pixels, keep layout, so the snapshot is overlay-only
+    // Fully remove the video from the render tree (display:none, not just
+    // visibility:hidden) — html2canvas paints a hidden <video>'s black
+    // background box as opaque pixels, which would then cover the whole clip
+    // and freeze it. The wrap keeps its size (its height comes from #card's
+    // aspect-ratio, not the video), so gradient + text zones still lay out.
+    vid.style.display = 'none';
+    var restore = function () { vid.style.display = 'block'; card.classList.remove('exporting'); };
     (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
       return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null });
     }).then(function (canvas) {
-      vid.style.visibility = '';
-      card.classList.remove('exporting');
+      restore();
       return fetch('render-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -852,8 +857,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     }).catch(function (err) {
       alert(err.message);
     }).finally(function () {
-      vid.style.visibility = '';
-      card.classList.remove('exporting');
+      restore();
       btn.disabled = false;
       btn.textContent = 'Download as video';
     });
@@ -1048,14 +1052,16 @@ function runCmd(cmd, args) {
     });
 }
 
-async function probeVideoDims(videoAbs) {
+// Works for both videos and still images — ffprobe reports a PNG as a
+// single-frame video stream with width/height.
+async function probeDims(fileAbs) {
     const out = await runCmd('ffprobe', [
         '-v', 'error', '-select_streams', 'v:0',
         '-show_entries', 'stream=width,height',
-        '-of', 'csv=p=0:s=x', videoAbs,
+        '-of', 'csv=p=0:s=x', fileAbs,
     ]);
     const m = out.trim().match(/^(\d+)x(\d+)/);
-    if (!m) throw new Error(`could not probe video dimensions: ${out.slice(0, 100)}`);
+    if (!m) throw new Error(`could not probe dimensions: ${out.slice(0, 100)}`);
     return { w: Number(m[1]), h: Number(m[2]) };
 }
 
@@ -1073,19 +1079,23 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) 
         await fs.writeFile(overlayAbs, Buffer.from(m[1], 'base64'));
         const outRel = `assets/export-${Date.now()}.mp4`;
         const outAbs = await safeResolve(id, outRel);
-        // Probe the video's dimensions and scale the overlay to match with a
-        // plain scale filter — the canonical still-watermark pattern. The
-        // previous scale2ref approach (deprecated in ffmpeg 8) ended the video
-        // track after ONE frame when the scaled input was a single image,
-        // which played back as a frozen frame for the whole clip. With plain
-        // scale + overlay, the still's last frame repeats across every video
-        // frame (overlay's default eof_action=repeat). The client's snapshot
-        // has the same aspect ratio as the displayed video region
-        // (object-fit: cover of the same box), so no distortion.
-        const dims = await probeVideoDims(videoAbs);
+        // The output matches the card preview exactly (WYSIWYG): the overlay is
+        // a snapshot of the square #card-img-wrap, so we cover-fit the video
+        // into the overlay's dimensions (scale up to cover, centre-crop the
+        // overflow — the object-fit:cover the browser does) rather than
+        // stretching the overlay onto the video. That keeps text/gradient
+        // undistorted even when the video's aspect ratio differs from the card
+        // (e.g. a portrait clip in a square card). Both layers are scaled to
+        // the SAME even WxH so overlay=0:0 lines up pixel-for-pixel, and the
+        // video's own frames drive the timeline so motion is preserved.
+        const od = await probeDims(overlayAbs);
+        const W = od.w - (od.w % 2), H = od.h - (od.h % 2); // libx264/yuv420p need even dims
         await runCmd('ffmpeg', [
             '-y', '-i', videoAbs, '-i', overlayAbs,
-            '-filter_complex', `[1:v]scale=${dims.w}:${dims.h}[ov];[0:v][ov]overlay=0:0:format=auto`,
+            '-filter_complex',
+            `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1[base];`
+            + `[1:v]scale=${W}:${H}[ov];[base][ov]overlay=0:0:format=auto[out]`,
+            '-map', '[out]', '-map', '0:a?',
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
             '-c:a', 'copy', '-t', String(RENDER_MAX_SECONDS),
             '-movflags', '+faststart', outAbs,
