@@ -11,6 +11,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import multer from 'multer';
 import logger from '../utils/logger.js';
+import pb from '../utils/pocketbaseClient.js';
 import { safeResolve, fileManifest } from '../builder/workspace.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
@@ -199,9 +200,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .blk-divider { border-top: 1px solid #e2e8f0; margin: 8px 0; }
   .cblock-button { text-align: center; }
   .blk-button { display: inline-block; background: #2563eb; color: #fff; border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 600; }
-  .blk-form { display: flex; gap: 6px; }
-  .blk-form-input { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #94a3b8; background: #fff; }
-  .blk-form-btn { background: #0f172a; color: #fff; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 600; }
+  .blk-form { display: flex; flex-direction: column; gap: 8px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #fff; }
+  .blk-form-title { font-size: 15px; font-weight: 700; }
+  .form-fields { display: flex; flex-direction: column; gap: 8px; }
+  .form-field { position: relative; }
+  .ff-label { font-size: 11px; color: #64748b; margin-bottom: 3px; }
+  .ff-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  .ff-del { position: absolute; right: -13px; top: 0; width: 15px; height: 15px; border: none; border-radius: 50%;
+    background: rgba(15,23,42,.5); color: #fff; font-size: 8px; line-height: 15px; padding: 0; cursor: pointer; opacity: 0; }
+  .form-field:hover .ff-del { opacity: 1; }
+  .form-tools { display: flex; gap: 6px; }
+  .form-tool { border: 1px dashed #cbd5e1; background: #f8fafc; color: #475569; border-radius: 8px; padding: 5px 10px; font-size: 11px; cursor: pointer; user-select: none; }
+  .form-tool:hover { border-color: #2563eb; color: #1d4ed8; }
+  .blk-form .blk-media { aspect-ratio: 16/7; }
+  .blk-form-submit { border: none; background: #0f172a; color: #fff; border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
+  .blk-form-submit:disabled { opacity: .6; }
+  #card.exporting .form-tools, #card.exporting .ff-del { display: none; }
   .blk-media { aspect-ratio: 16/9; background: #f1f5f9; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; }
   .blk-media-hint { font-size: 12px; color: #94a3b8; padding: 0 10px; text-align: center; }
   .blk-media img, .blk-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -917,10 +931,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     } else if (type === 'button') {
       b.appendChild(editableEl('span', 'blk-button', 'Call to action'));
     } else if (type === 'form') {
-      var f = document.createElement('div'); f.className = 'blk-form';
-      f.appendChild(editableEl('span', 'blk-form-input', 'Your email'));
-      f.appendChild(editableEl('span', 'blk-form-btn', 'Sign up'));
-      b.appendChild(f);
+      b.appendChild(buildFormBlock());
     } else if (type === 'media') {
       var m = document.createElement('div'); m.className = 'blk-media empty';
       m.innerHTML = '<span class="blk-media-hint">▦ Click to choose an image or video</span>';
@@ -949,6 +960,109 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     b.appendChild(handle);
     b.appendChild(del);
     return b;
+  }
+
+  // ---- Form builder: fields + images + a live submit that stores to the DB.
+  function makeFormField(labelText) {
+    var w = document.createElement('div');
+    w.className = 'form-field';
+    w.appendChild(editableEl('div', 'ff-label', labelText));
+    var inp = document.createElement('input');
+    inp.className = 'ff-input';
+    inp.placeholder = 'Type here…';
+    w.appendChild(inp);
+    var del = document.createElement('button');
+    del.className = 'ff-del'; del.type = 'button'; del.textContent = '✕'; del.title = 'Remove field';
+    del.addEventListener('click', function () { w.remove(); });
+    w.appendChild(del);
+    return w;
+  }
+
+  function buildFormBlock() {
+    var f = document.createElement('div');
+    f.className = 'blk-form';
+    f.appendChild(editableEl('div', 'blk-form-title', 'Sign up'));
+    var fields = document.createElement('div');
+    fields.className = 'form-fields';
+    fields.appendChild(makeFormField('Your email'));
+    f.appendChild(fields);
+
+    var tools = document.createElement('div');
+    tools.className = 'form-tools';
+    var addField = document.createElement('span');
+    addField.className = 'form-tool'; addField.textContent = '+ Text field';
+    addField.addEventListener('click', function () {
+      var fld = makeFormField('Your answer');
+      fields.appendChild(fld);
+      fld.querySelector('.ff-label').focus();
+    });
+    var addImg = document.createElement('span');
+    addImg.className = 'form-tool'; addImg.textContent = '+ Image';
+    addImg.addEventListener('click', function () {
+      var m = document.createElement('div');
+      m.className = 'blk-media empty';
+      m.innerHTML = '<span class="blk-media-hint">▦ Click to choose an image or video</span>';
+      m.addEventListener('click', function () { openMediaPicker(m); });
+      f.insertBefore(m, tools);
+      openMediaPicker(m);
+    });
+    tools.appendChild(addField);
+    tools.appendChild(addImg);
+    f.appendChild(tools);
+
+    var submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'blk-form-submit';
+    var lbl = editableEl('span', 'blk-form-submit-label', 'Submit');
+    submit.appendChild(lbl);
+    submit.title = 'Click to submit and store in your database · click the text itself to edit the label';
+    submit.addEventListener('click', function (e) {
+      if (e.target === lbl) return; // caret landed in the label — editing, not submitting
+      submitForm(f, submit, lbl);
+    });
+    f.appendChild(submit);
+
+    // Enter inside any field submits, like a real form.
+    f.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('ff-input')) {
+        e.preventDefault();
+        submitForm(f, submit, lbl);
+      }
+    });
+    return f;
+  }
+
+  function submitForm(formEl, submitBtn, lblEl) {
+    var fields = {};
+    var n = 0;
+    formEl.querySelectorAll('.form-field').forEach(function (fld) {
+      n++;
+      var key = (fld.querySelector('.ff-label').innerText.trim() || ('Field ' + n)).slice(0, 200);
+      while (Object.prototype.hasOwnProperty.call(fields, key)) key += ' ·';
+      fields[key] = fld.querySelector('.ff-input').value.slice(0, 2000);
+    });
+    if (!Object.keys(fields).length) { alert('Add at least one text field first.'); return; }
+    var orig = lblEl.innerText;
+    submitBtn.disabled = true;
+    lblEl.innerText = 'Saving…';
+    fetch('form-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        form: (formEl.querySelector('.blk-form-title').innerText.trim() || 'Form').slice(0, 200),
+        fields: fields
+      })
+    }).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Save failed (' + r.status + ')'); });
+    }).then(function () {
+      lblEl.innerText = '✓ Saved';
+      formEl.querySelectorAll('.ff-input').forEach(function (i) { i.value = ''; });
+      setTimeout(function () { lblEl.innerText = orig; submitBtn.disabled = false; }, 1800);
+    }).catch(function (err) {
+      alert(err.message);
+      lblEl.innerText = orig;
+      submitBtn.disabled = false;
+    });
   }
 
   // Media picker — populated from the same session media the left gallery shows.
@@ -1334,6 +1448,51 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) 
         res.status(500).json({ error: 'Video render failed — try again.' });
     } finally {
         fs.unlink(overlayAbs).catch(() => {});
+    }
+});
+
+// ---------------------------------------------------- form submissions (PB)
+// A Form block's Submit button POSTs its field values here; they're stored in
+// the studio_form_submissions PocketBase collection keyed by session id. The
+// session id is the capability, consistent with the rest of the studio.
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/form-submit$/, async (req, res) => {
+    const id = req.params[0];
+    const fields = req.body?.fields;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        return res.status(400).json({ error: 'No form fields submitted.' });
+    }
+    const entries = Object.entries(fields).slice(0, 30)
+        .map(([k, v]) => [String(k).slice(0, 200), String(v ?? '').slice(0, 2000)]);
+    if (!entries.length) return res.status(400).json({ error: 'No form fields submitted.' });
+    try {
+        // Reject junk writes against ids that aren't real sessions.
+        const manifest = await fileManifest(id);
+        if (!manifest.length) return res.status(404).json({ error: 'Unknown session.' });
+        const rec = await pb.collection('studio_form_submissions').create({
+            session_id: id,
+            form_title: String(req.body?.form || '').slice(0, 200),
+            data: Object.fromEntries(entries),
+        });
+        res.json({ ok: true, id: rec.id });
+    } catch (err) {
+        logger.error(`studio form-submit error session=${id}: ${err.message}`);
+        res.status(500).json({ error: 'Could not save the submission — try again.' });
+    }
+});
+
+router.get(/^\/build\/([a-f0-9]{16})\/studio\/submissions$/, async (req, res) => {
+    const id = req.params[0];
+    try {
+        const items = await pb.collection('studio_form_submissions').getFullList({
+            filter: `session_id = "${id}"`, sort: '-created',
+        });
+        res.json({
+            submissions: items.map(i => ({ id: i.id, form: i.form_title, data: i.data, created: i.created })),
+        });
+    } catch (err) {
+        logger.error(`studio submissions list error session=${id}: ${err.message}`);
+        res.status(500).json({ error: 'Could not load submissions.' });
     }
 });
 
