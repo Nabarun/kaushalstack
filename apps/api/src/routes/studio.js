@@ -480,7 +480,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var del = e.target.closest('.thumb-del');
     if (del) {
       e.stopPropagation();
-      deleteImage(del.dataset.path, del.closest('.thumb-wrap'));
+      deleteMedia(del.dataset.path, del.closest('.thumb-wrap'));
     }
   });
   function selectText(el) {
