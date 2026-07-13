@@ -181,6 +181,41 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .thumb-del:hover { background: #dc2626; }
   .thumb-badge { position: absolute; left: 5px; bottom: 5px; font-size: 9.5px; font-weight: 600; letter-spacing: .02em;
     padding: 2px 6px; border-radius: 999px; background: rgba(15,23,42,.65); color: #fff; pointer-events: none; }
+  /* drag-and-drop element palette + card blocks */
+  .palette { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 6px 0 8px; }
+  .pal-item { border: 1px dashed #cbd5e1; border-radius: 8px; padding: 8px 6px; font-size: 12px; text-align: center;
+    color: #475569; cursor: grab; background: #f8fafc; user-select: none; }
+  .pal-item:hover { border-color: #2563eb; color: #1d4ed8; }
+  .drop-line { height: 3px; background: #2563eb; border-radius: 2px; margin: 2px 0; }
+  .dragover-zone { background: rgba(37,99,235,.06); border-radius: 6px; }
+  .cblock { position: relative; margin: 6px 0; }
+  .cblock:hover { outline: 1px dashed #93c5fd; outline-offset: 3px; border-radius: 4px; }
+  .cblock-handle { position: absolute; left: -16px; top: 2px; font-size: 11px; color: #94a3b8; cursor: grab; opacity: 0; }
+  .cblock-del { position: absolute; right: -14px; top: 0; width: 16px; height: 16px; border: none; border-radius: 50%;
+    background: rgba(15,23,42,.55); color: #fff; font-size: 9px; line-height: 16px; padding: 0; cursor: pointer; opacity: 0; }
+  .cblock:hover .cblock-handle, .cblock:hover .cblock-del { opacity: 1; }
+  .blk-header { font-size: 22px; font-weight: 700; line-height: 1.25; }
+  .blk-paragraph { font-size: 13px; line-height: 1.5; color: #334155; }
+  .blk-divider { border-top: 1px solid #e2e8f0; margin: 8px 0; }
+  .cblock-button { text-align: center; }
+  .blk-button { display: inline-block; background: #2563eb; color: #fff; border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 600; }
+  .blk-form { display: flex; gap: 6px; }
+  .blk-form-input { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #94a3b8; background: #fff; }
+  .blk-form-btn { background: #0f172a; color: #fff; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 600; }
+  .blk-media { aspect-ratio: 16/9; background: #f1f5f9; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .blk-media-hint { font-size: 12px; color: #94a3b8; padding: 0 10px; text-align: center; }
+  .blk-media img, .blk-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .blk-cols { display: flex; gap: 10px; }
+  .blk-col { flex: 1; min-height: 56px; border: 1px dashed #e2e8f0; border-radius: 8px; padding: 4px 6px; }
+  #card.exporting .blk-col { border-color: transparent; }
+  #card.exporting .cblock-handle, #card.exporting .cblock-del { display: none; }
+  #card.exporting .cblock { outline: none; }
+  #card.exporting .blk-media.empty { visibility: hidden; }
+  .picker-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .picker-box { background: #fff; border-radius: 14px; padding: 18px; width: min(560px, 92vw); max-height: 80vh; overflow-y: auto; }
+  .picker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .picker-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid transparent; }
+  .picker-thumb:hover { border-color: #2563eb; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
   .composer-side { display: flex; flex-direction: column; gap: 16px; }
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
@@ -264,6 +299,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
     <h2 id="mediaHeading">Media (${media.length})</h2>
     <div class="thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
+    <h2>Elements</h2>
+    <div class="palette">
+      <div class="pal-item" draggable="true" data-el="header">H&nbsp;&nbsp;Header</div>
+      <div class="pal-item" draggable="true" data-el="paragraph">¶&nbsp;&nbsp;Paragraph</div>
+      <div class="pal-item" draggable="true" data-el="divider">—&nbsp;&nbsp;Divider</div>
+      <div class="pal-item" draggable="true" data-el="form">▭&nbsp;&nbsp;Form</div>
+      <div class="pal-item" draggable="true" data-el="media">▦&nbsp;&nbsp;Image / Video</div>
+      <div class="pal-item" draggable="true" data-el="columns">◫&nbsp;&nbsp;Columns</div>
+      <div class="pal-item" draggable="true" data-el="button">⬭&nbsp;&nbsp;Button</div>
+    </div>
+    <div class="hint">Drag an element onto the card — dropping “Image / Video” opens your media to pick from.</div>
   </aside>
   <section class="composer">
     <div class="panel">
@@ -396,6 +442,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get more text variants” for a LinkedIn/Facebook/Twitter/Instagram rewrite of the current caption.</div></div>
     </div>
   </section>
+</div>
+<div class="picker-overlay" id="mediaPicker" onclick="if (event.target === this) closeMediaPicker()">
+  <div class="picker-box">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <h2 style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#64748b">Choose an image or video</h2>
+      <button class="btn" type="button" onclick="closeMediaPicker()" style="background:#e2e8f0;color:#0f172a">Close</button>
+    </div>
+    <div class="picker-grid" id="pickerGrid"></div>
+  </div>
 </div>
 <script>
   // A thumbnail is either an <img> (data-type="image") or a <video>
@@ -775,36 +830,199 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   // Re-blur against the new pixels whenever the card image is swapped.
   (function () { var ci = document.getElementById('card-img'); if (ci) ci.addEventListener('load', renderAllBlurBoxes); })();
 
+  // ---- Drag & drop builder: palette elements dropped onto the card body ----
+  var blockSeq = 0;
+  var dropLine = document.createElement('div');
+  dropLine.className = 'drop-line';
+
+  document.querySelectorAll('.pal-item').forEach(function (p) {
+    p.addEventListener('dragstart', function (e) {
+      e.dataTransfer.setData('text/ks-element', p.getAttribute('data-el'));
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+  });
+
+  function findInsertBefore(zone, y) {
+    var kids = Array.prototype.filter.call(zone.children, function (k) { return k !== dropLine; });
+    for (var i = 0; i < kids.length; i++) {
+      var r = kids[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return kids[i];
+    }
+    return null;
+  }
+
+  function wireDropzone(zone, allowColumns) {
+    zone.addEventListener('dragover', function (e) {
+      var types = e.dataTransfer.types;
+      if (Array.prototype.indexOf.call(types, 'text/ks-element') === -1
+          && Array.prototype.indexOf.call(types, 'text/ks-block') === -1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('dragover-zone');
+      var before = findInsertBefore(zone, e.clientY);
+      if (before) zone.insertBefore(dropLine, before); else zone.appendChild(dropLine);
+    });
+    zone.addEventListener('dragleave', function (e) {
+      if (!e.relatedTarget || !zone.contains(e.relatedTarget)) {
+        zone.classList.remove('dragover-zone');
+        if (dropLine.parentNode === zone) dropLine.remove();
+      }
+    });
+    zone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('dragover-zone');
+      var before = findInsertBefore(zone, e.clientY);
+      dropLine.remove();
+      var blockId = e.dataTransfer.getData('text/ks-block');
+      if (blockId) {
+        var moving = document.getElementById(blockId);
+        if (moving && moving !== zone && !moving.contains(zone)
+            && (allowColumns || moving.getAttribute('data-type') !== 'columns')) {
+          if (before) zone.insertBefore(moving, before); else zone.appendChild(moving);
+        }
+        return;
+      }
+      var type = e.dataTransfer.getData('text/ks-element');
+      if (!type || (type === 'columns' && !allowColumns)) return;
+      var block = createBlock(type);
+      if (before) zone.insertBefore(block, before); else zone.appendChild(block);
+      // Only a drag-dropped Image/Video block opens the media picker — the
+      // main media section keeps its own gallery-click behaviour.
+      if (type === 'media') openMediaPicker(block.querySelector('.blk-media'));
+    });
+  }
+
+  function editableEl(tag, cls, text) {
+    var el = document.createElement(tag);
+    el.className = cls;
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    el.innerText = text;
+    return el;
+  }
+
+  function createBlock(type) {
+    blockSeq++;
+    var b = document.createElement('div');
+    b.className = 'cblock cblock-' + type;
+    b.id = 'cblock-' + blockSeq;
+    b.setAttribute('data-type', type);
+    if (type === 'header') {
+      b.appendChild(editableEl('div', 'blk-header', 'Headline goes here'));
+    } else if (type === 'paragraph') {
+      b.appendChild(editableEl('div', 'blk-paragraph', 'Write a short paragraph…'));
+    } else if (type === 'divider') {
+      var d = document.createElement('div'); d.className = 'blk-divider'; b.appendChild(d);
+    } else if (type === 'button') {
+      b.appendChild(editableEl('span', 'blk-button', 'Call to action'));
+    } else if (type === 'form') {
+      var f = document.createElement('div'); f.className = 'blk-form';
+      f.appendChild(editableEl('span', 'blk-form-input', 'Your email'));
+      f.appendChild(editableEl('span', 'blk-form-btn', 'Sign up'));
+      b.appendChild(f);
+    } else if (type === 'media') {
+      var m = document.createElement('div'); m.className = 'blk-media empty';
+      m.innerHTML = '<span class="blk-media-hint">▦ Click to choose an image or video</span>';
+      m.addEventListener('click', function () { openMediaPicker(m); });
+      b.appendChild(m);
+    } else if (type === 'columns') {
+      var c = document.createElement('div'); c.className = 'blk-cols';
+      for (var i = 0; i < 2; i++) {
+        var col = document.createElement('div'); col.className = 'blk-col';
+        wireDropzone(col, false);
+        c.appendChild(col);
+      }
+      b.appendChild(c);
+    }
+    var handle = document.createElement('span');
+    handle.className = 'cblock-handle'; handle.textContent = '⠿'; handle.title = 'Drag to reorder';
+    handle.draggable = true;
+    handle.addEventListener('dragstart', function (e) {
+      e.dataTransfer.setData('text/ks-block', b.id);
+      e.dataTransfer.effectAllowed = 'move';
+      e.stopPropagation();
+    });
+    var del = document.createElement('button');
+    del.className = 'cblock-del'; del.type = 'button'; del.textContent = '✕'; del.title = 'Remove';
+    del.addEventListener('click', function () { b.remove(); });
+    b.appendChild(handle);
+    b.appendChild(del);
+    return b;
+  }
+
+  // Media picker — populated from the same session media the left gallery shows.
+  var pickerTarget = null;
+  function openMediaPicker(mediaEl) {
+    pickerTarget = mediaEl;
+    var grid = document.getElementById('pickerGrid');
+    grid.innerHTML = '';
+    var thumbs = document.querySelectorAll('.thumbs .thumb');
+    if (!thumbs.length) grid.innerHTML = '<div class="hint">No media in this session yet — upload one first.</div>';
+    thumbs.forEach(function (t) {
+      var isVid = (t.getAttribute('data-type') || t.tagName).toLowerCase() === 'video';
+      var src = (t.getAttribute('src') || '').replace(/#t=[\\d.]+$/, '');
+      var item;
+      if (isVid) {
+        item = document.createElement('video');
+        item.muted = true; item.preload = 'metadata';
+        item.src = src + '#t=0.1';
+      } else {
+        item = document.createElement('img');
+        item.src = src;
+      }
+      item.className = 'picker-thumb';
+      item.addEventListener('click', function () { applyPicked(src, isVid); });
+      grid.appendChild(item);
+    });
+    document.getElementById('mediaPicker').style.display = 'flex';
+  }
+  function closeMediaPicker() {
+    document.getElementById('mediaPicker').style.display = 'none';
+    pickerTarget = null;
+  }
+  function applyPicked(src, isVid) {
+    if (!pickerTarget) return;
+    pickerTarget.classList.remove('empty');
+    pickerTarget.innerHTML = '';
+    var el;
+    if (isVid) {
+      el = document.createElement('video');
+      el.src = src; el.muted = true; el.loop = true; el.autoplay = true;
+      el.setAttribute('playsinline', '');
+      el.play && el.play().catch(function () {});
+    } else {
+      el = document.createElement('img');
+      el.src = src; el.crossOrigin = 'anonymous';
+    }
+    pickerTarget.appendChild(el);
+    closeMediaPicker();
+  }
+
+  wireDropzone(document.getElementById('card-body'), true);
+
   function downloadCard() {
     var card = document.getElementById('card');
-    var video = document.getElementById('card-video');
-    var img = document.getElementById('card-img');
-    card.classList.add('exporting'); // hide blur-box handles/borders in the PNG
+    card.classList.add('exporting'); // hide block/blur-box chrome in the PNG
 
-    // html2canvas can't paint a <video> element at all — it leaves the
-    // region blank. If a video is the active media, grab its current frame
-    // onto an offscreen canvas and swap it in as the <img> src just for the
-    // capture, so the export is a still of exactly what's on screen —
-    // gradient, text zones and all — rather than an empty box.
-    var restoreVideo = null;
-    if (video.style.display !== 'none' && video.currentSrc) {
+    // html2canvas can't paint <video> elements at all — it leaves the region
+    // blank. Swap EVERY visible video in the card (main media + any dropped
+    // media blocks) for a still of its current frame, capture, then restore.
+    var restores = [];
+    Array.prototype.forEach.call(card.querySelectorAll('video'), function (v) {
+      if (!v.currentSrc || v.offsetParent === null || v.style.display === 'none') return;
       try {
-        var vw = video.videoWidth, vh = video.videoHeight;
         var off = document.createElement('canvas');
-        off.width = vw; off.height = vh;
-        off.getContext('2d').drawImage(video, 0, 0, vw, vh);
-        var frameUrl = off.toDataURL('image/png');
-        var prevImgSrc = img.src, prevImgDisplay = img.style.display;
-        img.src = frameUrl;
-        img.style.display = 'block';
-        video.style.display = 'none';
-        restoreVideo = function () {
-          img.src = prevImgSrc;
-          img.style.display = prevImgDisplay;
-          video.style.display = 'block';
-        };
+        off.width = v.videoWidth; off.height = v.videoHeight;
+        off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
+        var snap = document.createElement('img');
+        snap.src = off.toDataURL('image/png');
+        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        v.style.display = 'none';
+        v.parentNode.insertBefore(snap, v);
+        restores.push(function () { snap.remove(); v.style.display = 'block'; });
       } catch (e) { /* cross-origin or decode failure — export what html2canvas can see */ }
-    }
+    });
 
     // Webfonts (Fraunces/Poppins/Playfair) load async — capturing before
     // they're ready silently rasterizes the fallback font instead.
@@ -812,12 +1030,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' });
     }).then(function (canvas) {
       var a = document.createElement('a');
-      a.download = 'card-' + Date.now() + (restoreVideo ? '-frame' : '') + '.png';
+      a.download = 'card-' + Date.now() + (restores.length ? '-frame' : '') + '.png';
       a.href = canvas.toDataURL('image/png');
       a.click();
     }).finally(function () {
       card.classList.remove('exporting');
-      if (restoreVideo) restoreVideo();
+      restores.forEach(function (r) { r(); });
     });
   }
 
