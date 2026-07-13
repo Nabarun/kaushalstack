@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import multer from 'multer';
 import logger from '../utils/logger.js';
 import { safeResolve, fileManifest } from '../builder/workspace.js';
@@ -306,6 +307,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </button>
         <button class="btn btn-blue" type="button" onclick="addBlurBox()" title="Drag a soft-blur box over the image to hide a value (e.g. a number on a chart)">+ Blur box on image</button>
         <button class="btn btn-dark" onclick="downloadCard()">Download card as PNG</button>
+        <button class="btn btn-dark" id="videoExportBtn" style="display:none" onclick="downloadVideoWithOverlay()"
+                title="Burns the gradient and text into the video itself — comes back as a ready-to-post MP4">Download as video</button>
       </div>
       <div class="hint" style="margin-top:8px">Pick an image on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download when it looks right.</div>
     </div>
@@ -408,6 +411,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       vid.removeAttribute('src');
       vid.style.display = 'none';
     }
+    document.getElementById('videoExportBtn').style.display = isVideo ? '' : 'none';
     var slug = el.getAttribute('data-slug');
     if (slug) document.getElementById('img-query').value = slug;
     document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
@@ -807,6 +811,53 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       if (restoreVideo) restoreVideo();
     });
   }
+
+  // Export the video itself with the gradient + text burned into every frame.
+  // The overlay is captured client-side as a transparent PNG of #card-img-wrap
+  // (video pixels hidden via visibility so layout is preserved), then ffmpeg
+  // on the server composites it over the full clip.
+  function downloadVideoWithOverlay() {
+    var vid = document.getElementById('card-video');
+    var wrap = document.getElementById('card-img-wrap');
+    var card = document.getElementById('card');
+    var btn = document.getElementById('videoExportBtn');
+    if (vid.style.display === 'none' || !vid.currentSrc) {
+      alert('Pick a video first — this export burns your text and gradient into the video itself.');
+      return;
+    }
+    var relPath;
+    try { relPath = decodeURIComponent(new URL(vid.currentSrc).pathname.split('/preview/')[1] || ''); } catch (e) { relPath = ''; }
+    if (!relPath) { alert('Could not work out which video file is loaded.'); return; }
+    btn.disabled = true;
+    btn.textContent = 'Rendering video… (can take a minute)';
+    card.classList.add('exporting');
+    vid.style.visibility = 'hidden'; // hide pixels, keep layout, so the snapshot is overlay-only
+    (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
+      return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null });
+    }).then(function (canvas) {
+      vid.style.visibility = '';
+      card.classList.remove('exporting');
+      return fetch('render-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: relPath, overlay: canvas.toDataURL('image/png') })
+      });
+    }).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Render failed (' + r.status + ')'); return d; });
+    }).then(function (d) {
+      var a = document.createElement('a');
+      a.href = location.href.replace(/studio\\/$/, 'preview/') + d.path;
+      a.download = 'card-video-' + Date.now() + '.mp4';
+      a.click();
+    }).catch(function (err) {
+      alert(err.message);
+    }).finally(function () {
+      vid.style.visibility = '';
+      card.classList.remove('exporting');
+      btn.disabled = false;
+      btn.textContent = 'Download as video';
+    });
+  }
 </script>
 </body>
 </html>`;
@@ -966,6 +1017,67 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/upload$/, (req, res) => {
             res.status(500).json({ error: 'Upload failed — try again.' });
         }
     });
+});
+
+// ------------------------------------------------------ render-video (JSON)
+// Burns the card's overlay (gradient + text layers, sent by the client as a
+// transparent PNG snapshot of #card-img-wrap) into every frame of a session
+// video with ffmpeg, and saves the result into the workspace for download.
+// Pure local CPU — no external API, no metered cost.
+
+const FFMPEG_TIMEOUT_MS = 3 * 60 * 1000;
+const RENDER_MAX_SECONDS = 120; // hard cap on output duration as a CPU guard
+
+function runFfmpeg(args) {
+    return new Promise((resolve, reject) => {
+        const child = spawn('ffmpeg', args);
+        let stderr = '';
+        const timer = setTimeout(() => {
+            child.kill('SIGKILL');
+            reject(new Error('ffmpeg timed out'));
+        }, FFMPEG_TIMEOUT_MS);
+        child.stderr.on('data', d => { stderr += d.toString(); });
+        child.on('error', err => { clearTimeout(timer); reject(err); });
+        child.on('close', code => {
+            clearTimeout(timer);
+            if (code === 0) resolve();
+            else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-400).trim()}`));
+        });
+    });
+}
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) => {
+    const id = req.params[0];
+    const relPath = String(req.body?.path || '');
+    const overlay = String(req.body?.overlay || '');
+    if (!VIDEO_RE.test(relPath)) return res.status(400).json({ error: 'Not a video path.' });
+    const m = overlay.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) return res.status(400).json({ error: 'Missing or invalid overlay image.' });
+    const overlayAbs = `${await safeResolve(id, `assets/render-overlay-${Date.now()}.png`)}`;
+    try {
+        const videoAbs = await safeResolve(id, relPath);
+        await fs.stat(videoAbs); // throws if missing
+        await fs.writeFile(overlayAbs, Buffer.from(m[1], 'base64'));
+        const outRel = `assets/export-${Date.now()}.mp4`;
+        const outAbs = await safeResolve(id, outRel);
+        // scale2ref stretches the overlay to the video's exact dimensions —
+        // the client's snapshot has the same aspect ratio as the displayed
+        // video region (object-fit: cover of the same box), so no distortion.
+        await runFfmpeg([
+            '-y', '-i', videoAbs, '-i', overlayAbs,
+            '-filter_complex', '[1:v][0:v]scale2ref[ov][base];[base][ov]overlay=0:0:format=auto',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+            '-c:a', 'copy', '-t', String(RENDER_MAX_SECONDS),
+            '-movflags', '+faststart', outAbs,
+        ]);
+        const stat = await fs.stat(outAbs);
+        res.json({ path: outRel, bytes: stat.size });
+    } catch (err) {
+        logger.error(`studio render-video error session=${id} path=${relPath}: ${err.message}`);
+        res.status(500).json({ error: 'Video render failed — try again.' });
+    } finally {
+        fs.unlink(overlayAbs).catch(() => {});
+    }
 });
 
 export default router;

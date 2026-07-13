@@ -8,7 +8,10 @@ FROM node:20-alpine
 # on Alpine). nss/freetype/harfbuzz are Chromium runtime deps; the two font
 # packages avoid tofu boxes for any glyph that renders before the Google Fonts
 # CDN request Tara's HTML makes resolves.
-RUN apk add --no-cache openssh-client rsync sshpass \
+# ffmpeg burns Card Studio's gradient/text overlay into an uploaded video for
+# the "Download as video" export (src/routes/studio.js) — composites a
+# transparent PNG overlay onto every frame via the overlay filter.
+RUN apk add --no-cache openssh-client rsync sshpass ffmpeg \
     chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
