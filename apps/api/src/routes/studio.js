@@ -136,12 +136,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
               <button class="thumb-del" type="button" data-path="${esc(f.path)}" title="Delete this image">✕</button>
             </div>`).join('');
 
-        const textsHtml = texts.map(t => `
-            <div class="txt-item" onclick="selectText(this.querySelector('.txt-body'))">
-                <div class="txt-path">${esc(t.path)}</div>
-                <div class="txt-body">${esc(t.text)}</div>
-            </div>`).join('');
-
         const page = `<!doctype html>
 <html lang="en">
 <head>
@@ -187,10 +181,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .thumb-del:hover { background: #dc2626; }
   .thumb-badge { position: absolute; left: 5px; bottom: 5px; font-size: 9.5px; font-weight: 600; letter-spacing: .02em;
     padding: 2px 6px; border-radius: 999px; background: rgba(15,23,42,.65); color: #fff; pointer-events: none; }
-  .txt-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
-  .txt-item:hover { border-color: #93c5fd; background: #f8fafc; }
-  .txt-path { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; margin-bottom: 4px; }
-  .txt-body { font-size: 13px; line-height: 1.45; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
   .composer-side { display: flex; flex-direction: column; gap: 16px; }
   #card { width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
@@ -274,8 +264,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
     <h2 id="mediaHeading">Media (${media.length})</h2>
     <div class="thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
-    <h2>Texts (${texts.length})</h2>
-    ${textsHtml || '<div class="hint">No caption files in this session.</div>'}
   </aside>
   <section class="composer">
     <div class="panel">
