@@ -403,6 +403,13 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
                     title="Burns the gradient and text into the video itself — comes back as a ready-to-post MP4">Download as video (MP4)</button>
           </div>
         </div>
+        <div class="ctl-group" id="publishGroup" style="display:none">
+          <div class="ctl-label">Publish</div>
+          <div class="ctl-row">
+            <button class="btn" id="fbPublishBtn" style="background:#1877f2;color:#fff" onclick="publishToParent()">Publish to Facebook</button>
+          </div>
+          <div id="fbPublishResult" class="hint" style="margin-top:6px"></div>
+        </div>
       </div>
       <div class="hint" style="margin-top:12px">Pick an image or video on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download as a PNG image, or as an MP4 video with your text and gradient burned in.</div>
     </div>
@@ -1301,6 +1308,119 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       btn.disabled = false;
       btn.textContent = 'Download as video';
     });
+  }
+
+  // ---- Publish to Facebook -------------------------------------------------
+  // Composes the card exactly like the downloads (PNG for images, or the
+  // overlay-burned MP4 for videos), then hands it to the server which posts it
+  // to a connected Page. Page tokens live only on the server.
+
+  function composeCardPng() {
+    var card = document.getElementById('card');
+    card.classList.add('exporting');
+    var restores = [];
+    var body = document.getElementById('card-body');
+    if (body && !card.classList.contains('overlay-text') && body.scrollHeight > body.clientHeight + 2) {
+      var wrap = document.getElementById('card-img-wrap');
+      var pWrapH = wrap.style.height, pCardH = card.style.height, pAR = card.style.aspectRatio, pOv = body.style.overflow;
+      wrap.style.height = wrap.offsetHeight + 'px'; card.style.aspectRatio = 'auto'; card.style.height = 'auto'; body.style.overflow = 'visible';
+      restores.push(function () { wrap.style.height = pWrapH; card.style.height = pCardH; card.style.aspectRatio = pAR; body.style.overflow = pOv; });
+    }
+    Array.prototype.forEach.call(card.querySelectorAll('video'), function (v) {
+      if (!v.currentSrc || v.offsetParent === null || v.style.display === 'none') return;
+      try {
+        var off = document.createElement('canvas'); off.width = v.videoWidth; off.height = v.videoHeight;
+        off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
+        var snap = document.createElement('img'); snap.src = off.toDataURL('image/png');
+        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        v.style.display = 'none'; v.parentNode.insertBefore(snap, v);
+        restores.push(function () { snap.remove(); v.style.display = 'block'; });
+      } catch (e) {}
+    });
+    return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
+      .then(function () { return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' }); })
+      .then(function (canvas) { return canvas.toDataURL('image/png'); })
+      .finally(function () { card.classList.remove('exporting'); restores.forEach(function (r) { r(); }); });
+  }
+
+  // Renders the overlay onto the active video server-side and returns the MP4's
+  // workspace path (same pipeline the video download uses).
+  function composeCardVideoPath() {
+    var vid = document.getElementById('card-video');
+    var wrap = document.getElementById('card-img-wrap');
+    var card = document.getElementById('card');
+    var relPath;
+    try { relPath = decodeURIComponent(new URL(vid.currentSrc).pathname.split('/preview/')[1] || ''); } catch (e) { relPath = ''; }
+    if (!relPath) return Promise.reject(new Error('Could not work out which video is loaded.'));
+    card.classList.add('exporting'); vid.style.display = 'none';
+    return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
+      .then(function () { return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null }); })
+      .then(function (canvas) {
+        vid.style.display = 'block'; card.classList.remove('exporting');
+        return fetch('render-video', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: relPath, overlay: canvas.toDataURL('image/png') }) });
+      })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Render failed'); return d.path; }); })
+      .finally(function () { vid.style.display = 'block'; card.classList.remove('exporting'); });
+  }
+
+  function currentCaption() {
+    var el = document.getElementById(activeTextId) || document.querySelector('.card-text-layer');
+    return el ? el.innerText.trim() : '';
+  }
+  function activeIsVideo() {
+    var v = document.getElementById('card-video');
+    return v.style.display !== 'none' && !!v.currentSrc;
+  }
+
+  // Publishing is owned by the host portal (the Mr n Mr admin app that embeds
+  // this studio in an iframe) — it holds the "connect once" Facebook token.
+  // Studio's job is only to COMPOSE the card and hand the finished asset up to
+  // the parent, which posts it to the connected Page. So this button just
+  // exists when we're embedded; the connect flow + Page picker live in the host.
+  var fbBtn = document.getElementById('fbPublishBtn');
+  function publishToParent() {
+    var result = document.getElementById('fbPublishResult');
+    fbBtn.disabled = true; fbBtn.textContent = 'Preparing…'; result.textContent = '';
+    var caption = currentCaption();
+    var prep = activeIsVideo()
+      ? composeCardVideoPath().then(function (path) {
+          return { type: 'ks-studio-publish', kind: 'video',
+                   videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path, caption: caption };
+        })
+      : composeCardPng().then(function (img) {
+          return { type: 'ks-studio-publish', kind: 'image', image: img, caption: caption };
+        });
+    prep.then(function (payload) {
+      var settled = false;
+      function onResult(e) {
+        if (!e.data || e.data.type !== 'ks-studio-publish-result') return;
+        settled = true; window.removeEventListener('message', onResult);
+        fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
+        if (e.data.ok) {
+          var link = e.data.permalink ? ' — <a href="' + esc(e.data.permalink) + '" target="_blank" rel="noopener">view ↗</a>' : '';
+          result.innerHTML = '<span style="color:#1b7a45">✓ ' + esc(e.data.note || 'Posted to Facebook.') + '</span>' + link;
+        } else {
+          result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(e.data.error || 'Publish failed.') + '</span>';
+        }
+      }
+      window.addEventListener('message', onResult);
+      (window.parent || window).postMessage(payload, '*');
+      fbBtn.textContent = 'Sent to portal…';
+      setTimeout(function () {
+        if (settled) return;
+        window.removeEventListener('message', onResult);
+        fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
+        result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">The portal didn\\'t respond — open this from the Mr n Mr portal to publish.</span>';
+      }, 45000);
+    }).catch(function (err) {
+      fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
+      result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(err.message) + '</span>';
+    });
+  }
+  // Only offer publishing when embedded in a host portal that can post for us.
+  if (window.parent && window.parent !== window) {
+    document.getElementById('publishGroup').style.display = '';
   }
 </script>
 </body>
