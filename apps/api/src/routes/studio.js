@@ -1385,11 +1385,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var caption = currentCaption();
     var prep = activeIsVideo()
       ? composeCardVideoPath().then(function (path) {
-          return { type: 'ks-studio-publish', kind: 'video',
+          return { type: 'ks-studio-publish', kind: 'video', sessionId: '${id}',
                    videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path, caption: caption };
         })
       : composeCardPng().then(function (img) {
-          return { type: 'ks-studio-publish', kind: 'image', image: img, caption: caption };
+          return { type: 'ks-studio-publish', kind: 'image', sessionId: '${id}', image: img, caption: caption };
         });
     prep.then(function (payload) {
       var settled = false;
