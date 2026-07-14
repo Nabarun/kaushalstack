@@ -251,9 +251,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #card-img-wrap.media-empty #card-img, #card-img-wrap.media-empty #card-video { display: none !important; }
   .media-empty-hint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #94a3b8; font-size: 12px; pointer-events: none; }
   #card-img-wrap.media-empty .media-empty-hint { display: flex; }
-  .layer-del-float { position: absolute; width: 18px; height: 18px; border: none; border-radius: 50%; background: rgba(220,38,38,.92);
-    color: #fff; font-size: 9px; line-height: 18px; padding: 0; cursor: pointer; z-index: 6; display: none; }
-  #card.exporting .media-del, #card.exporting .layer-del-float { display: none !important; }
+  #card.exporting .media-del { display: none !important; }
   #card.exporting #card-img-wrap.media-empty { background: #fff; }
   #card.exporting .media-empty-hint { display: none !important; }
   #card-img-wrap { position: relative; width: 100%; height: 56%; flex: none; }
@@ -645,10 +643,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function renderLayerPills() {
     var html = layers.map(function (id, i) {
       var sel = id === activeTextId ? ' sel' : '';
-      var rm = '<span class="rm" onclick="event.stopPropagation();removeTextLayer(\\'' + id + '\\')">✕</span>';
+      var rm = layers.length > 1
+        ? '<span class="rm" onclick="event.stopPropagation();removeTextLayer(\\'' + id + '\\')">✕</span>'
+        : '';
       return '<span class="layer-pill' + sel + '" onclick="selectLayer(\\'' + id + '\\')">Text ' + (i + 1) + rm + '</span>';
     }).join('');
-    document.getElementById('layerPills').innerHTML = html || '<span class="hint" style="font-size:11px">No caption — “+ Add text box” to add one.</span>';
+    document.getElementById('layerPills').innerHTML = html;
   }
 
   function syncControlsToLayer(el) {
@@ -704,7 +704,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     el.style.color = '#ffffff';
     el.addEventListener('focus', function () { selectLayer(id); });
     el.addEventListener('mousedown', function () { selectLayer(id); });
-    attachLayerHoverDelete(el);
     layers.push(id);
     moveTextLayerToPosition(el, 'over-top');
     // A second text box almost always means "on the image" — match the
@@ -716,18 +715,18 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     selectLayer(id);
   }
 
-  // Removes a caption layer entirely — including the last one, so the card
-  // can have no caption at all (called from the pill ✕ and the on-card ✕).
+  // Removes an added caption layer via its pill ✕. The last remaining layer
+  // can't be removed — the card always keeps at least one caption.
   function removeTextLayer(id) {
+    if (layers.length <= 1) return;
     var el = document.getElementById(id);
     if (el) el.remove();
     layers = layers.filter(function (x) { return x !== id; });
-    if (activeTextId === id) activeTextId = layers[0] || '';
+    if (activeTextId === id) activeTextId = layers[0];
     renderLayerPills();
     var act = document.getElementById(activeTextId);
     if (act) syncControlsToLayer(act);
     updateOverlayTextClass();
-    hideLayerDel();
   }
 
   function applyTextPosition(pos) {
@@ -807,33 +806,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     btn.parentElement.querySelectorAll('button').forEach(function (b) { b.classList.remove('sel'); });
     btn.classList.add('sel');
   }
-
-  // ---- On-card caption delete: a floating ✕ that follows the hovered text
-  // layer. Kept OUT of the contenteditable element so the ✕ glyph never leaks
-  // into the caption's innerText (which drives copy variants + form saves).
-  var layerDel = document.createElement('button');
-  layerDel.type = 'button'; layerDel.className = 'layer-del-float'; layerDel.textContent = '✕';
-  layerDel.title = 'Delete this caption';
-  document.getElementById('card').appendChild(layerDel);
-  var layerDelTarget = null, layerDelTimer = null;
-  function hideLayerDel() { layerDel.style.display = 'none'; layerDelTarget = null; }
-  function showLayerDelFor(el) {
-    clearTimeout(layerDelTimer);
-    var cardR = document.getElementById('card').getBoundingClientRect();
-    var r = el.getBoundingClientRect();
-    layerDel.style.left = Math.min(cardR.width - 20, Math.max(2, r.right - cardR.left - 20)) + 'px';
-    layerDel.style.top = Math.max(2, r.top - cardR.top + 2) + 'px';
-    layerDel.style.display = 'block';
-    layerDelTarget = el;
-  }
-  function attachLayerHoverDelete(el) {
-    el.addEventListener('mouseenter', function () { showLayerDelFor(el); });
-    el.addEventListener('mouseleave', function () { layerDelTimer = setTimeout(hideLayerDel, 350); });
-  }
-  layerDel.addEventListener('mouseenter', function () { clearTimeout(layerDelTimer); });
-  layerDel.addEventListener('mouseleave', hideLayerDel);
-  layerDel.addEventListener('click', function () { if (layerDelTarget) removeTextLayer(layerDelTarget.id); });
-  attachLayerHoverDelete(document.getElementById('card-text'));
 
   renderLayerPills();
 
