@@ -1340,6 +1340,20 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var el = document.getElementById(activeTextId) || document.querySelector('.card-text-layer');
     return el ? el.innerText.trim() : '';
   }
+  // Everything the card says, in reading order — caption layer(s) plus any
+  // dropped header/paragraph/button/form-title blocks — so a Facebook post
+  // carries ALL the card's text as its real (plain) message, not just the
+  // active caption. The styled version still lives in the image.
+  function collectCardText() {
+    var nodes = document.getElementById('card')
+      .querySelectorAll('.card-text-layer, .blk-header, .blk-paragraph, .blk-button, .blk-form-title');
+    var parts = [];
+    Array.prototype.forEach.call(nodes, function (n) {
+      var t = (n.innerText || '').trim();
+      if (t) parts.push(t);
+    });
+    return parts.join('\\n\\n');
+  }
   function activeIsVideo() {
     var v = document.getElementById('card-video');
     return v.style.display !== 'none' && !!v.currentSrc;
@@ -1354,7 +1368,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function publishToParent() {
     var result = document.getElementById('fbPublishResult');
     fbBtn.disabled = true; fbBtn.textContent = 'Preparing…'; result.textContent = '';
-    var caption = currentCaption();
+    var caption = collectCardText();
     var prep = activeIsVideo()
       ? composeCardVideoPath().then(function (path) {
           return { type: 'ks-studio-publish', kind: 'video', sessionId: '${id}',
