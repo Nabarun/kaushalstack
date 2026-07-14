@@ -125,9 +125,17 @@ no tester step. Do this once for the shared kaushalstack app.
 
 ## Facts to remember
 - **FB post text is plain** — no fonts/colors/bold/positioning. Styling only survives in
-  the image. Studio's "both" mode posts the styled card as the photo AND sends
-  `collectCardText()` (caption + all header/paragraph/button/form-title blocks) as the
-  plain post message.
+  the image. So Studio splits it: the **media** is composed WITHOUT text
+  (`composeCardImageNoText()` for images — forces full-bleed + hides all caption/overlay
+  text; `composeCardVideoPath(true)` for video — burns only the gradient), and the **text**
+  goes into the FB post message via `collectCardText()` (caption + all
+  header/paragraph/button/form-title blocks). Net: clean visual + real text in the post,
+  no duplicated text. (The "Download as image/video" exports still bake text in — only the
+  *publish* path strips it.)
+- **Clearing the published-posts log**: it's the `fb_posts` table in the portal's SQLite,
+  not on Facebook. Wipe it with:
+  `docker exec <portal>-web-1 node --input-type=module -e "import {DatabaseSync} from 'node:sqlite'; new DatabaseSync('/data/analytics.db').prepare('DELETE FROM fb_posts').run()"`
+  (clears the log + the "Published ✓" badges; the real FB posts are untouched).
 - **Rotate the shared App Secret before going live to real (non-tester) users** — it was
   pasted in plaintext during the mrnmr rollout, so it's in that session's transcript.
 - Page tokens are long-lived (~60 days) and refresh with use → the partner connects once.
