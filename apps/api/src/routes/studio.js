@@ -1315,9 +1315,43 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       .finally(function () { card.classList.remove('exporting'); restores.forEach(function (r) { r(); }); });
   }
 
+  // Facebook publish image: clean photo + gradient, NO text — because the text
+  // is posted as the FB message. Forces full-bleed image mode (photo fills the
+  // card, the caption body is hidden) and hides any overlay text layers, so a
+  // below-image caption or an over-image caption both drop out cleanly.
+  function composeCardImageNoText() {
+    var card = document.getElementById('card');
+    card.classList.add('exporting');
+    var restores = [function () { card.classList.remove('exporting'); }];
+    if (!card.classList.contains('overlay-text')) {
+      card.classList.add('overlay-text');
+      restores.push(function () { card.classList.remove('overlay-text'); });
+    }
+    Array.prototype.forEach.call(card.querySelectorAll('.card-text-layer'), function (t) {
+      var d = t.style.display; t.style.display = 'none';
+      restores.push(function () { t.style.display = d; });
+    });
+    Array.prototype.forEach.call(card.querySelectorAll('video'), function (v) {
+      if (!v.currentSrc || v.offsetParent === null || v.style.display === 'none') return;
+      try {
+        var off = document.createElement('canvas'); off.width = v.videoWidth; off.height = v.videoHeight;
+        off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
+        var snap = document.createElement('img'); snap.src = off.toDataURL('image/png');
+        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        v.style.display = 'none'; v.parentNode.insertBefore(snap, v);
+        restores.push(function () { snap.remove(); v.style.display = 'block'; });
+      } catch (e) {}
+    });
+    return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
+      .then(function () { return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' }); })
+      .then(function (canvas) { return canvas.toDataURL('image/png'); })
+      .finally(function () { restores.forEach(function (r) { r(); }); });
+  }
+
   // Renders the overlay onto the active video server-side and returns the MP4's
-  // workspace path (same pipeline the video download uses).
-  function composeCardVideoPath() {
+  // workspace path (same pipeline the video download uses). For Facebook we hide
+  // the text so ONLY the gradient burns in — text goes in the post message.
+  function composeCardVideoPath(noText) {
     var vid = document.getElementById('card-video');
     var wrap = document.getElementById('card-img-wrap');
     var card = document.getElementById('card');
@@ -1325,15 +1359,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     try { relPath = decodeURIComponent(new URL(vid.currentSrc).pathname.split('/preview/')[1] || ''); } catch (e) { relPath = ''; }
     if (!relPath) return Promise.reject(new Error('Could not work out which video is loaded.'));
     card.classList.add('exporting'); vid.style.display = 'none';
+    var hidden = [];
+    if (noText) {
+      Array.prototype.forEach.call(wrap.querySelectorAll('.card-text-layer'), function (t) {
+        hidden.push([t, t.style.display]); t.style.display = 'none';
+      });
+    }
+    var restoreText = function () { hidden.forEach(function (p) { p[0].style.display = p[1]; }); };
     return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
       .then(function () { return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null }); })
       .then(function (canvas) {
-        vid.style.display = 'block'; card.classList.remove('exporting');
+        vid.style.display = 'block'; card.classList.remove('exporting'); restoreText();
         return fetch('render-video', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: relPath, overlay: canvas.toDataURL('image/png') }) });
       })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Render failed'); return d.path; }); })
-      .finally(function () { vid.style.display = 'block'; card.classList.remove('exporting'); });
+      .finally(function () { vid.style.display = 'block'; card.classList.remove('exporting'); restoreText(); });
   }
 
   function currentCaption() {
@@ -1369,12 +1410,14 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var result = document.getElementById('fbPublishResult');
     fbBtn.disabled = true; fbBtn.textContent = 'Preparing…'; result.textContent = '';
     var caption = collectCardText();
+    // Text goes in the post message (caption), so the media itself is composed
+    // WITHOUT text — clean photo/video + gradient only.
     var prep = activeIsVideo()
-      ? composeCardVideoPath().then(function (path) {
+      ? composeCardVideoPath(true).then(function (path) {
           return { type: 'ks-studio-publish', kind: 'video', sessionId: '${id}',
                    videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path, caption: caption };
         })
-      : composeCardPng().then(function (img) {
+      : composeCardImageNoText().then(function (img) {
           return { type: 'ks-studio-publish', kind: 'image', sessionId: '${id}', image: img, caption: caption };
         });
     prep.then(function (payload) {
