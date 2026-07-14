@@ -404,9 +404,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         <div class="ctl-group" id="publishGroup" style="display:none">
           <div class="ctl-label">Publish</div>
           <div class="ctl-row">
-            <button class="btn" id="fbPublishBtn" style="background:#1877f2;color:#fff" onclick="publishToParent()">Publish to Facebook</button>
+            <button class="btn" id="fbPublishBtn" style="background:#1877f2;color:#fff" onclick="publishToParent('facebook')">Publish to Facebook</button>
+            <button class="btn" id="liPublishBtn" style="background:#0a66c2;color:#fff" onclick="publishToParent('linkedin')">Publish to LinkedIn</button>
           </div>
           <div id="fbPublishResult" class="hint" style="margin-top:6px"></div>
+          <div id="liPublishResult" class="hint" style="margin-top:6px"></div>
         </div>
       </div>
       <div class="hint" style="margin-top:12px">Pick an image or video on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download as a PNG image, or as an MP4 video with your text and gradient burned in.</div>
@@ -1412,45 +1414,54 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   // Studio's job is only to COMPOSE the card and hand the finished asset up to
   // the parent, which posts it to the connected Page. So this button just
   // exists when we're embedded; the connect flow + Page picker live in the host.
-  var fbBtn = document.getElementById('fbPublishBtn');
-  function publishToParent() {
-    var result = document.getElementById('fbPublishResult');
-    fbBtn.disabled = true; fbBtn.textContent = 'Preparing…'; result.textContent = '';
+  // One hand-off, two targets. The composed media + caption go up to the host
+  // portal (which holds the OAuth token); the portal posts to Facebook OR
+  // LinkedIn based on payload.target and replies with the same target.
+  var PUB = {
+    facebook: { btn: 'fbPublishBtn', result: 'fbPublishResult', label: 'Publish to Facebook', okNote: 'Posted to Facebook.' },
+    linkedin: { btn: 'liPublishBtn', result: 'liPublishResult', label: 'Publish to LinkedIn', okNote: 'Posted to LinkedIn.' }
+  };
+  function publishToParent(target) {
+    var cfg = PUB[target] || PUB.facebook;
+    var btn = document.getElementById(cfg.btn);
+    var result = document.getElementById(cfg.result);
+    btn.disabled = true; btn.textContent = 'Preparing…'; result.textContent = '';
     var caption = collectCardText();
     // Text goes in the post message (caption), so the media itself is composed
     // WITHOUT text — clean photo/video + gradient only.
     var prep = activeIsVideo()
       ? composeCardVideoPath(true).then(function (path) {
-          return { type: 'ks-studio-publish', kind: 'video', sessionId: '${id}',
+          return { type: 'ks-studio-publish', target: target, kind: 'video', sessionId: '${id}',
                    videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path, caption: caption };
         })
       : composeCardImageNoText().then(function (img) {
-          return { type: 'ks-studio-publish', kind: 'image', sessionId: '${id}', image: img, caption: caption };
+          return { type: 'ks-studio-publish', target: target, kind: 'image', sessionId: '${id}', image: img, caption: caption };
         });
     prep.then(function (payload) {
       var settled = false;
       function onResult(e) {
         if (!e.data || e.data.type !== 'ks-studio-publish-result') return;
+        if (e.data.target && e.data.target !== target) return; // a different target's reply
         settled = true; window.removeEventListener('message', onResult);
-        fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
+        btn.disabled = false; btn.textContent = cfg.label;
         if (e.data.ok) {
           var link = e.data.permalink ? ' — <a href="' + esc(e.data.permalink) + '" target="_blank" rel="noopener">view ↗</a>' : '';
-          result.innerHTML = '<span style="color:#1b7a45">✓ ' + esc(e.data.note || 'Posted to Facebook.') + '</span>' + link;
+          result.innerHTML = '<span style="color:#1b7a45">✓ ' + esc(e.data.note || cfg.okNote) + '</span>' + link;
         } else {
           result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(e.data.error || 'Publish failed.') + '</span>';
         }
       }
       window.addEventListener('message', onResult);
       (window.parent || window).postMessage(payload, '*');
-      fbBtn.textContent = 'Sent to portal…';
+      btn.textContent = 'Sent to portal…';
       setTimeout(function () {
         if (settled) return;
         window.removeEventListener('message', onResult);
-        fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
-        result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">The portal didn\\'t respond — open this from the Mr n Mr portal to publish.</span>';
+        btn.disabled = false; btn.textContent = cfg.label;
+        result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">The portal didn\\'t respond — open this from your portal to publish.</span>';
       }, 45000);
     }).catch(function (err) {
-      fbBtn.disabled = false; fbBtn.textContent = 'Publish to Facebook';
+      btn.disabled = false; btn.textContent = cfg.label;
       result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(err.message) + '</span>';
     });
   }
