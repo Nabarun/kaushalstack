@@ -1327,7 +1327,11 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       card.classList.add('overlay-text');
       restores.push(function () { card.classList.remove('overlay-text'); });
     }
+    // Drop the below-image caption only — it goes in the FB post message. Text
+    // placed OVER the image is a visual element positioned on the photo, so it
+    // must stay baked into the composed image.
     Array.prototype.forEach.call(card.querySelectorAll('.card-text-layer'), function (t) {
+      if ((t.dataset.position || 'below') !== 'below') return;
       var d = t.style.display; t.style.display = 'none';
       restores.push(function () { t.style.display = d; });
     });
@@ -1361,7 +1365,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     card.classList.add('exporting'); vid.style.display = 'none';
     var hidden = [];
     if (noText) {
+      // Only a below-image caption is dropped (it's in the FB post message).
+      // Over-image text is positioned on the video and must burn in.
       Array.prototype.forEach.call(wrap.querySelectorAll('.card-text-layer'), function (t) {
+        if ((t.dataset.position || 'below') !== 'below') return;
         hidden.push([t, t.style.display]); t.style.display = 'none';
       });
     }
