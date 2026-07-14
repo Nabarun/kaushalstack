@@ -25,6 +25,7 @@ import ResetPasswordPage from '@/pages/ResetPasswordPage.jsx';
 import ReviewPage from '@/pages/ReviewPage.jsx';
 import AboutPage from '@/pages/AboutPage.jsx';
 import ContactPage from '@/pages/ContactPage.jsx';
+import PrivacyPage from '@/pages/PrivacyPage.jsx';
 import DevelopersPage from '@/pages/DevelopersPage.jsx';
 import PartnerPortalPage from '@/pages/PartnerPortalPage.jsx';
 import BlogPage from '@/pages/BlogPage.jsx';
@@ -80,6 +81,7 @@ function App() {
               <Route path="/blog" element={<BlogPage />} />
               <Route path="/blog/:slug" element={<BlogPostPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
               <Route
                 path="/growth-partner"
                 element={

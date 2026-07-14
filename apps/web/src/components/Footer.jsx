@@ -62,8 +62,11 @@ const Footer = () => {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-secondary-foreground/10 text-center text-sm text-secondary-foreground/60">
+        <div className="mt-12 pt-8 border-t border-secondary-foreground/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-secondary-foreground/60">
           <p>© 2026 kaushalstack.com. Built with passion for the community.</p>
+          <Link to="/privacy" className="hover:text-secondary-foreground transition-colors">
+            Privacy Policy
+          </Link>
         </div>
       </div>
     </footer>
