@@ -240,9 +240,19 @@ async function appendChatTurn(chatId, userId, query, responses, kind = 'domain')
 // base instructions; the suffix is "earlier in this round table … now answer
 // this new question". OpenAI auto-caches identical prefixes; Anthropic uses
 // the explicit cache_control marker on the prefix block.
+// Persona depth scales inversely with team size. Small round tables get the
+// agent's full persona (knowledge-rich agents — e.g. private client-context
+// personas — are useless at 120 chars); big teams stay terse so the prefix
+// doesn't balloon. The roster lives in the prompt-cached PREFIX, so the extra
+// tokens are paid roughly once per chat, not on every turn.
+const PERSONA_CHARS_SMALL_TEAM = 3000;
+const PERSONA_CHARS_LARGE_TEAM = 120;
+const SMALL_TEAM_MAX = 6;
+
 function buildPrompt({ query, agents, priorTurns = [] }) {
+    const personaChars = agents.length <= SMALL_TEAM_MAX ? PERSONA_CHARS_SMALL_TEAM : PERSONA_CHARS_LARGE_TEAM;
     const agentList = agents.map((a, i) =>
-        `${i + 1}. ${a.agent_name} — ${a.name} (${a.category})\n   Skills: ${a.associated_tech_skills || 'general'}\n   Background: ${(a.description || '').slice(0, 120)}`
+        `${i + 1}. ${a.agent_name} — ${a.name} (${a.category})\n   Skills: ${a.associated_tech_skills || 'general'}\n   Background: ${(a.description || '').slice(0, personaChars)}`
     ).join('\n\n');
 
     // Stable across every turn of this chat — cache target.
@@ -551,9 +561,11 @@ const AGENT_THREAD_TURN_CAP = 10;       // user turns per agent (each turn = 1 u
 const AGENT_THREAD_MSG_MAX  = 4000;     // chars per user message
 
 function buildAgentThreadPrompt({ agent, originalQuery, originalResponse, thread, message }) {
+    // 1:1 threads carry a single agent, so the full persona is affordable —
+    // same reasoning as the small-team roster above.
     const systemPrompt = `You are ${agent.agent_name} — ${agent.name} (${agent.category}).
 Skills: ${agent.associated_tech_skills || 'general'}
-Background: ${(agent.description || '').slice(0, 240)}
+Background: ${(agent.description || '').slice(0, PERSONA_CHARS_SMALL_TEAM)}
 
 You just participated in a round-table discussion with the user and a few peers from your platform. The user now wants to follow up with YOU specifically — one-on-one. Stay in character, draw on the original discussion, and keep the conversation grounded in your specific domain.
 
