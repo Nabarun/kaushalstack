@@ -306,6 +306,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .seg button { border: none; background: #fff; padding: 6px 11px; font-size: 13px; cursor: pointer; color: #475569; }
   .seg button + button { border-left: 1px solid #cbd5e1; }
   .seg button.sel { background: #2563eb; color: #fff; }
+  .emoji-tray { display: flex; flex-wrap: wrap; gap: 2px; flex: 1 1 auto; max-height: 96px; overflow-y: auto; }
+  .emoji-btn { border: none; background: none; font-size: 19px; line-height: 1; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+  .emoji-btn:hover { background: #eff6ff; }
   .recs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .rec-thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; cursor: pointer; border: 2px solid transparent; }
   .rec-thumb:hover, .rec-thumb.sel { border-color: #2563eb; }
@@ -334,17 +337,20 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
     <h2 id="mediaHeading">Media (${media.length})</h2>
     <div class="thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
-    <h2>Elements</h2>
-    <div class="palette">
-      <div class="pal-item" draggable="true" data-el="header">H&nbsp;&nbsp;Header</div>
-      <div class="pal-item" draggable="true" data-el="paragraph">¶&nbsp;&nbsp;Paragraph</div>
-      <div class="pal-item" draggable="true" data-el="divider">—&nbsp;&nbsp;Divider</div>
-      <div class="pal-item" draggable="true" data-el="form">▭&nbsp;&nbsp;Form</div>
-      <div class="pal-item" draggable="true" data-el="media">▦&nbsp;&nbsp;Image / Video</div>
-      <div class="pal-item" draggable="true" data-el="columns">◫&nbsp;&nbsp;Columns</div>
-      <div class="pal-item" draggable="true" data-el="button">⬭&nbsp;&nbsp;Button</div>
+    <!-- Elements palette hidden for now — re-enable by removing display:none. -->
+    <div id="elementsSection" style="display:none">
+      <h2>Elements</h2>
+      <div class="palette">
+        <div class="pal-item" draggable="true" data-el="header">H&nbsp;&nbsp;Header</div>
+        <div class="pal-item" draggable="true" data-el="paragraph">¶&nbsp;&nbsp;Paragraph</div>
+        <div class="pal-item" draggable="true" data-el="divider">—&nbsp;&nbsp;Divider</div>
+        <div class="pal-item" draggable="true" data-el="form">▭&nbsp;&nbsp;Form</div>
+        <div class="pal-item" draggable="true" data-el="media">▦&nbsp;&nbsp;Image / Video</div>
+        <div class="pal-item" draggable="true" data-el="columns">◫&nbsp;&nbsp;Columns</div>
+        <div class="pal-item" draggable="true" data-el="button">⬭&nbsp;&nbsp;Button</div>
+      </div>
+      <div class="hint">Drag an element onto the card — dropping “Image / Video” opens your media to pick from.</div>
     </div>
-    <div class="hint">Drag an element onto the card — dropping “Image / Video” opens your media to pick from.</div>
   </aside>
   <section class="composer">
     <div class="panel">
@@ -477,6 +483,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           <button data-align="center" onclick="applyAlign('center', this)">≡</button>
           <button data-align="right" onclick="applyAlign('right', this)">⟹</button>
         </div>
+      </div>
+      <div class="style-row" style="align-items:flex-start">
+        <label style="margin-top:4px">Emoji</label>
+        <div class="emoji-tray" id="emojiTray"></div>
       </div>
     </div>
     <div class="panel">
@@ -810,6 +820,32 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
 
   renderLayerPills();
+
+  // ---- Emoji tray: click to drop an emoji into the active caption at the caret.
+  var EMOJIS = ['🌈','❤️','🔥','✨','🎉','🙌','👏','💬','📍','🗓️','🎬','😍','🥂','💖','⭐','🎈','🚀','✅','💡','👇','🤝','🌟','💫','🎯','📣','🫶','😊','💪','🎊','📸'];
+  function insertEmoji(e) {
+    var el = document.getElementById(activeTextId);
+    if (!el) return;
+    if (document.activeElement !== el) {
+      el.focus();
+      var sel = window.getSelection(); var range = document.createRange();
+      range.selectNodeContents(el); range.collapse(false); // caret to end
+      sel.removeAllRanges(); sel.addRange(range);
+    }
+    document.execCommand('insertText', false, e);
+  }
+  (function () {
+    var tray = document.getElementById('emojiTray');
+    if (!tray) return;
+    EMOJIS.forEach(function (e) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'emoji-btn'; b.textContent = e; b.title = 'Insert ' + e;
+      // mousedown + preventDefault keeps the caption focused so the emoji lands
+      // at the caret rather than jumping to the end.
+      b.addEventListener('mousedown', function (ev) { ev.preventDefault(); insertEmoji(e); });
+      tray.appendChild(b);
+    });
+  })();
 
   // ---- Blur boxes: redact a region of the card IMAGE (e.g. a value on a
   // chart). html2canvas ignores CSS filter:blur, so each box paints a soft
