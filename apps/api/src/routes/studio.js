@@ -559,6 +559,13 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   </div>
 </div>
 <script>
+  // Client-side HTML escaper (the server-side esc() is Node-only — publish
+  // results, previews and permalinks all render through this).
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
   // A thumbnail is either an <img> (data-type="image") or a <video>
   // (data-type="video") — selecting either shows/hides the matching element
   // in the card so the gradient + text zones (siblings of both, in
