@@ -26,6 +26,7 @@ as human docs **and** as skills an AI agent can load and follow.
 | Skill | What it's for |
 |---|---|
 | [`facebook-publishing`](facebook-publishing/SKILL.md) | Light up "Publish to Facebook" in a partner's Card Studio portal. One shared Meta app already exists — this is the **per-partner delta** to onboard a new partner (Meta config, portal code/env, `STUDIO_FRAME_ANCESTORS`, deploy/verify) plus a full troubleshooting table. |
+| [`social-aspect-ratios`](social-aspect-ratios/SKILL.md) | Pick the right aspect ratio + export resolution for social creatives — 2026 Facebook/Instagram/Meta-ads specs, decision rules (events → landscape 1.91:1, IG feed → 4:5, Stories → 9:16), grid-crop and safe-zone gotchas, and how Card Studio's Format selector maps to them. |
 
 ## Conventions
 

@@ -173,6 +173,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
      scroll, so the Elements palette + hint below stay visible instead of
      the whole column scrolling the palette out of reach. */
   aside.panel { max-height: calc(100vh - 110px); overflow: hidden; display: flex; flex-direction: column; }
+  /* Collapsible media library — closed by default; the icon rail expands it. */
+  .gallery-toggle { border: 1px solid #cbd5e1; background: #fff; border-radius: 10px; min-width: 34px; height: 34px;
+    font-size: 15px; cursor: pointer; margin-bottom: 10px; align-self: flex-start; }
+  .gallery-toggle:hover { border-color: #2563eb; }
+  .layout.gclosed { grid-template-columns: 56px minmax(380px, 1fr) minmax(260px, 320px); }
+  .layout.gclosed aside.panel { padding: 10px 8px; }
+  .layout.gclosed aside.panel > *:not(.gallery-toggle) { display: none !important; }
+  .layout.gclosed .gallery-toggle { align-self: center; margin-bottom: 0; }
+  @media (max-width: 880px) { .layout.gclosed { grid-template-columns: 1fr; } }
   aside.panel > h2, aside.panel > .palette, aside.panel > .hint, aside.panel > button, aside.panel > input, aside.panel > #uploadStatus { flex: none; }
   .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; flex: 1 1 auto; min-height: 96px; max-height: 340px; overflow-y: auto; }
   .thumb-wrap { position: relative; }
@@ -289,6 +298,24 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .ctl-group:first-child { margin-top: 0; }
   .ctl-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
   .ctl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* publish panel */
+  .pub-previews { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pub-mock { flex: 1 1 180px; max-width: 230px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+  .pub-mock-head { display: flex; align-items: center; gap: 7px; padding: 8px 10px; }
+  .pub-mock-avatar { width: 22px; height: 22px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
+  .pub-mock-name { font-size: 11px; font-weight: 600; color: #0f172a; line-height: 1.2; }
+  .pub-mock-sub { font-size: 9.5px; color: #94a3b8; }
+  .pub-mock-img { width: 100%; background: #f1f5f9; overflow: hidden; position: relative; }
+  .pub-mock-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pub-mock-cap { padding: 8px 10px; font-size: 10.5px; line-height: 1.45; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pub-mock-warn { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; font-size: 10px; color: #92400e; background: rgba(254,243,199,.92); }
+  .pub-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .pub-check { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #cbd5e1; border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; user-select: none; background: #fff; color: #334155; }
+  .pub-check:has(input:checked) { border-color: #2563eb; background: #eff6ff; }
+  .pub-check:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+  .pub-check input { margin: 0; accent-color: #2563eb; }
+  .pub-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .pub-result-line { font-size: 12px; margin-top: 4px; }
   .ctl-search { display: flex; gap: 8px; align-items: center; }
   .ctl-search input { flex: 1 1 160px; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
   .btn { border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; font-weight: 500; white-space: nowrap; }
@@ -332,6 +359,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 </header>
 <div class="layout">
   <aside class="panel">
+    <button id="galleryToggle" class="gallery-toggle" type="button" onclick="toggleGallery()" title="Show / hide the media library">🖼</button>
     <button class="btn btn-blue" type="button" onclick="document.getElementById('uploadInput').click()" style="width:100%;margin-bottom:12px">⬆ Upload image or video</button>
     <input type="file" id="uploadInput" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" style="display:none" onchange="uploadMedia(this.files[0])">
     <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
@@ -409,12 +437,24 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
         <div class="ctl-group" id="publishGroup" style="display:none">
           <div class="ctl-label">Publish</div>
-          <div class="ctl-row">
-            <button class="btn" id="fbPublishBtn" style="background:#1877f2;color:#fff" onclick="publishToParent('facebook')">Publish to Facebook</button>
-            <button class="btn" id="liPublishBtn" style="background:#0a66c2;color:#fff" onclick="publishToParent('linkedin')">Publish to LinkedIn</button>
+          <div class="pub-previews" id="pubPreviews"></div>
+          <div class="pub-row">
+            <label class="pub-check" id="pubCheckFb">
+              <input type="checkbox" id="pubFb" checked onchange="refreshPublishPanel()">
+              <span class="pub-dot" style="background:#1877f2"></span>Facebook
+            </label>
+            <label class="pub-check" id="pubCheckIg">
+              <input type="checkbox" id="pubIg" onchange="refreshPublishPanel()">
+              <span class="pub-dot" style="background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)"></span>Instagram
+            </label>
+            <label class="pub-check" id="pubCheckLi">
+              <input type="checkbox" id="pubLi" onchange="refreshPublishPanel()">
+              <span class="pub-dot" style="background:#0a66c2"></span>LinkedIn
+            </label>
+            <button class="btn btn-dark" id="pubGoBtn" onclick="publishSelected()">Publish</button>
           </div>
-          <div id="fbPublishResult" class="hint" style="margin-top:6px"></div>
-          <div id="liPublishResult" class="hint" style="margin-top:6px"></div>
+          <div class="hint" id="pubHint" style="margin-top:6px"></div>
+          <div id="pubResults" style="margin-top:6px"></div>
         </div>
       </div>
       <div class="hint" style="margin-top:12px">Pick an image or video on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download as a PNG image, or as an MP4 video with your text and gradient burned in.</div>
@@ -423,6 +463,16 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   <section class="composer-side">
     <div class="panel">
       <h2>Style</h2>
+      <div class="style-row">
+        <label for="formatSelect">Format</label>
+        <select id="formatSelect" onchange="applyFormat(this.value)" title="Sets the card's aspect ratio and the exported resolution">
+          <option value="square">Square 1:1 — 1080×1080</option>
+          <option value="portrait">Portrait 4:5 — 1080×1350 (IG/FB feed)</option>
+          <option value="grid">Grid 3:4 — 1080×1440 (IG grid)</option>
+          <option value="landscape">Landscape 1.91:1 — 1200×630 (events, link previews)</option>
+          <option value="story">Story 9:16 — 1080×1920 (Stories/Reels)</option>
+        </select>
+      </div>
       <div class="style-row">
         <div id="layerPills" class="layer-pills"></div>
         <button class="btn btn-blue" type="button" onclick="addTextLayer()" style="padding:6px 12px;font-size:12px">+ Add text box</button>
@@ -537,6 +587,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     if (slug) document.getElementById('img-query').value = slug;
     document.querySelectorAll('.thumb.sel, .rec-thumb.sel').forEach(function (n) { n.classList.remove('sel'); });
     el.classList.add('sel');
+    if (typeof refreshPublishPanel === 'function') refreshPublishPanel();
   }
   // Delete the card's main image/video — clears it to an empty placeholder;
   // pick any thumbnail on the left to fill it again.
@@ -617,6 +668,32 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   });
   function selectText(el) {
     document.getElementById(activeTextId).innerText = el.innerText;
+  }
+
+  // ---- Formats: 2026 Meta/Instagram specs. ar drives the on-screen card;
+  // w is the exported pixel width (height follows the ratio). IG feed accepts
+  // 4:5 through 1.91:1 — story 9:16 is Stories/Reels only. Events prefer
+  // landscape 1.91:1 (1200×630 doubles as the FB link-preview size).
+  var FORMATS = {
+    square:    { ar: '1 / 1',    w: 1080, igFeed: true,  name: 'Square 1:1' },
+    portrait:  { ar: '4 / 5',    w: 1080, igFeed: true,  name: 'Portrait 4:5' },
+    grid:      { ar: '3 / 4',    w: 1080, igFeed: true,  name: 'Grid 3:4' },
+    landscape: { ar: '1.91 / 1', w: 1200, igFeed: true,  name: 'Landscape 1.91:1' },
+    story:     { ar: '9 / 16',   w: 1080, igFeed: false, name: 'Story 9:16' }
+  };
+  var currentFormat = 'square';
+  function applyFormat(key) {
+    if (!FORMATS[key]) return;
+    currentFormat = key;
+    document.getElementById('card').style.aspectRatio = FORMATS[key].ar;
+    if (typeof renderAllBlurBoxes === 'function') renderAllBlurBoxes();
+    if (typeof refreshPublishPanel === 'function') refreshPublishPanel();
+  }
+  // Export scale so the captured PNG lands at the format's target width
+  // (e.g. 1080px) regardless of the card's on-screen size.
+  function exportScale() {
+    var w = document.getElementById('card').clientWidth || 440;
+    return Math.max(1, FORMATS[currentFormat].w / w);
   }
 
   var GRADIENTS = {
@@ -1257,7 +1334,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     // Webfonts (Fraunces/Poppins/Playfair) load async — capturing before
     // they're ready silently rasterizes the fallback font instead.
     (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
-      return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' });
+      return html2canvas(card, { useCORS: true, scale: exportScale(), backgroundColor: '#ffffff' });
     }).then(function (canvas) {
       var a = document.createElement('a');
       a.download = 'card-' + Date.now() + (videoSnapped ? '-frame' : '') + '.png';
@@ -1296,7 +1373,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     vid.style.display = 'none';
     var restore = function () { vid.style.display = 'block'; card.classList.remove('exporting'); };
     (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
-      return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null });
+      return html2canvas(wrap, { useCORS: true, scale: exportScale(), backgroundColor: null });
     }).then(function (canvas) {
       restore();
       return fetch('render-video', {
@@ -1348,7 +1425,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       } catch (e) {}
     });
     return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
-      .then(function () { return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' }); })
+      .then(function () { return html2canvas(card, { useCORS: true, scale: exportScale(), backgroundColor: '#ffffff' }); })
       .then(function (canvas) { return canvas.toDataURL('image/png'); })
       .finally(function () { card.classList.remove('exporting'); restores.forEach(function (r) { r(); }); });
   }
@@ -1385,7 +1462,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       } catch (e) {}
     });
     return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
-      .then(function () { return html2canvas(card, { useCORS: true, scale: 2, backgroundColor: '#ffffff' }); })
+      .then(function () { return html2canvas(card, { useCORS: true, scale: exportScale(), backgroundColor: '#ffffff' }); })
       .then(function (canvas) { return canvas.toDataURL('image/png'); })
       .finally(function () { restores.forEach(function (r) { r(); }); });
   }
@@ -1412,7 +1489,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     }
     var restoreText = function () { hidden.forEach(function (p) { p[0].style.display = p[1]; }); };
     return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
-      .then(function () { return html2canvas(wrap, { useCORS: true, scale: 2, backgroundColor: null }); })
+      .then(function () { return html2canvas(wrap, { useCORS: true, scale: exportScale(), backgroundColor: null }); })
       .then(function (canvas) {
         vid.style.display = 'block'; card.classList.remove('exporting'); restoreText();
         return fetch('render-video', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1445,66 +1522,177 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     return v.style.display !== 'none' && !!v.currentSrc;
   }
 
-  // Publishing is owned by the host portal (the Mr n Mr admin app that embeds
-  // this studio in an iframe) — it holds the "connect once" Facebook token.
-  // Studio's job is only to COMPOSE the card and hand the finished asset up to
-  // the parent, which posts it to the connected Page. So this button just
-  // exists when we're embedded; the connect flow + Page picker live in the host.
-  // One hand-off, two targets. The composed media + caption go up to the host
-  // portal (which holds the OAuth token); the portal posts to Facebook OR
-  // LinkedIn based on payload.target and replies with the same target.
-  var PUB = {
-    facebook: { btn: 'fbPublishBtn', result: 'fbPublishResult', label: 'Publish to Facebook', okNote: 'Posted to Facebook.' },
-    linkedin: { btn: 'liPublishBtn', result: 'liPublishResult', label: 'Publish to LinkedIn', okNote: 'Posted to LinkedIn.' }
-  };
-  function publishToParent(target) {
-    var cfg = PUB[target] || PUB.facebook;
-    var btn = document.getElementById(cfg.btn);
-    var result = document.getElementById(cfg.result);
-    btn.disabled = true; btn.textContent = 'Preparing…'; result.textContent = '';
+  // Publishing is owned by the host portal (which holds the OAuth tokens).
+  // Studio composes the media ONCE (clean, no text — the text is the post
+  // message), then hands off one postMessage PER SELECTED TARGET; the portal
+  // posts to Facebook / Instagram / LinkedIn and replies per target.
+  // Instagram's API fetches images from a public URL, so for IG the composed
+  // PNG is first saved into the session workspace (public preview URL).
+  var PLATFORM_LABEL = { facebook: 'Facebook', instagram: 'Instagram', linkedin: 'LinkedIn' };
+
+  function dataUrlToBlob(dataUrl) {
+    var bin = atob(dataUrl.split(',')[1]);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: 'image/png' });
+  }
+  function uploadComposed(blob) {
+    var fd = new FormData();
+    fd.append('file', blob, 'publish-card.png');
+    return fetch('upload', { method: 'POST', body: fd })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Could not stage the image for Instagram.'); return d.path; }); });
+  }
+
+  // Current media as a small preview src (video → current frame snapshot).
+  function previewMediaSrc() {
+    if (activeIsVideo()) {
+      var v = document.getElementById('card-video');
+      try {
+        var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0);
+        return c.toDataURL('image/png');
+      } catch (e) { return ''; }
+    }
+    var img = document.getElementById('card-img');
+    return (img && img.style.display !== 'none' && img.src) ? img.src : '';
+  }
+
+  function mockHtml(kind, src, caption, format) {
+    var isIg = kind === 'ig';
+    var head = isIg
+      ? '<div class="pub-mock-head"><span class="pub-mock-avatar" style="background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)">IG</span><div><div class="pub-mock-name">Instagram</div><div class="pub-mock-sub">Feed · grid crops to 3:4</div></div></div>'
+      : '<div class="pub-mock-head"><span class="pub-mock-avatar" style="background:#1877f2">f</span><div><div class="pub-mock-name">Facebook</div><div class="pub-mock-sub">Page post · just now</div></div></div>';
+    var warn = '';
+    var ar = format.ar;
+    if (isIg && !format.igFeed) {
+      ar = '4 / 5';
+      warn = '<div class="pub-mock-warn">9:16 is for Stories/Reels — IG feed needs 4:5 to 1.91:1. Switch Format to include Instagram.</div>';
+    }
+    var imgHtml = src ? '<img src="' + esc(src) + '" alt="">' : '';
+    return '<div class="pub-mock">' + head
+      + '<div class="pub-mock-img" style="aspect-ratio:' + ar + '">' + imgHtml + warn + '</div>'
+      + '<div class="pub-mock-cap">' + esc(caption || 'Your caption appears here as the post text.') + '</div></div>';
+  }
+
+  // Keeps checkboxes legal for the current card + rebuilds the previews.
+  function refreshPublishPanel() {
+    var group = document.getElementById('publishGroup');
+    if (!group || group.style.display === 'none') return;
+    var igCheck = document.getElementById('pubIg');
+    var igLabel = document.getElementById('pubCheckIg');
+    var hint = document.getElementById('pubHint');
+    var fmt = FORMATS[currentFormat];
+    var igBlock = activeIsVideo()
+      ? 'Instagram video isn\\'t supported yet — publish the image, or send the video to Facebook.'
+      : (!fmt.igFeed ? 'Story 9:16 is outside Instagram\\'s feed range (4:5 – 1.91:1).' : '');
+    if (igBlock) {
+      igCheck.checked = false; igCheck.disabled = true; igLabel.title = igBlock;
+    } else {
+      igCheck.disabled = false; igLabel.title = '';
+    }
+    hint.textContent = igBlock || ('Format: ' + fmt.name + ' · exports at ' + fmt.w + 'px wide · text posts as the caption, not baked into the media.');
+    var src = previewMediaSrc();
     var caption = collectCardText();
-    // Text goes in the post message (caption), so the media itself is composed
-    // WITHOUT text — clean photo/video + gradient only.
-    var prep = activeIsVideo()
-      ? composeCardVideoPath(true).then(function (path) {
-          return { type: 'ks-studio-publish', target: target, kind: 'video', sessionId: '${id}',
-                   videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path, caption: caption };
-        })
-      : composeCardImageNoText().then(function (img) {
-          return { type: 'ks-studio-publish', target: target, kind: 'image', sessionId: '${id}', image: img, caption: caption };
+    document.getElementById('pubPreviews').innerHTML = mockHtml('fb', src, caption, fmt) + mockHtml('ig', src, caption, fmt);
+    var any = document.getElementById('pubFb').checked || igCheck.checked || document.getElementById('pubLi').checked;
+    document.getElementById('pubGoBtn').disabled = !any;
+  }
+
+  function publishSelected() {
+    var targets = [];
+    if (document.getElementById('pubFb').checked) targets.push('facebook');
+    if (document.getElementById('pubIg').checked) targets.push('instagram');
+    if (document.getElementById('pubLi').checked) targets.push('linkedin');
+    var btn = document.getElementById('pubGoBtn');
+    var results = document.getElementById('pubResults');
+    if (!targets.length) { results.innerHTML = '<div class="pub-result-line" style="color:#b91c1c">Pick at least one platform.</div>'; return; }
+    btn.disabled = true; btn.textContent = 'Composing…';
+    results.innerHTML = '';
+    var caption = collectCardText();
+    var prep;
+    if (activeIsVideo()) {
+      prep = composeCardVideoPath(true).then(function (path) {
+        return { kind: 'video', videoUrl: location.href.replace(/studio\\/$/, 'preview/') + path };
+      });
+    } else {
+      prep = composeCardImageNoText().then(function (dataUrl) {
+        if (targets.indexOf('instagram') === -1) return { kind: 'image', image: dataUrl };
+        btn.textContent = 'Staging for Instagram…';
+        return uploadComposed(dataUrlToBlob(dataUrl)).then(function (path) {
+          return { kind: 'image', image: dataUrl, imageUrl: location.href.replace(/studio\\/$/, 'preview/') + path };
         });
-    prep.then(function (payload) {
-      var settled = false;
+      });
+    }
+    prep.then(function (media) {
+      btn.textContent = 'Publishing…';
+      var pending = {};
+      targets.forEach(function (t) {
+        pending[t] = true;
+        results.innerHTML += '<div class="pub-result-line" id="pubres-' + t + '"><span style="color:#64748b">' + PLATFORM_LABEL[t] + ': sending…</span></div>';
+      });
+      function done() { return !Object.keys(pending).some(function (k) { return pending[k]; }); }
       function onResult(e) {
         if (!e.data || e.data.type !== 'ks-studio-publish-result') return;
-        if (e.data.target && e.data.target !== target) return; // a different target's reply
-        settled = true; window.removeEventListener('message', onResult);
-        btn.disabled = false; btn.textContent = cfg.label;
-        if (e.data.ok) {
-          var link = e.data.permalink ? ' — <a href="' + esc(e.data.permalink) + '" target="_blank" rel="noopener">view ↗</a>' : '';
-          result.innerHTML = '<span style="color:#1b7a45">✓ ' + esc(e.data.note || cfg.okNote) + '</span>' + link;
-        } else {
-          result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(e.data.error || 'Publish failed.') + '</span>';
+        var t = e.data.target;
+        if (!pending[t]) return;
+        pending[t] = false;
+        var line = document.getElementById('pubres-' + t);
+        if (line) {
+          if (e.data.ok) {
+            var link = e.data.permalink ? ' — <a href="' + esc(e.data.permalink) + '" target="_blank" rel="noopener">view ↗</a>' : '';
+            line.innerHTML = '<span style="color:#1b7a45">✓ ' + esc(e.data.note || (PLATFORM_LABEL[t] + ': posted.')) + '</span>' + link;
+          } else {
+            line.innerHTML = '<span style="color:#b91c1c">✕ ' + PLATFORM_LABEL[t] + ': ' + esc(e.data.error || 'failed') + '</span>';
+          }
         }
+        if (done()) { window.removeEventListener('message', onResult); btn.disabled = false; btn.textContent = 'Publish'; }
       }
       window.addEventListener('message', onResult);
-      (window.parent || window).postMessage(payload, '*');
-      btn.textContent = 'Sent to portal…';
+      targets.forEach(function (t) {
+        var payload = { type: 'ks-studio-publish', target: t, sessionId: '${id}', caption: caption, kind: media.kind };
+        if (media.videoUrl) payload.videoUrl = media.videoUrl;
+        // IG only needs the public URL; FB/LinkedIn upload the bytes.
+        if (t === 'instagram') payload.imageUrl = media.imageUrl; else if (media.image) payload.image = media.image;
+        (window.parent || window).postMessage(payload, '*');
+      });
       setTimeout(function () {
-        if (settled) return;
-        window.removeEventListener('message', onResult);
-        btn.disabled = false; btn.textContent = cfg.label;
-        result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">The portal didn\\'t respond — open this from your portal to publish.</span>';
-      }, 45000);
+        var timedOut = false;
+        Object.keys(pending).forEach(function (t) {
+          if (!pending[t]) return;
+          timedOut = true; pending[t] = false;
+          var line = document.getElementById('pubres-' + t);
+          if (line) line.innerHTML = '<span style="color:#b91c1c">✕ ' + PLATFORM_LABEL[t] + ': the portal didn\\'t respond — open Studio from your portal.</span>';
+        });
+        if (timedOut) { window.removeEventListener('message', onResult); btn.disabled = false; btn.textContent = 'Publish'; }
+      }, 60000);
     }).catch(function (err) {
-      btn.disabled = false; btn.textContent = cfg.label;
-      result.innerHTML = '<span class="rec-error" style="display:inline;padding:0;background:none">' + esc(err.message) + '</span>';
+      btn.disabled = false; btn.textContent = 'Publish';
+      results.innerHTML = '<div class="pub-result-line" style="color:#b91c1c">' + esc(err.message) + '</div>';
     });
   }
+
   // Only offer publishing when embedded in a host portal that can post for us.
   if (window.parent && window.parent !== window) {
     document.getElementById('publishGroup').style.display = '';
+    refreshPublishPanel();
   }
+
+  // ---- Collapsible media library: closed by default, remembered per browser.
+  function setGallery(open) {
+    document.querySelector('.layout').classList.toggle('gclosed', !open);
+    var b = document.getElementById('galleryToggle');
+    b.textContent = open ? '⟨' : '🖼';
+    b.title = open ? 'Hide the media library' : 'Show the media library';
+    try { localStorage.setItem('ks_gallery_open', open ? '1' : '0'); } catch (e) {}
+  }
+  function toggleGallery() {
+    setGallery(document.querySelector('.layout').classList.contains('gclosed'));
+  }
+  (function () {
+    var open = false;
+    try { open = localStorage.getItem('ks_gallery_open') === '1'; } catch (e) {}
+    setGallery(open);
+  })();
 </script>
 </body>
 </html>`;
