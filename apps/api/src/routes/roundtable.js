@@ -245,7 +245,7 @@ async function appendChatTurn(chatId, userId, query, responses, kind = 'domain')
 // personas — are useless at 120 chars); big teams stay terse so the prefix
 // doesn't balloon. The roster lives in the prompt-cached PREFIX, so the extra
 // tokens are paid roughly once per chat, not on every turn.
-const PERSONA_CHARS_SMALL_TEAM = 3000;
+const PERSONA_CHARS_SMALL_TEAM = 8000;
 const PERSONA_CHARS_LARGE_TEAM = 120;
 const SMALL_TEAM_MAX = 6;
 
