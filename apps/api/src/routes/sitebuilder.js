@@ -109,6 +109,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
         manifest = [];
     }
     res.setHeader('Content-Security-Policy', SB_CSP);
+    // The editor evolves often — never let browsers serve a stale copy.
+    res.setHeader('Cache-Control', 'no-store');
     if (!manifest.length) {
         return res.status(404).send('<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;color:#64748b">This session has no files yet (or the id is wrong).</body>');
     }
@@ -146,7 +148,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
   .grouphead .caret { transition: transform .15s; font-size:10px; color:var(--mut); }
   .grouphead.closed .caret { transform: rotate(-90deg); }
   .groupbody.closed { display:none; }
-  .upbtn { width:100%; border:1px dashed #cbd5e1; background:#f8fafc; border-radius:8px; padding:7px 8px; font-size:12px; cursor:pointer; color:var(--mut); margin-top:6px; }
+  #assetsTree { max-height:240px; overflow-y:auto; }
+  .upbtn { width:100%; border:1px dashed #cbd5e1; background:#f8fafc; border-radius:8px; padding:7px 8px; font-size:12px; cursor:pointer; color:var(--mut); margin:2px 0 6px; }
   .upbtn:hover { border-color:var(--accent); color:var(--accent); }
   .upbtn:disabled { opacity:.5; cursor:wait; }
   #upStatus { font-size:11px; margin-top:4px; }
@@ -210,10 +213,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
     <h2>Pages</h2>
     <div class="tree" id="pagesTree"></div>
     <div class="grouphead" id="assetsHead"><span class="caret">▾</span><h2 style="margin:8px 0">Assets</h2></div>
-    <div class="groupbody tree" id="assetsTree"></div>
     <button class="upbtn" id="upBtn">⬆ Upload asset (image / video)</button>
     <input type="file" id="upFile" hidden accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,video/mp4,video/webm">
     <div id="upStatus"></div>
+    <div class="groupbody tree" id="assetsTree"></div>
     <div id="assetPrev"></div>
     <h2>Elements</h2>
     <div class="palette" id="palette">
