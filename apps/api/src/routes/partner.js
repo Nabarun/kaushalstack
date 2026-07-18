@@ -514,4 +514,31 @@ router.delete('/partner/:id/manual-charges/:chargeId', async (req, res) => {
     }
 });
 
+// ── Entitlements ─────────────────────────────────────────────────────────────
+// Which marketplace features this partner currently has paid access to.
+// Public read (no auth) so the partner-facing portals (MrnMr,
+// ConsciousConnections) can gate their UI without a user session — it only
+// exposes feature ids, nothing sensitive. A subscription past paid_until or
+// cancelled does not appear here.
+
+router.get('/partner/:id/entitlements', async (req, res) => {
+    try {
+        await ensurePartnerCollections();
+        const subs = await pb.collection('feature_subscriptions').getFullList({
+            filter: `partner_id = "${esc(req.params.id)}" && status = "active"`,
+            fields: 'feature_id,paid_until',
+        });
+        const now = Date.now();
+        const features = Array.from(new Set(
+            subs
+                .filter(s => s.paid_until && new Date(s.paid_until).getTime() >= now)
+                .map(s => s.feature_id),
+        ));
+        res.json({ partner_id: req.params.id, features });
+    } catch (err) {
+        logger.error(`entitlements failed: ${err.message}`);
+        res.status(500).json({ error: 'could not load entitlements' });
+    }
+});
+
 export default router;

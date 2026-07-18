@@ -93,8 +93,32 @@ export const adminApi = {
     listPartners() {
         return fetch(`${API_BASE}/admin/partners`, { headers: headers() }).then(handle);
     },
+    createPartner(data) {
+        return fetch(`${API_BASE}/admin/partners`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
     getRoundtableStats(range = 'mtd') {
         return fetch(`${API_BASE}/admin/roundtable-stats?range=${range}`, { headers: headers() }).then(handle);
+    },
+    listFeatureSubscriptions() {
+        return fetch(`${API_BASE}/admin/marketplace/subscriptions`, { headers: headers() }).then(handle);
+    },
+    subscribeFeature(partnerId, featureId) {
+        return fetch(`${API_BASE}/admin/marketplace/subscriptions`, {
+            method: 'POST', headers: headers(),
+            body: JSON.stringify({ partner_id: partnerId, feature_id: featureId }),
+        }).then(handle);
+    },
+    markSubscriptionPaid(id) {
+        return fetch(`${API_BASE}/admin/marketplace/subscriptions/${id}/mark-paid`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
+    },
+    cancelSubscription(id) {
+        return fetch(`${API_BASE}/admin/marketplace/subscriptions/${id}/cancel`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
     },
     listEdits(status = 'pending') {
         return fetch(`${API_BASE}/admin/edits?status=${encodeURIComponent(status)}`, { headers: headers() }).then(handle);

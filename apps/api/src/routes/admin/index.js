@@ -5,6 +5,7 @@ import businessSkillsRouter from './business-skills.js';
 import editsRouter from './edits.js';
 import partnerStatsRouter from './partner-stats.js';
 import partnersRouter from './partners.js';
+import marketplaceRouter from './marketplace.js';
 import roundtableStatsRouter from './roundtable-stats.js';
 import { ensureAdminCollections } from './collections.js';
 
@@ -17,6 +18,7 @@ router.use(businessSkillsRouter);
 router.use(editsRouter);
 router.use(partnerStatsRouter);
 router.use(partnersRouter);
+router.use(marketplaceRouter);
 router.use(roundtableStatsRouter);
 
 export default router;

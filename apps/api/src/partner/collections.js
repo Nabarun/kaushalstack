@@ -75,6 +75,25 @@ const COLLECTIONS = [
         ],
     },
     {
+        // One row per (partner, feature) marketplace subscription at a flat
+        // monthly price. `paid_until` is the source of truth for access: a
+        // subscription past its paid_until is treated as unpaid and the
+        // feature is hidden from that partner's portal until Mark-paid
+        // extends it. status=cancelled removes access regardless of dates.
+        name: 'feature_subscriptions',
+        fields: [
+            { type: 'text',   name: 'partner_id', required: true },
+            { type: 'text',   name: 'feature_id', required: true, max: 60 },
+            { type: 'select', name: 'status',     maxSelect: 1, values: ['active', 'cancelled'] },
+            { type: 'number', name: 'price_inr',  min: 0 },
+            { type: 'date',   name: 'paid_until' },
+            { type: 'date',   name: 'last_paid_at' },
+            { type: 'text',   name: 'added_by' },
+            { type: 'autodate', name: 'created', onCreate: true },
+            { type: 'autodate', name: 'updated', onCreate: true, onUpdate: true },
+        ],
+    },
+    {
         // Manually-logged spend that never passes through providers/index.js
         // (e.g. VPS/hosting bills, a CLI tool run outside kaushalstack, ad
         // spend) — the user records it by hand so the partner's true total

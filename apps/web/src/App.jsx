@@ -38,6 +38,7 @@ import ReportDetailPage from '@/pages/admin/ReportDetailPage.jsx';
 import ReviewsPage from '@/pages/admin/ReviewsPage.jsx';
 import AdminBlogPage from '@/pages/admin/AdminBlogPage.jsx';
 import PartnersPage from '@/pages/admin/PartnersPage.jsx';
+import MarketplacePage from '@/pages/admin/MarketplacePage.jsx';
 
 function SiteChrome({ children }) {
   const { pathname } = useLocation();
@@ -157,6 +158,7 @@ function App() {
                 <Route path="reports/:id" element={<ReportDetailPage />} />
                 <Route path="reviews" element={<ReviewsPage />} />
                 <Route path="teams" element={<PartnersPage />} />
+                <Route path="marketplace" element={<MarketplacePage />} />
                 <Route path="blog" element={<AdminBlogPage />} />
               </Route>
 
