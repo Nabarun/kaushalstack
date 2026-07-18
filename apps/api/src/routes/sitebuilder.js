@@ -31,10 +31,15 @@ const esc = (s) => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// macOS AppleDouble (._*) and .DS_Store junk sometimes rides in via zips —
+// hide it from the tree entirely.
+const JUNK_SEG = (p) => p.split('/').some((seg) => seg.startsWith('._') || seg === '.DS_Store');
+
 function splitManifest(manifest) {
-    const pages = manifest.filter((f) => PAGE_RE.test(f.path)).map((f) => f.path)
+    const clean = manifest.filter((f) => !JUNK_SEG(f.path));
+    const pages = clean.filter((f) => PAGE_RE.test(f.path)).map((f) => f.path)
         .sort((a, b) => (a === 'index.html' ? -1 : b === 'index.html' ? 1 : a.localeCompare(b)));
-    const assets = manifest.filter((f) => !PAGE_RE.test(f.path)).map((f) => f.path).sort();
+    const assets = clean.filter((f) => !PAGE_RE.test(f.path)).map((f) => f.path).sort();
     return { pages, assets };
 }
 
