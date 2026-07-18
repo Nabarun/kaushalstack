@@ -15,7 +15,15 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import multer from 'multer';
 import { safeResolve, fileManifest } from '../builder/workspace.js';
+
+// Same media rules as Card Studio uploads: images + short video, 80MB cap.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 80 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => cb(null, /^(image\/(jpeg|png|webp|gif|svg\+xml)|video\/(mp4|webm|quicktime))$/.test(file.mimetype)),
+});
 
 // Same embedding rules as Card Studio: partner portals iframe this page.
 const SB_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
@@ -74,6 +82,23 @@ router.post(/^\/build\/([a-f0-9]{16})\/sitebuilder\/save$/, async (req, res) => 
     }
 });
 
+// Upload an asset into the session workspace (multipart field: "file").
+router.post(/^\/build\/([a-f0-9]{16})\/sitebuilder\/upload$/, upload.single('file'), async (req, res) => {
+    const id = req.params[0];
+    if (!req.file) return res.status(400).json({ error: 'no file received (images and mp4/webm video only)' });
+    const safeName = path.basename(req.file.originalname || 'asset')
+        .replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(0, 80) || 'asset';
+    const rel = `assets/sb-${Date.now()}-${safeName}`;
+    try {
+        const abs = await safeResolve(id, rel);
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, req.file.buffer);
+        res.json({ ok: true, path: rel, bytes: req.file.buffer.length });
+    } catch (e) {
+        res.status(500).json({ error: `upload failed: ${e.message}` });
+    }
+});
+
 // ---------------------------------------------------------------- the editor
 router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
     const id = req.params[0];
@@ -121,6 +146,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
   .grouphead .caret { transition: transform .15s; font-size:10px; color:var(--mut); }
   .grouphead.closed .caret { transform: rotate(-90deg); }
   .groupbody.closed { display:none; }
+  .upbtn { width:100%; border:1px dashed #cbd5e1; background:#f8fafc; border-radius:8px; padding:7px 8px; font-size:12px; cursor:pointer; color:var(--mut); margin-top:6px; }
+  .upbtn:hover { border-color:var(--accent); color:var(--accent); }
+  .upbtn:disabled { opacity:.5; cursor:wait; }
+  #upStatus { font-size:11px; margin-top:4px; }
+  #upStatus.err { color:#b91c1c; }
+  #upStatus.ok { color:#15803d; }
   .assetprev { margin:8px 0; border:1px solid var(--line); border-radius:8px; padding:8px; }
   .assetprev img { max-width:100%; border-radius:6px; display:block; margin-bottom:6px; }
   .assetprev .path { font-size:10.5px; color:var(--mut); word-break:break-all; }
@@ -180,6 +211,9 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
     <div class="tree" id="pagesTree"></div>
     <div class="grouphead" id="assetsHead"><span class="caret">▾</span><h2 style="margin:8px 0">Assets</h2></div>
     <div class="groupbody tree" id="assetsTree"></div>
+    <button class="upbtn" id="upBtn">⬆ Upload asset (image / video)</button>
+    <input type="file" id="upFile" hidden accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,video/mp4,video/webm">
+    <div id="upStatus"></div>
     <div id="assetPrev"></div>
     <h2>Elements</h2>
     <div class="palette" id="palette">
@@ -351,6 +385,39 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
   $('assetsHead').addEventListener('click', function () {
     $('assetsHead').classList.toggle('closed');
     $('assetsTree').classList.toggle('closed');
+  });
+
+  // ------------------------------------------------------------- upload
+  $('upBtn').addEventListener('click', function () { $('upFile').click(); });
+  $('upFile').addEventListener('change', function () {
+    var f = $('upFile').files[0];
+    $('upFile').value = '';
+    if (!f) return;
+    var st = $('upStatus');
+    $('upBtn').disabled = true;
+    st.textContent = 'Uploading ' + f.name + '…';
+    st.className = '';
+    var fd = new FormData();
+    fd.append('file', f);
+    fetch('upload', { method: 'POST', body: fd })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.d.error || 'upload failed');
+        var p = res.d.path;
+        ASSETS.push(p);
+        if (/\\.(jpe?g|png|webp|gif|svg)$/i.test(p)) IMG_ASSETS.push(p);
+        renderTrees();
+        fillLinkPickers();
+        st.textContent = 'Uploaded ✓ ' + p.split('/').pop();
+        st.className = 'ok';
+        // open its preview so "Use in selected image" is one click away
+        var nodes = document.querySelectorAll('#assetsTree .node');
+        for (var i = 0; i < nodes.length; i++) {
+          if (nodes[i].getAttribute('data-path') === p) { nodes[i].click(); break; }
+        }
+      })
+      .catch(function (err) { st.textContent = err.message; st.className = 'err'; })
+      .then(function () { $('upBtn').disabled = false; });
   });
 
   // Compute a relative src for an asset from the current page's directory.
