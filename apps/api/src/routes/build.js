@@ -10,7 +10,12 @@ import { handle } from './creative-http.js';
 // CSP loosened enough for previewed apps that pull libs from CDNs (unpkg /
 // jsdelivr / cdnjs). Helmet's default disallows third-party scripts; we
 // override on preview routes only.
-const PREVIEW_CSP = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-src https:;";
+// Explicit frame-ancestors (superseding helmet's X-Frame-Options: SAMEORIGIN)
+// so the Site Builder's canvas iframe works when the builder itself is
+// embedded in a partner portal — the browser checks EVERY ancestor of the
+// preview frame, including the portal at the top. Same env allowlist as Studio.
+const PREVIEW_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
+const PREVIEW_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-src https:; frame-ancestors ${PREVIEW_FRAME_ANCESTORS.join(' ')};`;
 
 // strict: true so `/preview` and `/preview/` are distinct — the no-slash
 // version redirects to the slash version (so relative paths inside the
