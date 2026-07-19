@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
 import {
@@ -22,7 +21,7 @@ const STATUS_LABEL = {
     'coming-soon': 'Coming soon',
 };
 
-const FEATURES = [
+export const FEATURES = [
     {
         id: 'studio',
         title: 'Studio',
@@ -104,7 +103,7 @@ const FEATURES = [
 
 const CATEGORIES = ['All', ...Array.from(new Set(FEATURES.map(f => f.category)))];
 
-function StatusPill({ value }) {
+export function StatusPill({ value }) {
     const cls = STATUS_STYLES[value] || 'bg-muted text-muted-foreground';
     return (
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide font-medium ${cls}`}>
@@ -114,12 +113,12 @@ function StatusPill({ value }) {
     );
 }
 
-function fmtDate(iso) {
+export function fmtDate(iso) {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function SubStatusPill({ sub }) {
+export function SubStatusPill({ sub }) {
     if (!sub || sub.effective_status === 'cancelled') {
         return <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Not subscribed</span>;
     }
@@ -137,7 +136,7 @@ function SubStatusPill({ sub }) {
     );
 }
 
-function FeatureCard({ feature, subs, onManage }) {
+function FeatureCard({ feature, subs, onOpen }) {
     const Icon = feature.icon || Sparkles;
     const active = subs.filter(s => s.effective_status === 'active').length;
     const unpaid = subs.filter(s => s.effective_status === 'unpaid').length;
@@ -145,7 +144,7 @@ function FeatureCard({ feature, subs, onManage }) {
     return (
         <Card
             className="bg-card border overflow-hidden hover:border-primary/40 transition-colors group cursor-pointer"
-            onClick={() => onManage(feature)}
+            onClick={() => onOpen(feature)}
         >
             <CardContent className="p-5 flex flex-col h-full">
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -181,168 +180,30 @@ function FeatureCard({ feature, subs, onManage }) {
                             </span>
                         )}
                     </div>
-                    {feature.href && (
-                        <a
-                            href={feature.href}
-                            onClick={e => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                            Open <ExternalLink className="w-3 h-3" />
-                        </a>
-                    )}
+                    <span className="inline-flex items-center gap-1 text-xs text-primary group-hover:underline">
+                        Open <ExternalLink className="w-3 h-3" />
+                    </span>
                 </div>
             </CardContent>
         </Card>
     );
 }
 
-function ManageDialog({ feature, partners, subs, priceInr, busyKey, onSubscribe, onMarkPaid, onCancel, onClose }) {
-    const subByPartner = useMemo(
-        () => Object.fromEntries(subs.map(s => [s.partner_id, s])),
-        [subs],
-    );
-
-    return (
-        <Dialog open={!!feature} onOpenChange={open => { if (!open) onClose(); }}>
-            <DialogContent className="bg-card border text-foreground max-w-2xl">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        {feature?.title}
-                        <span className="inline-flex items-center gap-0.5 text-xs font-normal text-muted-foreground">
-                            <IndianRupee className="w-3 h-3" />{Number(priceInr || 1000).toLocaleString('en-IN')}/month per partner
-                        </span>
-                    </DialogTitle>
-                </DialogHeader>
-
-                {partners.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4">No partners yet — add one from the Teams tab first.</p>
-                ) : (
-                    <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                        {partners.map(p => {
-                            const sub = subByPartner[p.id];
-                            const subscribed = sub && sub.status !== 'cancelled';
-                            const key = `${p.id}:${feature?.id}`;
-                            const busy = busyKey === key;
-                            return (
-                                <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3">
-                                    <div className="min-w-0">
-                                        <div className="font-medium text-sm truncate">{p.name}</div>
-                                        <div className="mt-1"><SubStatusPill sub={subscribed ? sub : null} /></div>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                        {subscribed ? (
-                                            <>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    disabled={busy}
-                                                    onClick={() => onMarkPaid(sub, key)}
-                                                >
-                                                    Mark paid
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="text-red-600 dark:text-red-400 hover:text-red-700"
-                                                    disabled={busy}
-                                                    onClick={() => onCancel(sub, key)}
-                                                >
-                                                    Cancel
-                                                </Button>
-                                            </>
-                                        ) : (
-                                            <Button
-                                                size="sm"
-                                                disabled={busy}
-                                                onClick={() => onSubscribe(p, key)}
-                                            >
-                                                {busy ? 'Subscribing…' : 'Subscribe'}
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-
-                <p className="text-xs text-muted-foreground pt-2 border-t">
-                    Subscribing starts a paid 30-day period. <strong>Mark paid</strong> extends it by 30 days when the
-                    ₹{Number(priceInr || 1000).toLocaleString('en-IN')} payment comes in. Once a subscription lapses or is
-                    cancelled, the partner&#39;s site stops seeing this feature.
-                </p>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 export default function MarketplacePage() {
+    const navigate = useNavigate();
     const [category, setCategory] = useState('All');
     const [q, setQ] = useState('');
     const [subs, setSubs] = useState([]);
-    const [partners, setPartners] = useState([]);
     const [priceInr, setPriceInr] = useState(1000);
-    const [managing, setManaging] = useState(null);
-    const [busyKey, setBusyKey] = useState('');
 
     useEffect(() => {
         adminApi.listFeatureSubscriptions()
             .then(r => {
                 setSubs(r.items || []);
-                setPartners(r.partners || []);
                 if (r.price_inr) setPriceInr(r.price_inr);
             })
             .catch(err => toast.error(`Failed to load subscriptions: ${err.message}`));
     }, []);
-
-    function upsertSub(item) {
-        setSubs(prev => {
-            const i = prev.findIndex(s => s.id === item.id);
-            if (i === -1) return [item, ...prev];
-            const next = [...prev];
-            next[i] = item;
-            return next;
-        });
-    }
-
-    async function onSubscribe(partner, key) {
-        setBusyKey(key);
-        try {
-            const r = await adminApi.subscribeFeature(partner.id, managing.id);
-            upsertSub(r.item);
-            toast.success(`${partner.name} subscribed to ${managing.title}`);
-        } catch (err) {
-            toast.error(`Subscribe failed: ${err.message}`);
-        } finally {
-            setBusyKey('');
-        }
-    }
-
-    async function onMarkPaid(sub, key) {
-        setBusyKey(key);
-        try {
-            const r = await adminApi.markSubscriptionPaid(sub.id);
-            upsertSub(r.item);
-            toast.success(`Payment recorded — paid until ${fmtDate(r.item.paid_until)}`);
-        } catch (err) {
-            toast.error(`Mark paid failed: ${err.message}`);
-        } finally {
-            setBusyKey('');
-        }
-    }
-
-    async function onCancel(sub, key) {
-        setBusyKey(key);
-        try {
-            const r = await adminApi.cancelSubscription(sub.id);
-            upsertSub(r.item);
-            toast.success(`Subscription cancelled for ${r.item.partner_name}`);
-        } catch (err) {
-            toast.error(`Cancel failed: ${err.message}`);
-        } finally {
-            setBusyKey('');
-        }
-    }
 
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase();
@@ -437,23 +298,11 @@ export default function MarketplacePage() {
                             key={f.id}
                             feature={f}
                             subs={subs.filter(s => s.feature_id === f.id)}
-                            onManage={setManaging}
+                            onOpen={feature => navigate(`/admin/marketplace/${feature.id}`)}
                         />
                     ))}
                 </div>
             )}
-
-            <ManageDialog
-                feature={managing}
-                partners={partners}
-                subs={managing ? subs.filter(s => s.feature_id === managing.id) : []}
-                priceInr={priceInr}
-                busyKey={busyKey}
-                onSubscribe={onSubscribe}
-                onMarkPaid={onMarkPaid}
-                onCancel={onCancel}
-                onClose={() => setManaging(null)}
-            />
 
             <div className="mt-8 pt-6 border-t text-xs text-muted-foreground flex items-center gap-2">
                 <Bot className="w-3.5 h-3.5" />
