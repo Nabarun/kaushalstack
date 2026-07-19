@@ -32,7 +32,7 @@ const FEATURES = [
         icon: Wand2,
         category: 'Content',
         status: 'live',
-        href: null,
+        href: '/partner?tab=studio',
     },
     {
         id: 'multi-team',
@@ -54,7 +54,7 @@ const FEATURES = [
         icon: Search,
         category: 'Intelligence',
         status: 'live',
-        href: null,
+        href: '/partner?tab=team',
     },
     {
         id: 'website',
@@ -65,7 +65,7 @@ const FEATURES = [
         icon: Globe,
         category: 'Build',
         status: 'live',
-        href: null,
+        href: '/build',
     },
     {
         id: 'podcast-embed',
@@ -76,7 +76,7 @@ const FEATURES = [
         icon: Headphones,
         category: 'Content',
         status: 'beta',
-        href: null,
+        href: '/partner?tab=assets',
     },
     {
         id: 'chat-qna',
@@ -98,7 +98,7 @@ const FEATURES = [
         icon: Mic2,
         category: 'Voice',
         status: 'beta',
-        href: null,
+        href: '/roundtable',
     },
 ];
 

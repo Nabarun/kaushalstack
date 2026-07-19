@@ -507,7 +507,10 @@ function StudioTab({ partner }) {
 export default function PartnerPortalPage() {
     const [partners, setPartners] = useState(null);
     const [active, setActive] = useState(null);
-    const [tab, setTab] = useState('usage');
+    const [tab, setTab] = useState(() => {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        return ['usage', 'assets', 'team', 'studio'].includes(t) ? t : 'usage';
+    });
     const [name, setName] = useState('');
     const [err, setErr] = useState('');
     const [confirmDelete, setConfirmDelete] = useState(false);
