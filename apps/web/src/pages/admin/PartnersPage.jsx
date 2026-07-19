@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { Users, ChevronDown, ChevronRight, Mail, Search, Activity, DollarSign, Clock, Plus } from 'lucide-react';
+import { Users, ChevronDown, ChevronRight, Mail, Search, Activity, DollarSign, Clock, Plus, Trash2 } from 'lucide-react';
 
 const CATEGORY_COLORS = {
     'sales':            'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -174,7 +174,7 @@ function UsagePills({ usage }) {
     );
 }
 
-function PartnerRow({ partner, defaultOpen }) {
+function PartnerRow({ partner, defaultOpen, onRemove }) {
     const [open, setOpen] = useState(!!defaultOpen);
     const hasTeam = partner.team && partner.team.length > 0;
 
@@ -214,13 +214,19 @@ function PartnerRow({ partner, defaultOpen }) {
                         </div>
                     </div>
                 </div>
-                {hasTeam && (
-                    <div className="pt-1 flex-shrink-0">
-                        {open
-                            ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                            : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-                    </div>
-                )}
+                <div className="pt-1 flex-shrink-0 flex items-center gap-2">
+                    <span
+                        role="button"
+                        title={`Remove ${partner.name}`}
+                        onClick={(e) => { e.stopPropagation(); onRemove(partner); }}
+                        className="p-1 rounded text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </span>
+                    {hasTeam && (open
+                        ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        : <ChevronRight className="w-4 h-4 text-muted-foreground" />)}
+                </div>
             </button>
 
             {open && hasTeam && (
@@ -248,6 +254,8 @@ export default function PartnersPage() {
     const [createOpen, setCreateOpen] = useState(false);
     const [createForm, setCreateForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '' });
     const [creating, setCreating] = useState(false);
+    const [removing, setRemoving] = useState(null);
+    const [removeBusy, setRemoveBusy] = useState(false);
 
     useEffect(() => {
         setLoading(true);
@@ -275,6 +283,21 @@ export default function PartnersPage() {
             toast.error(`Failed: ${err.message}`);
         } finally {
             setCreating(false);
+        }
+    }
+
+    async function onRemoveConfirmed() {
+        if (!removing) return;
+        setRemoveBusy(true);
+        try {
+            await adminApi.deletePartner(removing.id);
+            setItems(prev => prev.filter(p => p.id !== removing.id));
+            toast.success(`Partner "${removing.name}" removed`);
+            setRemoving(null);
+        } catch (err) {
+            toast.error(`Remove failed: ${err.message}`);
+        } finally {
+            setRemoveBusy(false);
         }
     }
 
@@ -379,10 +402,34 @@ export default function PartnersPage() {
             ) : (
                 <div className="grid gap-3">
                     {filtered.map(p => (
-                        <PartnerRow key={p.id} partner={p} defaultOpen={filtered.length === 1} />
+                        <PartnerRow key={p.id} partner={p} defaultOpen={filtered.length === 1} onRemove={setRemoving} />
                     ))}
                 </div>
             )}
+
+            <Dialog open={!!removing} onOpenChange={open => { if (!open && !removeBusy) setRemoving(null); }}>
+                <DialogContent className="bg-card border text-foreground">
+                    <DialogHeader>
+                        <DialogTitle>Remove partner</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground">
+                        Remove <strong className="text-foreground">{removing?.name}</strong>? This deletes its team roster,
+                        member access, and all marketplace feature subscriptions — the partner&#39;s site loses every paid
+                        feature immediately. Usage history is kept for accounting. This cannot be undone.
+                    </p>
+                    <DialogFooter>
+                        <Button type="button" variant="ghost" onClick={() => setRemoving(null)} disabled={removeBusy}>Cancel</Button>
+                        <Button
+                            type="button"
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={onRemoveConfirmed}
+                            disabled={removeBusy}
+                        >
+                            {removeBusy ? 'Removing…' : 'Remove partner'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="bg-card border text-foreground">

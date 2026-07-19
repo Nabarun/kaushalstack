@@ -98,6 +98,11 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    deletePartner(id) {
+        return fetch(`${API_BASE}/admin/partners/${id}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
     getRoundtableStats(range = 'mtd') {
         return fetch(`${API_BASE}/admin/roundtable-stats?range=${range}`, { headers: headers() }).then(handle);
     },

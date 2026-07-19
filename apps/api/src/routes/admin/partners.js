@@ -183,4 +183,32 @@ router.post('/admin/partners', requireAdmin, async (req, res) => {
     }
 });
 
+// Remove a partner. Memberships and feature subscriptions go with it;
+// usage_events stay so historical spend accounting remains true.
+router.delete('/admin/partners/:id', requireAdmin, async (req, res) => {
+    const id = req.params.id;
+    const esc = (s) => String(s || '').replace(/"/g, '\\"');
+    try {
+        const partner = await pb.collection('partners').getOne(id).catch(() => null);
+        if (!partner) return res.status(404).json({ error: 'partner not found' });
+
+        for (const col of ['partner_members', 'feature_subscriptions']) {
+            try {
+                const rows = await pb.collection(col).getFullList({
+                    filter: `partner_id = "${esc(id)}"`,
+                    fields: 'id',
+                });
+                for (const r of rows) await pb.collection(col).delete(r.id).catch(() => {});
+            } catch { /* collection may not exist yet */ }
+        }
+
+        await pb.collection('partners').delete(id);
+        logger.info(`admin: partner ${partner.name} (${id}) removed by ${req.adminUserId}`);
+        res.json({ ok: true });
+    } catch (err) {
+        logger.error('admin partner delete failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
