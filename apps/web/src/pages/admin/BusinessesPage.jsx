@@ -217,6 +217,9 @@ export default function BusinessesPage() {
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({ name: '', website_url: '', description: '' });
     const [saving, setSaving] = useState(false);
+    const [partnerOpen, setPartnerOpen] = useState(false);
+    const [partnerForm, setPartnerForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '' });
+    const [creatingPartner, setCreatingPartner] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -251,6 +254,26 @@ export default function BusinessesPage() {
         }
     };
 
+    const onCreatePartner = async (e) => {
+        e.preventDefault();
+        const name = partnerForm.name.trim();
+        if (!name) { toast.error('Partner name is required'); return; }
+        setCreatingPartner(true);
+        try {
+            const payload = { name };
+            if (partnerForm.owner_email.trim()) payload.owner_email = partnerForm.owner_email.trim();
+            if (partnerForm.monthly_budget_usd) payload.monthly_budget_usd = Number(partnerForm.monthly_budget_usd);
+            const r = await adminApi.createPartner(payload);
+            toast.success(`Partner "${r.item?.name || name}" created — now available in Teams and Marketplace`);
+            setPartnerOpen(false);
+            setPartnerForm({ name: '', owner_email: '', monthly_budget_usd: '' });
+        } catch (err) {
+            toast.error(`Failed: ${err.message}`);
+        } finally {
+            setCreatingPartner(false);
+        }
+    };
+
     return (
         <>
             <Helmet><title>Businesses · Admin</title></Helmet>
@@ -263,9 +286,14 @@ export default function BusinessesPage() {
                     <h1 className="text-2xl font-semibold">Businesses</h1>
                     <p className="text-sm text-muted-foreground">Onboarded businesses and their growth-report teams.</p>
                 </div>
-                <Button onClick={() => setOpen(true)} className="bg-accent hover:bg-accent/80 text-white">
-                    <Plus className="w-4 h-4 mr-1" /> Add business
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => setPartnerOpen(true)} variant="outline">
+                        <Users className="w-4 h-4 mr-1" /> Add partner
+                    </Button>
+                    <Button onClick={() => setOpen(true)} className="bg-accent hover:bg-accent/80 text-white">
+                        <Plus className="w-4 h-4 mr-1" /> Add business
+                    </Button>
+                </div>
             </div>
 
             {loading ? (
@@ -327,6 +355,59 @@ export default function BusinessesPage() {
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
                             <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Add'}</Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={partnerOpen} onOpenChange={setPartnerOpen}>
+                <DialogContent className="bg-card border text-foreground">
+                    <DialogHeader>
+                        <DialogTitle>Add partner</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={onCreatePartner} className="space-y-3">
+                        <div>
+                            <Label htmlFor="bp-partner-name">Partner name</Label>
+                            <Input
+                                id="bp-partner-name"
+                                value={partnerForm.name}
+                                onChange={e => setPartnerForm({ ...partnerForm, name: e.target.value })}
+                                placeholder="e.g., Acme Cafe"
+                                className="bg-background border"
+                                required
+                                autoFocus
+                            />
+                        </div>
+                        <div>
+                            <Label htmlFor="bp-partner-owner-email">Owner email <span className="text-muted-foreground font-normal">(optional — defaults to you)</span></Label>
+                            <Input
+                                id="bp-partner-owner-email"
+                                type="email"
+                                value={partnerForm.owner_email}
+                                onChange={e => setPartnerForm({ ...partnerForm, owner_email: e.target.value })}
+                                placeholder="owner@example.com"
+                                className="bg-background border"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Must match a user already signed up on kaushalstack.
+                            </p>
+                        </div>
+                        <div>
+                            <Label htmlFor="bp-partner-budget">Monthly budget (USD) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                            <Input
+                                id="bp-partner-budget"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={partnerForm.monthly_budget_usd}
+                                onChange={e => setPartnerForm({ ...partnerForm, monthly_budget_usd: e.target.value })}
+                                placeholder="0"
+                                className="bg-background border"
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={() => setPartnerOpen(false)} disabled={creatingPartner}>Cancel</Button>
+                            <Button type="submit" disabled={creatingPartner}>{creatingPartner ? 'Creating…' : 'Create partner'}</Button>
                         </DialogFooter>
                     </form>
                 </DialogContent>
