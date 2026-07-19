@@ -267,7 +267,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   #card.overlay-text #card-img-wrap { height: 100%; }
   #card.overlay-text #card-body { display: none; }
   #card.overlay-text #card-brand { position: absolute; bottom: 8px; right: 10px; padding: 3px 9px; background: rgba(0,0,0,.4); border-radius: 6px; color: #fff; z-index: 3; }
-  #card-img, #card-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #card-img, #card-video { width: 100%; height: 100%; object-fit: contain; display: block; }
   #card-img { background: #e2e8f0; }
   #card-video { background: #000; }
   #img-gradient { position: absolute; inset: 0; pointer-events: none; }
@@ -327,6 +327,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .style-row:last-child { margin-bottom: 0; }
   .style-row label { font-size: 12px; color: #64748b; min-width: 52px; }
   .style-row select, .style-row input[type=color] { border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font-size: 13px; background: #fff; }
+  .style-row select { flex: 1 1 0; min-width: 0; max-width: 100%; }
   .style-row input[type=range] { flex: 1 1 100px; }
   .style-row input[type=color] { padding: 2px; width: 40px; height: 32px; cursor: pointer; }
   .seg { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
@@ -939,18 +940,18 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   var blurBoxes = [];
   var BLUR_SOFTNESS = 12; // higher = blurrier (downscale factor before upscale)
 
-  function imgCoverMap() {
+  function imgFitMap() {
     var img = document.getElementById('card-img');
     var wrap = document.getElementById('card-img-wrap');
     var Wd = wrap.clientWidth, Hd = wrap.clientHeight;
     var Wn = img.naturalWidth, Hn = img.naturalHeight;
     if (!Wn || !Hn) return null;
-    var scale = Math.max(Wd / Wn, Hd / Hn); // object-fit: cover
-    return { img: img, scale: scale, offX: (Wn * scale - Wd) / 2, offY: (Hn * scale - Hd) / 2 };
+    var scale = Math.min(Wd / Wn, Hd / Hn); // object-fit: contain
+    return { img: img, scale: scale, offX: (Wd - Wn * scale) / 2, offY: (Hd - Hn * scale) / 2 };
   }
 
   function renderBlurBox(box) {
-    var m = imgCoverMap();
+    var m = imgFitMap();
     if (!m) return;
     var bw = box.offsetWidth, bh = box.offsetHeight;
     if (bw < 2 || bh < 2) return;
@@ -958,8 +959,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     canvas.width = Math.round(bw); canvas.height = Math.round(bh);
     var ctx = canvas.getContext('2d');
     try {
-      // box (wrap coords) -> source-image pixel rect, undoing the cover crop
-      var sx = (box.offsetLeft + m.offX) / m.scale, sy = (box.offsetTop + m.offY) / m.scale;
+      // box (wrap coords) -> source-image pixel rect, undoing the contain letterbox offset
+      var sx = (box.offsetLeft - m.offX) / m.scale, sy = (box.offsetTop - m.offY) / m.scale;
       var sw = bw / m.scale, sh = bh / m.scale;
       var tw = Math.max(2, Math.round(bw / BLUR_SOFTNESS)), th = Math.max(2, Math.round(bh / BLUR_SOFTNESS));
       var tmp = document.createElement('canvas'); tmp.width = tw; tmp.height = th;
@@ -1330,7 +1331,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
         var snap = document.createElement('img');
         snap.src = off.toDataURL('image/png');
-        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        snap.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         v.style.display = 'none';
         v.parentNode.insertBefore(snap, v);
         videoSnapped = true;
@@ -1426,7 +1427,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         var off = document.createElement('canvas'); off.width = v.videoWidth; off.height = v.videoHeight;
         off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
         var snap = document.createElement('img'); snap.src = off.toDataURL('image/png');
-        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        snap.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         v.style.display = 'none'; v.parentNode.insertBefore(snap, v);
         restores.push(function () { snap.remove(); v.style.display = 'block'; });
       } catch (e) {}
@@ -1463,7 +1464,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         var off = document.createElement('canvas'); off.width = v.videoWidth; off.height = v.videoHeight;
         off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
         var snap = document.createElement('img'); snap.src = off.toDataURL('image/png');
-        snap.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        snap.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         v.style.display = 'none'; v.parentNode.insertBefore(snap, v);
         restores.push(function () { snap.remove(); v.style.display = 'block'; });
       } catch (e) {}

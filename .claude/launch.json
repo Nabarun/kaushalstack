@@ -8,10 +8,28 @@
       "port": 8099
     },
     {
+      "name": "mrnmr-team",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/nabarunsengupta/Projects/mrnmr/mrnmr-web && KS_API_TOKEN=$(python3 -c \"import json;print(json.load(open('/Users/nabarunsengupta/Projects/kaushalstack/.mcp.json'))['mcpServers']['kaushalstack']['env']['KAUSHALSTACK_API_TOKEN'])\") KS_PARTNER_ID=18ppy01uqzmio3h BUDGET_USD=10 ANALYTICS_SALT=devtestsalt ADMIN_USER=admin ADMIN_PASS=devpass PORT=8098 DATA_DIR=/tmp/mrnmr-team-test node server.js"],
+      "port": 8098
+    },
+    {
+      "name": "enrollengineer-qna",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/nabarunsengupta/Projects/enrollengineer && node server/index.mjs"],
+      "port": 8787
+    },
+    {
       "name": "kaushalstack-web",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd apps/web && npm run dev"],
       "port": 3000
+    },
+    {
+      "name": "kaushalstack-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/api && npm run dev"],
+      "port": 3001
     }
   ]
 }
