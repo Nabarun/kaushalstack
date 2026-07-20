@@ -320,7 +320,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .pub-mock-sub { font-size: 9.5px; color: #94a3b8; }
   .pub-mock-img { width: 100%; background: #f1f5f9; overflow: hidden; position: relative; }
   .pub-mock-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .pub-mock-cap { padding: 8px 10px; font-size: 10.5px; line-height: 1.45; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pub-mock-cap { padding: 8px 10px 6px; font-size: 10.5px; line-height: 1.45; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+  .pub-mock-cap.expanded { -webkit-line-clamp: unset; overflow: visible; }
+  .pub-mock-more { display: block; background: none; border: none; margin: 0; padding: 2px 10px 8px; font-size: 10.5px; font-weight: 600; color: #64748b; cursor: pointer; }
+  .pub-mock-more:hover { color: #334155; text-decoration: underline; }
   .pub-mock-warn { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; font-size: 10px; color: #92400e; background: rgba(254,243,199,.92); }
   .pub-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .pub-check { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #cbd5e1; border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; user-select: none; background: #fff; color: #334155; }
@@ -1650,7 +1653,27 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     var imgHtml = src ? '<img src="' + esc(src) + '" alt="">' : '';
     return '<div class="pub-mock">' + head
       + '<div class="pub-mock-img" style="aspect-ratio:' + ar + '">' + imgHtml + warn + '</div>'
-      + '<div class="pub-mock-cap">' + esc(caption || 'Your caption appears here as the post text.') + '</div></div>';
+      + '<div class="pub-mock-cap">' + esc(caption || 'Your caption appears here as the post text.') + '</div>'
+      + '<button type="button" class="pub-mock-more" style="display:none" onclick="toggleMockCaption(this)">… more</button></div>';
+  }
+
+  // Platforms clamp a caption to a couple of lines and offer "… more" — mirror
+  // that instead of hard-cutting text the author can't get back to. Each mock
+  // card toggles independently; the button only shows if the caption actually
+  // overflows the clamp (a short caption never gets a dead "more" link).
+  function toggleMockCaption(btn) {
+    var cap = btn.previousElementSibling;
+    var expanded = cap.classList.toggle('expanded');
+    btn.textContent = expanded ? 'Show less' : '… more';
+  }
+  function syncMockCaptionOverflow() {
+    document.querySelectorAll('#pubPreviews .pub-mock-cap').forEach(function (cap) {
+      var btn = cap.nextElementSibling;
+      if (!btn) return;
+      cap.classList.remove('expanded');
+      btn.textContent = '… more';
+      btn.style.display = cap.scrollHeight > cap.clientHeight + 1 ? '' : 'none';
+    });
   }
 
   // ---- Publish preview carousel: one platform mock visible at a time with
@@ -1672,6 +1695,10 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       d.onclick = function () { pubCarIndex = i; renderPubCarousel(); };
       dots.appendChild(d);
     });
+    // Reset expand state on every render/nav — otherwise an expanded caption
+    // on a slide you've scrolled away from keeps the whole carousel taller
+    // than the (collapsed) slide actually being shown.
+    syncMockCaptionOverflow();
   }
   function pubCarNav(delta) {
     var mocks = document.querySelectorAll('#pubPreviews .pub-mock');
