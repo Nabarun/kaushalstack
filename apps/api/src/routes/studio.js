@@ -299,8 +299,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .ctl-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
   .ctl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   /* publish panel */
+  /* Card width is capped on the viewport (not the mock) so #pubPreviews's own
+     box stays exactly one card wide — that's what the carousel's translateX(-100%)
+     per slide is measured against. Capping .pub-mock instead would shrink the
+     visible card without shrinking that reference box, throwing the slide math off. */
   .pub-car-wrap { position: relative; margin-bottom: 8px; }
-  .pub-car-viewport { overflow: hidden; padding: 0 24px; }
+  .pub-car-viewport { overflow: hidden; max-width: 220px; margin: 0 auto; }
   .pub-previews { display: flex; transition: transform .25s ease; }
   .pub-mock { flex: 0 0 100%; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
   .pub-car-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; border: 1px solid #cbd5e1; background: #fff; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 14px; color: #334155; line-height: 1; box-shadow: 0 1px 4px rgba(15,23,42,.12); }
