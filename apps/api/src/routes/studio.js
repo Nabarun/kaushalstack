@@ -715,6 +715,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   });
   function selectText(el) {
     document.getElementById(activeTextId).innerText = el.innerText;
+    if (typeof refreshPublishPanel === 'function') refreshPublishPanel();
   }
 
   // ---- Formats: 2026 Meta/Instagram specs. ar drives the on-screen card;
@@ -944,6 +945,16 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   }
 
   renderLayerPills();
+
+  // Keeps the FB/IG publish previews in sync while typing directly in a
+  // caption (delegated so it also covers text boxes added later).
+  var refreshPreviewOnInputTimer = 0;
+  document.getElementById('card').addEventListener('input', function (e) {
+    if (!e.target.classList || !e.target.classList.contains('card-text-layer')) return;
+    if (typeof refreshPublishPanel !== 'function') return;
+    clearTimeout(refreshPreviewOnInputTimer);
+    refreshPreviewOnInputTimer = setTimeout(refreshPublishPanel, 200);
+  });
 
   // ---- Emoji tray: click to drop an emoji into the active caption at the caret.
   var EMOJIS = ['🌈','❤️','🔥','✨','🎉','🙌','👏','💬','📍','🗓️','🎬','😍','🥂','💖','⭐','🎈','🚀','✅','💡','👇','🤝','🌟','💫','🎯','📣','🫶','😊','💪','🎊','📸'];
