@@ -316,6 +316,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .pub-check input { margin: 0; accent-color: #2563eb; }
   .pub-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .pub-result-line { font-size: 12px; margin-top: 4px; }
+  .btn-link { border: none; background: none; color: #2563eb; font-size: 12.5px; font-weight: 500; cursor: pointer; padding: 4px 0; }
+  .btn-link:hover { text-decoration: underline; }
+  .cal-box { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .cal-nav-btn { border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 14px; color: #334155; line-height: 1; }
+  .cal-nav-btn:hover { background: #f1f5f9; }
+  .cal-month-label { font-size: 12.5px; font-weight: 600; color: #0f172a; }
+  .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 10px; color: #94a3b8; margin-bottom: 4px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-day { position: relative; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; border-radius: 6px; cursor: pointer; color: #334155; background: #fff; border: 1px solid transparent; }
+  .cal-day:hover:not(.cal-disabled):not(.cal-outside) { background: #eff6ff; }
+  .cal-day.cal-disabled, .cal-day.cal-outside { color: #cbd5e1; cursor: default; }
+  .cal-day.cal-today { border-color: #94a3b8; }
+  .cal-day.cal-selected { background: #2563eb; color: #fff; }
+  .cal-day.cal-has-post::after { content: ''; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: #f59e0b; }
+  .cal-day.cal-selected.cal-has-post::after { background: #fff; }
   .ctl-search { display: flex; gap: 8px; align-items: center; }
   .ctl-search input { flex: 1 1 160px; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
   .btn { border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; font-weight: 500; white-space: nowrap; }
@@ -456,6 +472,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           </div>
           <div class="hint" id="pubHint" style="margin-top:6px"></div>
           <div id="pubResults" style="margin-top:6px"></div>
+          <button type="button" class="btn-link" id="pubScheduleToggle" onclick="toggleScheduleUI()" style="margin-top:8px">📅 Schedule for later</button>
+          <div class="cal-box" id="pubScheduleBox" style="display:none">
+            <div class="cal-head">
+              <button type="button" class="cal-nav-btn" onclick="calNav(-1)">‹</button>
+              <span class="cal-month-label" id="calMonthLabel"></span>
+              <button type="button" class="cal-nav-btn" onclick="calNav(1)">›</button>
+            </div>
+            <div class="cal-dow"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+            <div class="cal-grid" id="calGrid"></div>
+            <div class="pub-row" style="margin-top:10px">
+              <span id="calSelectedLabel" class="hint">No date selected</span>
+              <input type="time" id="pubScheduleTime" value="10:00" style="border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font-size:13px">
+              <button class="btn btn-dark" id="pubScheduleBtn" onclick="scheduleSelected()" disabled>Schedule post</button>
+            </div>
+            <div class="hint" id="pubScheduleHint" style="margin-top:6px"></div>
+          </div>
         </div>
       </div>
       <div class="hint" style="margin-top:12px">Pick an image or video on the left · edit the caption directly on the card · “Get more text variants” suggests a LinkedIn/Facebook/Twitter/Instagram rewrite with AI · download as a PNG image, or as an MP4 video with your text and gradient burned in.</div>
@@ -1676,6 +1708,131 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Publish';
       results.innerHTML = '<div class="pub-result-line" style="color:#b91c1c">' + esc(err.message) + '</div>';
+    });
+  }
+
+  // ---- Schedule for later: a small calendar control that hands the composed
+  // image + target platforms + a future timestamp to the parent portal, which
+  // stores it and publishes it itself when the date arrives (Studio's own tab
+  // will not be open then, so it cannot fire the publish itself).
+  var calViewDate = new Date(); calViewDate.setDate(1);
+  var calSelected = null; // Date at local midnight of the chosen day
+  var calMarkedDates = {}; // 'YYYY-MM-DD' -> true, for days with a pending scheduled post
+  var calDatesRequested = false;
+
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function calDateKey(y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+
+  function toggleScheduleUI() {
+    var box = document.getElementById('pubScheduleBox');
+    var show = box.style.display === 'none';
+    box.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    renderCalendar();
+    document.getElementById('pubScheduleHint').innerHTML = activeIsVideo()
+      ? '<span style="color:#b91c1c">Scheduling supports images only right now — publish the video immediately instead.</span>' : '';
+    if (!calDatesRequested) {
+      calDatesRequested = true;
+      (window.parent || window).postMessage({ type: 'ks-studio-schedule-dates' }, '*');
+    }
+  }
+
+  function calNav(delta) {
+    calViewDate.setMonth(calViewDate.getMonth() + delta);
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    var y = calViewDate.getFullYear(), m = calViewDate.getMonth();
+    var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    document.getElementById('calMonthLabel').textContent = monthNames[m] + ' ' + y;
+    var grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+    var firstDow = new Date(y, m, 1).getDay();
+    var daysInMonth = new Date(y, m + 1, 0).getDate();
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var cells = [];
+    for (var i = 0; i < firstDow; i++) cells.push(null);
+    for (var d = 1; d <= daysInMonth; d++) cells.push(d);
+    cells.forEach(function (d) {
+      var cell = document.createElement('div');
+      if (d === null) { cell.className = 'cal-day cal-outside'; grid.appendChild(cell); return; }
+      var thisDate = new Date(y, m, d);
+      var key = calDateKey(y, m, d);
+      cell.className = 'cal-day';
+      cell.textContent = d;
+      if (thisDate < today) cell.classList.add('cal-disabled');
+      if (thisDate.getTime() === today.getTime()) cell.classList.add('cal-today');
+      if (calMarkedDates[key]) cell.classList.add('cal-has-post');
+      if (calSelected && calDateKey(calSelected.getFullYear(), calSelected.getMonth(), calSelected.getDate()) === key) cell.classList.add('cal-selected');
+      if (thisDate >= today) cell.onclick = function () { selectCalDate(y, m, d); };
+      grid.appendChild(cell);
+    });
+  }
+
+  function selectCalDate(y, m, d) {
+    calSelected = new Date(y, m, d);
+    document.getElementById('calSelectedLabel').textContent = calSelected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    document.getElementById('pubScheduleBtn').disabled = false;
+    renderCalendar();
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.type !== 'ks-studio-schedule-dates-result' || !e.data.dates) return;
+    calMarkedDates = {};
+    e.data.dates.forEach(function (ds) { calMarkedDates[ds] = true; });
+    renderCalendar();
+  });
+
+  function scheduleSelected() {
+    var targets = [];
+    if (document.getElementById('pubFb').checked) targets.push('facebook');
+    if (document.getElementById('pubIg').checked) targets.push('instagram');
+    if (document.getElementById('pubLi').checked) targets.push('linkedin');
+    var hint = document.getElementById('pubScheduleHint');
+    var btn = document.getElementById('pubScheduleBtn');
+    if (!targets.length) { hint.innerHTML = '<span style="color:#b91c1c">Pick at least one platform above.</span>'; return; }
+    if (!calSelected) { hint.innerHTML = '<span style="color:#b91c1c">Pick a date on the calendar.</span>'; return; }
+    if (activeIsVideo()) { hint.innerHTML = '<span style="color:#b91c1c">Scheduling supports images only right now — publish the video immediately instead.</span>'; return; }
+    var timeVal = document.getElementById('pubScheduleTime').value || '10:00';
+    var parts = timeVal.split(':');
+    var when = new Date(calSelected.getFullYear(), calSelected.getMonth(), calSelected.getDate(), Number(parts[0] || 10), Number(parts[1] || 0), 0, 0);
+    if (when.getTime() < Date.now() + 60000) { hint.innerHTML = '<span style="color:#b91c1c">Pick a time at least a minute from now.</span>'; return; }
+    btn.disabled = true; btn.textContent = 'Composing…';
+    hint.textContent = '';
+    var caption = collectCardText();
+    composeCardImageNoText().then(function (dataUrl) {
+      btn.textContent = 'Staging…';
+      return uploadComposed(dataUrlToBlob(dataUrl)).then(function (path) {
+        return location.href.replace(/studio\\/$/, 'preview/') + path;
+      });
+    }).then(function (imageUrl) {
+      btn.textContent = 'Scheduling…';
+      return new Promise(function (resolve, reject) {
+        function onResult(e) {
+          if (!e.data || e.data.type !== 'ks-studio-schedule-result') return;
+          window.removeEventListener('message', onResult);
+          if (e.data.ok) resolve(e.data); else reject(new Error(e.data.error || 'Scheduling failed.'));
+        }
+        window.addEventListener('message', onResult);
+        (window.parent || window).postMessage({
+          type: 'ks-studio-schedule', sessionId: '${id}', caption: caption,
+          targets: targets, imageUrl: imageUrl, scheduledAt: when.toISOString()
+        }, '*');
+        setTimeout(function () {
+          window.removeEventListener('message', onResult);
+          reject(new Error('The portal did not respond — open Studio from your portal.'));
+        }, 30000);
+      });
+    }).then(function () {
+      btn.disabled = false; btn.textContent = 'Schedule post';
+      hint.innerHTML = '<span style="color:#1b7a45">✓ Scheduled for ' + esc(when.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + '.</span>';
+      var key = calDateKey(calSelected.getFullYear(), calSelected.getMonth(), calSelected.getDate());
+      calMarkedDates[key] = true;
+      renderCalendar();
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Schedule post';
+      hint.innerHTML = '<span style="color:#b91c1c">' + esc(err.message) + '</span>';
     });
   }
 
