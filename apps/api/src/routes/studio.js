@@ -281,12 +281,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .card-text-layer:hover { outline: 2px dashed #93c5fd; outline-offset: 4px; border-radius: 4px; }
   .card-text-layer:focus { outline: 2px solid #2563eb; outline-offset: 4px; border-radius: 4px; }
   #card-img-wrap .card-text-layer { text-shadow: 0 1px 4px rgba(0,0,0,.55); }
-  .blur-box { position: absolute; z-index: 1; overflow: hidden; cursor: move; outline: 1px dashed rgba(255,255,255,.95); outline-offset: -1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
-  .blur-box canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
-  .blur-box .bb-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; background: #2563eb; border: 2px solid #fff; border-radius: 50%; cursor: nwse-resize; }
-  .blur-box .bb-remove { position: absolute; right: 0; top: 0; width: 17px; height: 17px; background: rgba(15,23,42,.8); color: #fff; border: none; border-radius: 0 0 0 6px; font-size: 10px; line-height: 17px; text-align: center; cursor: pointer; padding: 0; }
-  #card.exporting .blur-box { outline: none; box-shadow: none; }
-  #card.exporting .bb-resize, #card.exporting .bb-remove { display: none; }
   #card-brand { padding: 0 22px 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; flex: none; }
   .layer-pills { display: flex; flex-wrap: wrap; gap: 6px; }
   .layer-pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #475569; background: #fff; }
@@ -457,7 +451,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
                     hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
               Get more text variants
             </button>
-            <button class="btn btn-blue" type="button" onclick="addBlurBox()" title="Drag a soft-blur box over the image or video to hide a value (e.g. a number on a chart)">+ Blur box</button>
           </div>
         </div>
         <div class="ctl-group">
@@ -755,7 +748,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     if (!FORMATS[key]) return;
     currentFormat = key;
     document.getElementById('card').style.aspectRatio = FORMATS[key].ar;
-    if (typeof renderAllBlurBoxes === 'function') renderAllBlurBoxes();
     if (typeof refreshPublishPanel === 'function') refreshPublishPanel();
   }
   // Export scale so the captured PNG lands at the format's target width
@@ -1002,98 +994,6 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       tray.appendChild(b);
     });
   })();
-
-  // ---- Blur boxes: redact a region of the card IMAGE (e.g. a value on a
-  // chart). html2canvas ignores CSS filter:blur, so each box paints a soft
-  // bilinear blur of the underlying image into a <canvas> — real pixels that
-  // survive the PNG export. Falls back to a solid frost if the source image
-  // is cross-origin and taints the canvas.
-  var blurBoxes = [];
-  var BLUR_SOFTNESS = 12; // higher = blurrier (downscale factor before upscale)
-
-  function imgFitMap() {
-    var img = document.getElementById('card-img');
-    var wrap = document.getElementById('card-img-wrap');
-    var Wd = wrap.clientWidth, Hd = wrap.clientHeight;
-    var Wn = img.naturalWidth, Hn = img.naturalHeight;
-    if (!Wn || !Hn) return null;
-    var scale = Math.min(Wd / Wn, Hd / Hn); // object-fit: contain
-    return { img: img, scale: scale, offX: (Wd - Wn * scale) / 2, offY: (Hd - Hn * scale) / 2 };
-  }
-
-  function renderBlurBox(box) {
-    var m = imgFitMap();
-    if (!m) return;
-    var bw = box.offsetWidth, bh = box.offsetHeight;
-    if (bw < 2 || bh < 2) return;
-    var canvas = box.querySelector('canvas');
-    canvas.width = Math.round(bw); canvas.height = Math.round(bh);
-    var ctx = canvas.getContext('2d');
-    try {
-      // box (wrap coords) -> source-image pixel rect, undoing the contain letterbox offset
-      var sx = (box.offsetLeft - m.offX) / m.scale, sy = (box.offsetTop - m.offY) / m.scale;
-      var sw = bw / m.scale, sh = bh / m.scale;
-      var tw = Math.max(2, Math.round(bw / BLUR_SOFTNESS)), th = Math.max(2, Math.round(bh / BLUR_SOFTNESS));
-      var tmp = document.createElement('canvas'); tmp.width = tw; tmp.height = th;
-      var tctx = tmp.getContext('2d'); tctx.imageSmoothingEnabled = true;
-      tctx.drawImage(m.img, sx, sy, sw, sh, 0, 0, tw, th);  // downsample the region
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(tmp, 0, 0, tw, th, 0, 0, canvas.width, canvas.height); // upscale -> soft blur
-    } catch (e) {
-      ctx.fillStyle = 'rgba(120,120,120,.92)'; // tainted image — solid frost still hides it
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-  }
-  function renderAllBlurBoxes() { blurBoxes.forEach(renderBlurBox); }
-
-  function addBlurBox() {
-    var wrap = document.getElementById('card-img-wrap');
-    var box = document.createElement('div');
-    box.className = 'blur-box';
-    var w = Math.round(wrap.clientWidth * 0.42), h = Math.round(wrap.clientHeight * 0.16);
-    box.style.width = w + 'px'; box.style.height = h + 'px';
-    box.style.left = Math.round((wrap.clientWidth - w) / 2) + 'px';
-    box.style.top = Math.round((wrap.clientHeight - h) / 2) + 'px';
-    box.innerHTML = '<canvas></canvas><button class="bb-remove" title="Remove">&#10005;</button><div class="bb-resize"></div>';
-    wrap.appendChild(box);
-    blurBoxes.push(box);
-    box.querySelector('.bb-remove').addEventListener('click', function (e) {
-      e.stopPropagation(); box.remove();
-      blurBoxes = blurBoxes.filter(function (b) { return b !== box; });
-    });
-    makeBoxInteractive(box);
-    renderBlurBox(box);
-  }
-
-  function makeBoxInteractive(box) {
-    var wrap = document.getElementById('card-img-wrap');
-    var resize = box.querySelector('.bb-resize');
-    var mode = null, sx0, sy0, l0, t0, w0, h0, raf = 0;
-    function onMove(e) {
-      var dx = e.clientX - sx0, dy = e.clientY - sy0;
-      if (mode === 'move') {
-        box.style.left = Math.max(0, Math.min(l0 + dx, wrap.clientWidth - box.offsetWidth)) + 'px';
-        box.style.top = Math.max(0, Math.min(t0 + dy, wrap.clientHeight - box.offsetHeight)) + 'px';
-      } else {
-        box.style.width = Math.max(16, Math.min(w0 + dx, wrap.clientWidth - box.offsetLeft)) + 'px';
-        box.style.height = Math.max(12, Math.min(h0 + dy, wrap.clientHeight - box.offsetTop)) + 'px';
-      }
-      if (!raf) raf = requestAnimationFrame(function () { raf = 0; renderBlurBox(box); });
-    }
-    function onUp() { mode = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); renderBlurBox(box); }
-    box.addEventListener('mousedown', function (e) {
-      if (e.target === resize || e.target.className === 'bb-remove') return;
-      mode = 'move'; sx0 = e.clientX; sy0 = e.clientY; l0 = box.offsetLeft; t0 = box.offsetTop;
-      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); e.preventDefault();
-    });
-    resize.addEventListener('mousedown', function (e) {
-      mode = 'resize'; sx0 = e.clientX; sy0 = e.clientY; w0 = box.offsetWidth; h0 = box.offsetHeight;
-      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); e.preventDefault(); e.stopPropagation();
-    });
-  }
-
-  // Re-blur against the new pixels whenever the card image is swapped.
-  (function () { var ci = document.getElementById('card-img'); if (ci) ci.addEventListener('load', renderAllBlurBoxes); })();
 
   // ---- Drag & drop builder: palette elements dropped onto the card body ----
   var blockSeq = 0;
@@ -1368,7 +1268,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 
   function downloadCard() {
     var card = document.getElementById('card');
-    card.classList.add('exporting'); // hide block/blur-box chrome in the PNG
+    card.classList.add('exporting'); // hide block chrome in the PNG
 
     var restores = [];
 
