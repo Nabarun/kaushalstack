@@ -470,6 +470,13 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
             </label>
             <button class="btn btn-dark" id="pubGoBtn" onclick="publishSelected()">Publish</button>
           </div>
+          <div class="pub-row" id="pubCollabRow" style="display:none;margin-top:8px">
+            <label for="pubCollabInput" style="font-size:12px;color:#64748b">IG collaborators</label>
+            <input type="text" id="pubCollabInput" oninput="renderCollabHint()"
+                   placeholder="username1, username2 — optional, up to 3 public accounts"
+                   style="flex:1 1 220px;min-width:0;border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font-size:12.5px">
+          </div>
+          <div class="hint" id="pubCollabHint"></div>
           <div class="hint" id="pubHint" style="margin-top:6px"></div>
           <div id="pubResults" style="margin-top:6px"></div>
           <button type="button" class="btn-link" id="pubScheduleToggle" onclick="toggleScheduleUI()" style="margin-top:8px">📅 Schedule for later</button>
@@ -1636,6 +1643,26 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     document.getElementById('pubPreviews').innerHTML = mockHtml('fb', src, caption, fmt) + mockHtml('ig', src, caption, fmt);
     var any = document.getElementById('pubFb').checked || igCheck.checked || document.getElementById('pubLi').checked;
     document.getElementById('pubGoBtn').disabled = !any;
+    document.getElementById('pubCollabRow').style.display = (igCheck.checked && !igCheck.disabled) ? '' : 'none';
+    renderCollabHint();
+  }
+
+  // Instagram lets you tag up to 3 public accounts as post co-authors — the
+  // post appears on both profiles once they accept the invite. Facebook and
+  // LinkedIn have no equivalent, so this only ever reaches the IG publish call.
+  function collectCollaborators() {
+    var raw = (document.getElementById('pubCollabInput') || {}).value || '';
+    return raw.split(',').map(function (s) { return s.trim().replace(/^@/, ''); }).filter(Boolean).slice(0, 3);
+  }
+  function renderCollabHint() {
+    var hint = document.getElementById('pubCollabHint');
+    if (!hint || document.getElementById('pubCollabRow').style.display === 'none') { if (hint) hint.textContent = ''; return; }
+    var raw = (document.getElementById('pubCollabInput') || {}).value || '';
+    var typed = raw.split(',').map(function (s) { return s.trim().replace(/^@/, ''); }).filter(Boolean);
+    var bad = typed.filter(function (n) { return !/^[A-Za-z0-9._]{1,30}$/.test(n); });
+    if (bad.length) hint.innerHTML = '<span style="color:#b91c1c">Usernames can only contain letters, numbers, periods and underscores.</span>';
+    else if (typed.length > 3) hint.innerHTML = '<span style="color:#b91c1c">Instagram allows up to 3 collaborators — only the first 3 will be invited.</span>';
+    else hint.textContent = '';
   }
 
   function publishSelected() {
@@ -1692,7 +1719,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         var payload = { type: 'ks-studio-publish', target: t, sessionId: '${id}', caption: caption, kind: media.kind };
         if (media.videoUrl) payload.videoUrl = media.videoUrl;
         // IG only needs the public URL; FB/LinkedIn upload the bytes.
-        if (t === 'instagram') payload.imageUrl = media.imageUrl; else if (media.image) payload.image = media.image;
+        if (t === 'instagram') { payload.imageUrl = media.imageUrl; payload.collaborators = collectCollaborators(); }
+        else if (media.image) payload.image = media.image;
         (window.parent || window).postMessage(payload, '*');
       });
       setTimeout(function () {
@@ -1817,7 +1845,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         window.addEventListener('message', onResult);
         (window.parent || window).postMessage({
           type: 'ks-studio-schedule', sessionId: '${id}', caption: caption,
-          targets: targets, imageUrl: imageUrl, scheduledAt: when.toISOString()
+          targets: targets, imageUrl: imageUrl, scheduledAt: when.toISOString(),
+          collaborators: targets.indexOf('instagram') !== -1 ? collectCollaborators() : []
         }, '*');
         setTimeout(function () {
           window.removeEventListener('message', onResult);
