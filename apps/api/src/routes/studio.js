@@ -250,7 +250,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .picker-thumb:hover { border-color: #2563eb; }
   .composer { display: flex; flex-direction: column; gap: 16px; }
   .composer-side { display: flex; flex-direction: column; gap: 16px; }
-  #card { position: relative; width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
+  #card { position: relative; width: 440px; max-width: 100%; aspect-ratio: 1/1; background: #fff; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(15,23,42,.12); margin: 0 auto; }
   /* inline delete controls for the card's own image and caption */
   .media-del { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border: none; border-radius: 50%;
     background: rgba(220,38,38,.9); color: #fff; font-size: 11px; line-height: 22px; padding: 0; cursor: pointer; z-index: 5; opacity: 0; transition: opacity .12s; }
