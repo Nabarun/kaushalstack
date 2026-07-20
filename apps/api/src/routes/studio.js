@@ -299,8 +299,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   .ctl-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
   .ctl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   /* publish panel */
-  .pub-previews { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-  .pub-mock { flex: 1 1 180px; max-width: 230px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+  .pub-car-wrap { position: relative; margin-bottom: 8px; }
+  .pub-car-viewport { overflow: hidden; padding: 0 24px; }
+  .pub-previews { display: flex; transition: transform .25s ease; }
+  .pub-mock { flex: 0 0 100%; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+  .pub-car-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; border: 1px solid #cbd5e1; background: #fff; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 14px; color: #334155; line-height: 1; box-shadow: 0 1px 4px rgba(15,23,42,.12); }
+  .pub-car-btn:hover { background: #f1f5f9; }
+  .pub-car-prev { left: 0; }
+  .pub-car-next { right: 0; }
+  .pub-car-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 12px; }
+  .pub-car-dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; cursor: pointer; border: none; padding: 0; }
+  .pub-car-dot.sel { background: #2563eb; }
   .pub-mock-head { display: flex; align-items: center; gap: 7px; padding: 8px 10px; }
   .pub-mock-avatar { width: 22px; height: 22px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
   .pub-mock-name { font-size: 11px; font-weight: 600; color: #0f172a; line-height: 1.2; }
@@ -454,7 +463,12 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         </div>
         <div class="ctl-group" id="publishGroup" style="display:none">
           <div class="ctl-label">Publish</div>
-          <div class="pub-previews" id="pubPreviews"></div>
+          <div class="pub-car-wrap">
+            <div class="pub-car-viewport"><div class="pub-previews" id="pubPreviews"></div></div>
+            <button type="button" class="pub-car-btn pub-car-prev" onclick="pubCarNav(-1)" aria-label="Previous preview">‹</button>
+            <button type="button" class="pub-car-btn pub-car-next" onclick="pubCarNav(1)" aria-label="Next preview">›</button>
+          </div>
+          <div class="pub-car-dots" id="pubCarDots"></div>
           <div class="pub-row">
             <label class="pub-check" id="pubCheckFb">
               <input type="checkbox" id="pubFb" checked onchange="refreshPublishPanel()">
@@ -1615,14 +1629,17 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     return (img && img.style.display !== 'none' && img.src) ? img.src : '';
   }
 
+  var MOCK_PLATFORMS = {
+    fb: { avatarBg: '#1877f2', avatarText: 'f', name: 'Facebook', sub: 'Page post · just now' },
+    ig: { avatarBg: 'linear-gradient(45deg,#f09433,#dc2743,#bc1888)', avatarText: 'IG', name: 'Instagram', sub: 'Feed · grid crops to 3:4' },
+    li: { avatarBg: '#0a66c2', avatarText: 'in', name: 'LinkedIn', sub: 'Your profile · just now' }
+  };
   function mockHtml(kind, src, caption, format) {
-    var isIg = kind === 'ig';
-    var head = isIg
-      ? '<div class="pub-mock-head"><span class="pub-mock-avatar" style="background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)">IG</span><div><div class="pub-mock-name">Instagram</div><div class="pub-mock-sub">Feed · grid crops to 3:4</div></div></div>'
-      : '<div class="pub-mock-head"><span class="pub-mock-avatar" style="background:#1877f2">f</span><div><div class="pub-mock-name">Facebook</div><div class="pub-mock-sub">Page post · just now</div></div></div>';
+    var p = MOCK_PLATFORMS[kind];
+    var head = '<div class="pub-mock-head"><span class="pub-mock-avatar" style="background:' + p.avatarBg + '">' + p.avatarText + '</span><div><div class="pub-mock-name">' + p.name + '</div><div class="pub-mock-sub">' + p.sub + '</div></div></div>';
     var warn = '';
     var ar = format.ar;
-    if (isIg && !format.igFeed) {
+    if (kind === 'ig' && !format.igFeed) {
       ar = '4 / 5';
       warn = '<div class="pub-mock-warn">9:16 is for Stories/Reels — IG feed needs 4:5 to 1.91:1. Switch Format to include Instagram.</div>';
     }
@@ -1630,6 +1647,33 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     return '<div class="pub-mock">' + head
       + '<div class="pub-mock-img" style="aspect-ratio:' + ar + '">' + imgHtml + warn + '</div>'
       + '<div class="pub-mock-cap">' + esc(caption || 'Your caption appears here as the post text.') + '</div></div>';
+  }
+
+  // ---- Publish preview carousel: one platform mock visible at a time with
+  // prev/next + dots, so FB/IG/LinkedIn previews don't fight for width.
+  var pubCarIndex = 0;
+  function renderPubCarousel() {
+    var mocks = document.querySelectorAll('#pubPreviews .pub-mock');
+    var track = document.getElementById('pubPreviews');
+    var dots = document.getElementById('pubCarDots');
+    if (!mocks.length || !track || !dots) return;
+    if (pubCarIndex >= mocks.length) pubCarIndex = 0;
+    track.style.transform = 'translateX(-' + (pubCarIndex * 100) + '%)';
+    dots.innerHTML = '';
+    mocks.forEach(function (m, i) {
+      var d = document.createElement('button');
+      d.type = 'button';
+      d.className = 'pub-car-dot' + (i === pubCarIndex ? ' sel' : '');
+      d.setAttribute('aria-label', 'Show preview ' + (i + 1));
+      d.onclick = function () { pubCarIndex = i; renderPubCarousel(); };
+      dots.appendChild(d);
+    });
+  }
+  function pubCarNav(delta) {
+    var mocks = document.querySelectorAll('#pubPreviews .pub-mock');
+    if (!mocks.length) return;
+    pubCarIndex = (pubCarIndex + delta + mocks.length) % mocks.length;
+    renderPubCarousel();
   }
 
   // Keeps checkboxes legal for the current card + rebuilds the previews.
@@ -1651,7 +1695,8 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     hint.textContent = igBlock || ('Format: ' + fmt.name + ' · exports at ' + fmt.w + 'px wide · text posts as the caption, not baked into the media.');
     var src = previewMediaSrc();
     var caption = collectCardText();
-    document.getElementById('pubPreviews').innerHTML = mockHtml('fb', src, caption, fmt) + mockHtml('ig', src, caption, fmt);
+    document.getElementById('pubPreviews').innerHTML = mockHtml('fb', src, caption, fmt) + mockHtml('ig', src, caption, fmt) + mockHtml('li', src, caption, fmt);
+    renderPubCarousel();
     var any = document.getElementById('pubFb').checked || igCheck.checked || document.getElementById('pubLi').checked;
     document.getElementById('pubGoBtn').disabled = !any;
     document.getElementById('pubCollabRow').style.display = (igCheck.checked && !igCheck.disabled) ? '' : 'none';
