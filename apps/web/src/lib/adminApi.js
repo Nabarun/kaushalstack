@@ -106,6 +106,14 @@ export const adminApi = {
     getRoundtableStats(range = 'mtd') {
         return fetch(`${API_BASE}/admin/roundtable-stats?range=${range}`, { headers: headers() }).then(handle);
     },
+    listWorkspaces() {
+        return fetch(`${API_BASE}/admin/workspaces`, { headers: headers() }).then(handle);
+    },
+    deleteWorkspace(id) {
+        return fetch(`${API_BASE}/admin/workspaces/${id}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
     listFeatureSubscriptions() {
         return fetch(`${API_BASE}/admin/marketplace/subscriptions`, { headers: headers() }).then(handle);
     },

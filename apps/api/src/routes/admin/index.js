@@ -6,6 +6,7 @@ import editsRouter from './edits.js';
 import partnerStatsRouter from './partner-stats.js';
 import partnersRouter from './partners.js';
 import marketplaceRouter from './marketplace.js';
+import workspacesRouter from './workspaces.js';
 import roundtableStatsRouter from './roundtable-stats.js';
 import { ensureAdminCollections } from './collections.js';
 
@@ -19,6 +20,7 @@ router.use(editsRouter);
 router.use(partnerStatsRouter);
 router.use(partnersRouter);
 router.use(marketplaceRouter);
+router.use(workspacesRouter);
 router.use(roundtableStatsRouter);
 
 export default router;
