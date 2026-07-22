@@ -195,6 +195,38 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
     }
 }
 
+// Recreate the portal container with a new ADMIN_PASS, preserving image,
+// labels, volume, and every other env var (KS token, session, branding).
+// Cookie sessions survive too — the signing secret lives in the volume.
+export async function resetEnvironmentPassword(record, newPass) {
+    if (!newPass || newPass.length < 8) {
+        throw Object.assign(new Error('password must be at least 8 characters'), { status: 400 });
+    }
+    const name = `portal-${record.slug}`;
+    const inspect = await dockerRequest('GET', `/containers/${name}/json`);
+    const env = (inspect.Config.Env || []).map(e => (e.startsWith('ADMIN_PASS=') ? `ADMIN_PASS=${newPass}` : e));
+    if (!env.some(e => e.startsWith('ADMIN_PASS='))) env.push(`ADMIN_PASS=${newPass}`);
+
+    await dockerRequest('DELETE', `/containers/${name}?force=true`);
+    const create = await dockerRequest('POST', `/containers/create?name=${name}`, {
+        Image: inspect.Config.Image,
+        Env: env,
+        Labels: inspect.Config.Labels || {},
+        ExposedPorts: { '8080/tcp': {} },
+        HostConfig: {
+            Binds: inspect.HostConfig?.Binds || [],
+            RestartPolicy: { Name: 'unless-stopped' },
+        },
+    });
+    await dockerRequest('POST', `/containers/${create.Id}/start`);
+    const updated = await pb.collection('partner_environments').update(record.id, {
+        container_id: create.Id.slice(0, 12),
+        status: 'running',
+    });
+    logger.info(`environment: password reset for ${name}`);
+    return updated;
+}
+
 export async function removeEnvironment(record) {
     const containerName = `portal-${record.slug}`;
     try {

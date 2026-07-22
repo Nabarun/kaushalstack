@@ -7,7 +7,7 @@ import pb from '../../utils/pocketbaseClient.js';
 import { requireAdmin } from './auth.js';
 import { ensurePartnerCollections } from '../../partner/collections.js';
 import {
-    provisionEnvironment, removeEnvironment, getEnvironment, SLUG_RE,
+    provisionEnvironment, removeEnvironment, resetEnvironmentPassword, getEnvironment, SLUG_RE,
 } from '../../partner/environment.js';
 import { dockerAvailable } from '../../utils/dockerEngine.js';
 
@@ -66,6 +66,19 @@ router.post('/admin/partners/:id/environment', requireAdmin, async (req, res) =>
         });
         res.json({ item: toRow(env) });
     } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/admin/partners/:id/environment/reset-password', requireAdmin, async (req, res) => {
+    const adminPass = String(req.body?.admin_pass || '');
+    try {
+        const env = await getEnvironment(req.params.id);
+        if (!env) return res.status(404).json({ error: 'no environment for this partner' });
+        const updated = await resetEnvironmentPassword(env, adminPass);
+        res.json({ item: toRow(updated) });
+    } catch (err) {
+        logger.error('admin environment password reset failed:', err.message);
         res.status(err.status || 500).json({ error: err.message });
     }
 });

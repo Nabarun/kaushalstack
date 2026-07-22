@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, IndianRupee, Plus, Sparkles, Server, ExternalLink, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Plus, Sparkles, Server, ExternalLink, Trash2, RefreshCw, KeyRound } from 'lucide-react';
 import { FEATURES, StatusPill, SubStatusPill, fmtDate } from './MarketplacePage.jsx';
 
 function slugify(name) {
@@ -22,6 +22,87 @@ function genPassword() {
     crypto.getRandomValues(buf);
     for (const v of buf) out += chars[v % chars.length];
     return out;
+}
+
+// Password reset popup — generates a new password and recreates the portal
+// container with it; everything else (URL, data, connections) survives.
+function ResetPasswordDialog({ env, onClose }) {
+    const [pass, setPass] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [done, setDone] = useState(false);
+
+    useEffect(() => {
+        if (env) { setPass(genPassword()); setDone(false); }
+    }, [env]);
+
+    if (!env) return null;
+
+    async function onReset() {
+        if (pass.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+        setBusy(true);
+        try {
+            await adminApi.resetEnvironmentPassword(env.partner_id, pass);
+            setDone(true);
+            toast.success('Password reset — the portal restarted with the new password');
+        } catch (err) {
+            toast.error(`Reset failed: ${err.message}`);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Dialog open={!!env} onOpenChange={open => { if (!open && !busy) onClose(); }}>
+            <DialogContent className="bg-card border text-foreground">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-amber-500" /> Reset portal password — {env.slug}
+                    </DialogTitle>
+                </DialogHeader>
+                {done ? (
+                    <div className="space-y-3">
+                        <p className="text-sm">New credentials for <span className="font-mono">{env.slug}.srv1562298.hstgr.cloud</span>:</p>
+                        <div className="rounded-lg border bg-background p-3 text-sm space-y-1">
+                            <div><span className="text-muted-foreground">Username:</span> <span className="font-mono">{env.admin_user || 'admin'}</span></div>
+                            <div><span className="text-muted-foreground">Password:</span> <span className="font-mono">{pass}</span></div>
+                        </div>
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                            Save it now — it is not stored anywhere. Anyone logged into the portal stays logged in; only new logins need the new password.
+                        </p>
+                        <DialogFooter><Button type="button" onClick={onClose}>Done</Button></DialogFooter>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                            The portal restarts with the new password (a few seconds of downtime). Nothing else changes —
+                            URL, linked designs, and social connections all survive.
+                        </p>
+                        <div>
+                            <Label htmlFor="reset-pass">New password</Label>
+                            <div className="flex items-center gap-1">
+                                <Input
+                                    id="reset-pass"
+                                    value={pass}
+                                    onChange={e => setPass(e.target.value)}
+                                    className="bg-background border font-mono text-sm"
+                                />
+                                <Button type="button" size="sm" variant="ghost" title="Generate new password"
+                                    onClick={() => setPass(genPassword())}>
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                </Button>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+                            <Button type="button" onClick={onReset} disabled={busy}>
+                                {busy ? 'Resetting…' : 'Reset password'}
+                            </Button>
+                        </DialogFooter>
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+    );
 }
 
 // Environment creation popup — collects everything needed to provision the
@@ -184,6 +265,7 @@ export default function MarketplaceFeaturePage() {
     const [adding, setAdding] = useState(false);
     const [environments, setEnvironments] = useState([]);
     const [envFor, setEnvFor] = useState(null);
+    const [resetFor, setResetFor] = useState(null);
 
     const isStudio = featureId === 'studio';
 
@@ -418,6 +500,14 @@ export default function MarketplaceFeaturePage() {
                                                     <ExternalLink className="w-2.5 h-2.5" />
                                                     <button
                                                         type="button"
+                                                        title="Reset portal password"
+                                                        onClick={() => setResetFor(envByPartner[sub.partner_id])}
+                                                        className="ml-0.5 text-muted-foreground hover:text-amber-600"
+                                                    >
+                                                        <KeyRound className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         title="Remove environment (portal goes offline)"
                                                         onClick={() => onRemoveEnv(envByPartner[sub.partner_id])}
                                                         className="ml-0.5 text-muted-foreground hover:text-red-600"
@@ -472,6 +562,8 @@ export default function MarketplaceFeaturePage() {
                 onClose={() => setEnvFor(null)}
                 onCreated={env => setEnvironments(prev => [env, ...prev.filter(e => e.id !== env.id)])}
             />
+
+            <ResetPasswordDialog env={resetFor} onClose={() => setResetFor(null)} />
         </>
     );
 }

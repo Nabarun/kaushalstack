@@ -127,6 +127,11 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    resetEnvironmentPassword(partnerId, adminPass) {
+        return fetch(`${API_BASE}/admin/partners/${partnerId}/environment/reset-password`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ admin_pass: adminPass }),
+        }).then(handle);
+    },
     deleteEnvironment(partnerId) {
         return fetch(`${API_BASE}/admin/partners/${partnerId}/environment`, {
             method: 'DELETE', headers: headers(),
