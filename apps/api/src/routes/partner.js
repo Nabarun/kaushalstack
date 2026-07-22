@@ -18,6 +18,7 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { ensurePartnerCollections } from '../partner/collections.js';
+import { recordUsage, computeCostUSD } from '../partner/usage.js';
 import { chatComplete } from '../providers/index.js';
 import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
 
@@ -402,6 +403,38 @@ function rangeStart(range) {
     // today (UTC midnight — PocketBase `created` is UTC)
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
+
+// External spend reporting. Portals that call a model provider directly
+// (e.g. Claude web research in a portal's Team chat) report the usage here
+// so the partner's single token balance stays honest. Token cost comes from
+// the shared price table; extra_cost_usd carries flat per-call surcharges
+// (web search is $10 per 1,000 searches) and is capped — this endpoint is a
+// meter, not a money pipe.
+router.post('/partner/:id/usage', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    const model = String(req.body?.model || '').slice(0, 80);
+    const input_tokens = Math.min(10_000_000, Math.max(0, Math.round(Number(req.body?.input_tokens) || 0)));
+    const output_tokens = Math.min(10_000_000, Math.max(0, Math.round(Number(req.body?.output_tokens) || 0)));
+    const extra = Math.min(1, Math.max(0, Number(req.body?.extra_cost_usd) || 0));
+    if (!model || (!input_tokens && !output_tokens && !extra)) {
+        return res.status(400).json({ error: 'model plus token counts (or extra_cost_usd) required' });
+    }
+    const cost = computeCostUSD(model, input_tokens, output_tokens) + extra;
+    await recordUsage({
+        provider: String(req.body?.provider || 'external').slice(0, 40),
+        model,
+        usage: { input_tokens, output_tokens },
+        costUSD: cost,
+        meter: {
+            partner_id: req.params.id,
+            user_id: ctx.userId,
+            agent: String(req.body?.agent || '').slice(0, 60),
+            context: String(req.body?.context || 'external').slice(0, 60),
+        },
+    });
+    res.json({ ok: true, cost_usd: Number(cost.toFixed(6)) });
+});
 
 router.get('/partner/:id/usage', async (req, res) => {
     const ctx = await requireMember(req, res);
