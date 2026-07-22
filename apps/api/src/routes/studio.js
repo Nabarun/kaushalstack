@@ -418,7 +418,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     <input type="file" id="uploadInput" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" style="display:none" onchange="uploadMedia(this.files[0])">
     <div id="uploadStatus" class="hint" style="display:none;margin-bottom:10px"></div>
     <h2 id="mediaHeading">Media (${media.length})</h2>
-    <div class="thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
+    <div class="thumbs" id="media-thumbs">${thumbsHtml || '<div class="hint">No images or videos in this session yet.</div>'}</div>
     <!-- Elements palette hidden for now — re-enable by removing display:none. -->
     <div id="elementsSection" style="display:none">
       <h2>Elements</h2>
@@ -789,6 +789,45 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         status.innerHTML = '<span style="color:#b91c1c">' + esc(err.message) + '</span>';
       });
   }
+  // Freshly generated media lands in assets/ on the server, but the media
+  // strip was rendered at page load — mirror new files into it so they show
+  // up as proper assets (with the ✕ delete button) without a reload.
+  function addToMediaStrip(relPath, type) {
+    var strip = document.getElementById('media-thumbs');
+    if (!strip) return;
+    var hint = strip.querySelector('.hint');
+    if (hint) hint.remove();
+    if (strip.querySelector('[data-path="' + relPath + '"]')) return; // already there
+    var previewBase = location.href.replace(/studio\\/.*$/, 'preview/');
+    var wrap = document.createElement('div');
+    wrap.className = 'thumb-wrap';
+    var mediaEl;
+    if (type === 'video') {
+      mediaEl = document.createElement('video');
+      mediaEl.muted = true; mediaEl.preload = 'metadata';
+      mediaEl.src = previewBase + relPath + '#t=0.1';
+      var badge = document.createElement('span');
+      badge.className = 'thumb-badge'; badge.textContent = '▶ video';
+      wrap.appendChild(badge);
+    } else {
+      mediaEl = document.createElement('img');
+      mediaEl.loading = 'lazy';
+      mediaEl.src = previewBase + relPath;
+    }
+    mediaEl.className = 'thumb';
+    mediaEl.dataset.type = type;
+    mediaEl.title = relPath;
+    mediaEl.onclick = function () { selectMedia(mediaEl); };
+    wrap.insertBefore(mediaEl, wrap.firstChild);
+    var del = document.createElement('button');
+    del.className = 'thumb-del'; del.type = 'button';
+    del.dataset.path = relPath; del.title = 'Delete';
+    del.textContent = '✕';
+    wrap.appendChild(del);
+    strip.insertBefore(wrap, strip.firstChild);
+  }
+  window.addToMediaStrip = addToMediaStrip;
+
   function pollVideoGen(operationName, startedAt) {
     var btn = document.getElementById('genVideoBtn');
     var status = document.getElementById('gen-vid-status');
@@ -813,6 +852,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
         v.style.cssText = 'width:100%;max-width:160px;border-radius:8px;cursor:pointer;display:block;margin-top:8px';
         v.onclick = function () { selectMedia(v); };
         document.getElementById('gen-vid-result').appendChild(v);
+        addToMediaStrip(d.path, 'video');
       })
       .catch(function (err) {
         btn.disabled = false; btn.textContent = 'Generate video';
@@ -2082,7 +2122,9 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-image$/, async (req, res
         await fs.mkdir(path.dirname(abs), { recursive: true });
         await fs.writeFile(abs, buf);
         const previewBase = `/api/build/${id}/preview/`;
-        sendFragment(res, `<img class="rec-thumb" data-type="image" src="${esc(previewBase + relPath)}" title="Generated with Gemini: ${esc(prompt)}" onclick="selectMedia(this)">`);
+        // The trailing script mirrors the new file into the media strip —
+        // htmx executes scripts inside swapped fragments.
+        sendFragment(res, `<img class="rec-thumb" data-type="image" src="${esc(previewBase + relPath)}" title="Generated with Gemini: ${esc(prompt)}" onclick="selectMedia(this)"><script>window.addToMediaStrip && addToMediaStrip(${JSON.stringify(relPath)}, 'image');</script>`);
     } catch (err) {
         logger.error(`studio generate-image error session=${id}: ${err.message}`);
         sendFragment(res, errFragment('Image generation failed — try again.'));
