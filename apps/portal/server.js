@@ -23,6 +23,10 @@ const PORTAL_NAME = process.env.PORTAL_NAME || 'Studio';
 const ADMIN_USER = process.env.ADMIN_USER || '';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 const KS_ORIGIN = (process.env.KS_ORIGIN || 'https://kaushalstack.com').replace(/\/$/, '');
+const KS_API_TOKEN = process.env.KS_API_TOKEN || '';
+const PARTNER_ID = process.env.PARTNER_ID || '';
+const TARA_AGENT_ID = process.env.TARA_AGENT_ID || '';
+const CAN_CREATE_CAMPAIGNS = !!(KS_API_TOKEN && TARA_AGENT_ID);
 
 if (!ADMIN_USER || !ADMIN_PASS) {
     console.error('ADMIN_USER and ADMIN_PASS are required');
@@ -52,6 +56,49 @@ function writeConfig(cfg) {
 }
 if (!readConfig().session_id && /^[a-f0-9]{16}$/.test(process.env.SESSION_ID || '')) {
     writeConfig({ session_id: process.env.SESSION_ID });
+}
+
+// ── Campaign runs (Tara via kaushalstack /api/creative) ─────────────────────
+// One at a time; state survives restarts via campaign.json so the page can
+// keep polling even if the container bounced mid-run (the run itself won't
+// survive a restart — status flips to failed on next start if it was running).
+const CAMPAIGN_FILE = path.join(DATA_DIR, 'campaign.json');
+function readCampaign() {
+    try { return JSON.parse(fs.readFileSync(CAMPAIGN_FILE, 'utf8')); } catch { return { status: 'idle' }; }
+}
+function writeCampaign(c) {
+    fs.writeFileSync(CAMPAIGN_FILE, JSON.stringify(c));
+}
+let campaignInFlight = false;
+if (readCampaign().status === 'running') {
+    writeCampaign({ status: 'failed', error: 'portal restarted while the campaign was running — try again' });
+}
+
+async function runCampaign(brief) {
+    campaignInFlight = true;
+    writeCampaign({ status: 'running', brief: brief.slice(0, 300), started: Date.now() });
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 30 * 60 * 1000);
+        const r = await fetch(`${KS_ORIGIN}/api/creative`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KS_API_TOKEN}` },
+            body: JSON.stringify({ agent_id: TARA_AGENT_ID, query: brief, partner_id: PARTNER_ID }),
+            signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.session_id) {
+            throw new Error(data.error || `kaushalstack returned ${r.status}`);
+        }
+        writeConfig({ ...readConfig(), session_id: data.session_id });
+        writeCampaign({ status: 'done', session_id: data.session_id, finished: Date.now() });
+    } catch (err) {
+        const msg = err.name === 'AbortError' ? 'campaign run timed out after 30 minutes' : String(err.message || err);
+        writeCampaign({ status: 'failed', error: msg.slice(0, 300), finished: Date.now() });
+    } finally {
+        campaignInFlight = false;
+    }
 }
 
 // ── Cookie session ───────────────────────────────────────────────────────────
@@ -128,7 +175,10 @@ button:hover{background:#1e293b}
 .bar button{margin:0;width:auto;padding:8px 14px;font-size:13px}
 .bar .hint{font-size:12px;color:#78716c}
 iframe{border:0;flex:1;width:100%;min-height:70vh}
-.empty{flex:1;display:flex;align-items:center;justify-content:center;color:#78716c;font-size:14px;padding:40px;text-align:center}
+.empty{flex:1;display:flex;align-items:center;justify-content:center;color:#78716c;font-size:14px;padding:40px;text-align:center;line-height:1.7}
+.spin{width:28px;height:28px;border:3px solid #e7e5e4;border-top-color:#0f172a;border-radius:50%;margin:0 auto 14px;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+textarea:focus{outline:2px solid #0ea5e9;border-color:#0ea5e9}
 </style></head><body>${body}</body></html>`;
 }
 
@@ -147,9 +197,34 @@ ${error ? `<div class="err">${esc(error)}</div>` : ''}
 
 function studioPage() {
     const sid = readConfig().session_id || '';
-    const frame = sid
-        ? `<iframe src="${KS_ORIGIN}/api/build/${esc(sid)}/studio/" allow="clipboard-write"></iframe>`
-        : `<div class="empty">No design session linked yet.<br>Paste a kaushalstack build-session id above to open Card Studio.</div>`;
+    const campaign = readCampaign();
+
+    let body;
+    if (sid) {
+        body = `<iframe src="${KS_ORIGIN}/api/build/${esc(sid)}/studio/" allow="clipboard-write"></iframe>`;
+    } else if (campaign.status === 'running') {
+        body = `<div class="empty"><div>
+<div class="spin"></div>
+<strong>Tara is designing your campaign…</strong><br>
+Posts for Instagram, Facebook, LinkedIn and X — usually 3–6 minutes.<br>
+<span style="font-size:12px;color:#a8a29e">This page refreshes itself when it's ready.</span>
+</div></div>
+<script>setInterval(async()=>{try{const r=await fetch('/admin/campaign/status');const d=await r.json();if(d.status!=='running')location.reload();}catch(e){}},5000);</script>`;
+    } else if (CAN_CREATE_CAMPAIGNS) {
+        body = `<div class="center"><div class="card" style="max-width:460px">
+<h1>Create your first campaign</h1>
+${campaign.status === 'failed' ? `<div class="err">Last run failed: ${esc(campaign.error || 'unknown error')}</div>` : ''}
+<p style="font-size:13px;color:#57534e;margin-bottom:4px">Describe the campaign — Tara designs platform-native posts for Instagram, Facebook, LinkedIn and X, then they open here in Studio for you to edit and publish.</p>
+<form method="post" action="/admin/campaign">
+<label for="brief">Campaign brief</label>
+<textarea id="brief" name="brief" rows="4" required minlength="12" style="width:100%;padding:9px 11px;border:1px solid #d6d3d1;border-radius:8px;font-size:14px;font-family:inherit;resize:vertical" placeholder="e.g. Monsoon knee-care package launch — 20% off physio assessments this August, warm and reassuring tone, book via phone"></textarea>
+<button type="submit">Create campaign</button>
+</form>
+</div></div>`;
+    } else {
+        body = `<div class="empty">No design session linked yet.<br>Paste a kaushalstack build-session id above to open Card Studio.</div>`;
+    }
+
     return page(`${PORTAL_NAME} — Studio`, `
 <header><span class="brand">${esc(PORTAL_NAME)}</span><a href="/logout">Sign out</a></header>
 <main>
@@ -159,8 +234,9 @@ function studioPage() {
 <input name="session_id" placeholder="16-character session id" value="${esc(sid)}" pattern="[a-f0-9]{16}">
 <button type="submit">Open</button>
 </form>
+${sid && CAN_CREATE_CAMPAIGNS ? `<form method="post" action="/admin/campaign/reset"><button type="submit" style="background:#fff;color:#0f172a;border:1px solid #d6d3d1">New campaign</button></form>` : ''}
 </div>
-${frame}
+${body}
 </main>`);
 }
 
@@ -231,6 +307,30 @@ const server = http.createServer(async (req, res) => {
         const sid = String(f.session_id || '').trim();
         if (sid === '' || /^[a-f0-9]{16}$/.test(sid)) {
             writeConfig({ ...readConfig(), session_id: sid });
+        }
+        return redirect('/admin/studio');
+    }
+
+    if (url.pathname === '/admin/campaign' && req.method === 'POST') {
+        if (!CAN_CREATE_CAMPAIGNS) return redirect('/admin/studio');
+        if (campaignInFlight) return redirect('/admin/studio');
+        const f = formFields(await readBody(req));
+        const brief = String(f.brief || '').trim().slice(0, 2000);
+        if (brief.length >= 12) runCampaign(brief); // fire and poll — no await
+        return redirect('/admin/studio');
+    }
+
+    if (url.pathname === '/admin/campaign/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(readCampaign()));
+        return;
+    }
+
+    // Unlink the current session so the create-campaign card comes back.
+    if (url.pathname === '/admin/campaign/reset' && req.method === 'POST') {
+        if (!campaignInFlight) {
+            writeConfig({ ...readConfig(), session_id: '' });
+            if (readCampaign().status !== 'running') writeCampaign({ status: 'idle' });
         }
         return redirect('/admin/studio');
     }

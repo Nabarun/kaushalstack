@@ -88,6 +88,7 @@ const COLLECTIONS = [
             { type: 'text',   name: 'portal_name', max: 120 },
             { type: 'text',   name: 'admin_user',  max: 60 },
             { type: 'text',   name: 'container_id', max: 80 },
+            { type: 'text',   name: 'token_record_id', max: 40 },
             { type: 'text',   name: 'error',       max: 1000 },
             { type: 'text',   name: 'added_by' },
             { type: 'autodate', name: 'created', onCreate: true },

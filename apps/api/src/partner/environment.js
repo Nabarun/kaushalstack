@@ -5,9 +5,12 @@
 // The api needs /var/run/docker.sock mounted (prod compose override) and the
 // nabarun1/studio-portal:latest image present on the host.
 
+import crypto from 'node:crypto';
 import pb from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import { dockerAvailable, dockerRequest } from '../utils/dockerEngine.js';
+import { hashApiToken, API_TOKEN_PREFIX } from '../utils/auth.js';
+import { TARA_SKILL_ID } from '../builder/creative-registry.js';
 import { ensurePartnerCollections } from './collections.js';
 
 const PORTAL_IMAGE = process.env.PORTAL_IMAGE || 'nabarun1/studio-portal:latest';
@@ -89,6 +92,29 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
     if (existing) throw Object.assign(new Error(`partner already has an environment at ${existing.url}`), { status: 409 });
 
     await ensurePartnerCollections();
+
+    // Mint a portal API token (owned by the provisioning admin) so the portal
+    // can run campaigns against /api/creative. Raw token only ever lives in
+    // the container env; PB stores the hash like every other ksk_ token.
+    let ksToken = '';
+    let tokenRecordId = '';
+    if (addedBy) {
+        try {
+            const raw = API_TOKEN_PREFIX + crypto.randomBytes(32).toString('hex');
+            const rec = await pb.collection('api_tokens').create({
+                user_id: addedBy,
+                name: `portal-${slug}`,
+                token_hash: hashApiToken(raw),
+                prefix: raw.slice(0, 8),
+                last4: raw.slice(-4),
+            });
+            ksToken = raw;
+            tokenRecordId = rec.id;
+        } catch (err) {
+            logger.warn(`environment: token mint failed for ${slug} (campaigns disabled): ${err.message}`);
+        }
+    }
+
     const record = await pb.collection('partner_environments').create({
         partner_id: partner.id,
         slug,
@@ -96,6 +122,7 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
         status: 'provisioning',
         portal_name: portalName || partner.name,
         admin_user: adminUser,
+        token_record_id: tokenRecordId,
         added_by: addedBy || '',
     });
 
@@ -113,6 +140,7 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
                 `ADMIN_PASS=${adminPass}`,
                 `KS_ORIGIN=${KS_ORIGIN}`,
                 `PARTNER_ID=${partner.id}`,
+                ...(ksToken ? [`KS_API_TOKEN=${ksToken}`, `TARA_AGENT_ID=${TARA_SKILL_ID}`] : []),
                 ...(sessionId ? [`SESSION_ID=${sessionId}`] : []),
                 'DATA_DIR=/data',
                 'PORT=8080',
@@ -158,6 +186,10 @@ export async function removeEnvironment(record) {
         await dockerRequest('DELETE', `/containers/${containerName}?force=true`);
     } catch (err) {
         if (err.statusCode !== 404) throw err;
+    }
+    // Revoke the portal's API token with it.
+    if (record.token_record_id) {
+        await pb.collection('api_tokens').delete(record.token_record_id).catch(() => {});
     }
     // Volume is kept on purpose — the partner's studio config survives a
     // re-provision under the same slug.
