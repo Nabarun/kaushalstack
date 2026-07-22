@@ -72,6 +72,12 @@ const POWERED_APPS = [
     url: 'https://openprocure.in/',
     domain: 'openprocure.in',
   },
+  {
+    name: 'ConsciousConnections',
+    description: 'Connection coaching by Rachana — assessment funnel, AI content team, and campaign portal.',
+    url: 'https://consciousconnections.in/',
+    domain: 'consciousconnections.in',
+  },
 ];
 
 const PHASE_TILES = [
