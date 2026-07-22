@@ -24,6 +24,7 @@ import meBusinessesRouter from './me-businesses.js';
 import ttsRouter from './tts.js';
 import partnerRouter from './partner.js';
 import blogRouter from './blog.js';
+import socialConnectRouter from './social-connect.js';
 
 const router = Router();
 
@@ -57,6 +58,7 @@ export default () => {
     router.use('/', ttsRouter);
     router.use('/', partnerRouter);
     router.use('/', blogRouter);
+    router.use('/', socialConnectRouter);
 
     return router;
 };

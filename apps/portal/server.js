@@ -179,6 +179,12 @@ iframe{border:0;flex:1;width:100%;min-height:70vh}
 .spin{width:28px;height:28px;border:3px solid #e7e5e4;border-top-color:#0f172a;border-radius:50%;margin:0 auto 14px;animation:spin .9s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 textarea:focus{outline:2px solid #0ea5e9;border-color:#0ea5e9}
+.chip{font-size:12px;background:#fff;border:1px solid #e7e5e4;border-radius:999px;padding:5px 12px;display:inline-flex;align-items:center;gap:6px}
+.chip a{color:#0369a1;text-decoration:none;font-weight:600}
+.chip a:hover{text-decoration:underline}
+.chip .dim{color:#a8a29e}
+.chip-x{margin:0;width:auto;padding:0 4px;background:none;border:0;color:#a8a29e;font-size:11px;cursor:pointer}
+.chip-x:hover{color:#b91c1c;background:none}
 </style></head><body>${body}</body></html>`;
 }
 
@@ -225,6 +231,58 @@ ${campaign.status === 'failed' ? `<div class="err">Last run failed: ${esc(campai
         body = `<div class="empty">No design session linked yet.<br>Paste a kaushalstack build-session id above to open Card Studio.</div>`;
     }
 
+    const socialBar = KS_API_TOKEN ? `
+<div class="bar" id="social-bar" style="border-top:0;padding-top:0">
+  <span class="hint">Publishing</span>
+  <span id="fb-chip" class="chip">Facebook: checking…</span>
+  <span id="li-chip" class="chip">LinkedIn: checking…</span>
+</div>
+<script>
+(function () {
+  var KS = ${JSON.stringify(KS_ORIGIN)};
+  function chip(id, htmlStr) { document.getElementById(id).innerHTML = htmlStr; }
+  function connectLink(p, label) { return '<a href="/admin/social/connect/' + p + '">' + label + '</a>'; }
+  function disconnectBtn(p) { return '<form method="post" action="/admin/social/disconnect/' + p + '" style="display:inline;margin:0"><button type="submit" class="chip-x" title="Disconnect">✕</button></form>'; }
+  fetch('/admin/social/status').then(function (r) { return r.json(); }).then(function (s) {
+    var fb = s.facebook || {};
+    chip('fb-chip', !fb.configured ? 'Facebook: <span class="dim">not configured</span>'
+      : fb.connected ? 'Facebook: <strong>' + (fb.pages && fb.pages[0] ? fb.pages[0].page_name : fb.account_name) + '</strong> ' + disconnectBtn('facebook')
+      : connectLink('facebook', 'Connect Facebook'));
+    var li = s.linkedin || {};
+    chip('li-chip', !li.configured ? 'LinkedIn: <span class="dim">not configured</span>'
+      : li.connected ? 'LinkedIn: <strong>' + li.account_name + '</strong> ' + disconnectBtn('linkedin')
+      : connectLink('linkedin', 'Connect LinkedIn'));
+  }).catch(function () {
+    chip('fb-chip', 'Facebook: <span class="dim">status unavailable</span>');
+    chip('li-chip', 'LinkedIn: <span class="dim">status unavailable</span>');
+  });
+
+  var q = new URLSearchParams(location.search);
+  if (q.get('social')) { history.replaceState(null, '', location.pathname); }
+  if (q.get('social_error')) { alert('Connection failed: ' + q.get('social_error')); history.replaceState(null, '', location.pathname); }
+
+  // Studio → portal publish hand-off: forward the card to kaushalstack and
+  // report the outcome back into the iframe.
+  window.addEventListener('message', function (ev) {
+    if (ev.origin !== KS) return;
+    var d = ev.data || {};
+    if (d.type !== 'ks-studio-publish') return;
+    var target = d.target === 'linkedin' ? 'linkedin' : 'facebook';
+    fetch('/admin/social/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: target, kind: d.kind, image: d.image, videoUrl: d.videoUrl, caption: d.caption, page_id: d.page_id }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (out) {
+        ev.source.postMessage({ type: 'ks-studio-publish-result', target: d.target, ok: !!(out.ok && out.j.ok), note: out.j.note, permalink: out.j.permalink, error: out.j.error }, KS);
+      })
+      .catch(function () {
+        ev.source.postMessage({ type: 'ks-studio-publish-result', target: d.target, ok: false, error: 'portal could not reach kaushalstack' }, KS);
+      });
+  });
+})();
+</script>` : '';
+
     return page(`${PORTAL_NAME} — Studio`, `
 <header><span class="brand">${esc(PORTAL_NAME)}</span><a href="/logout">Sign out</a></header>
 <main>
@@ -236,15 +294,16 @@ ${campaign.status === 'failed' ? `<div class="err">Last run failed: ${esc(campai
 </form>
 ${sid && CAN_CREATE_CAMPAIGNS ? `<form method="post" action="/admin/campaign/reset"><button type="submit" style="background:#fff;color:#0f172a;border:1px solid #d6d3d1">New campaign</button></form>` : ''}
 </div>
+${socialBar}
 ${body}
 </main>`);
 }
 
 // ── Server ───────────────────────────────────────────────────────────────────
-function readBody(req) {
+function readBody(req, limit = 10000) {
     return new Promise((resolve) => {
         let data = '';
-        req.on('data', c => { data += c; if (data.length > 10000) req.destroy(); });
+        req.on('data', c => { data += c; if (data.length > limit) req.destroy(); });
         req.on('end', () => resolve(data));
     });
 }
@@ -308,6 +367,73 @@ const server = http.createServer(async (req, res) => {
         if (sid === '' || /^[a-f0-9]{16}$/.test(sid)) {
             writeConfig({ ...readConfig(), session_id: sid });
         }
+        return redirect('/admin/studio');
+    }
+
+    // ── Social connect + publish (proxied to kaushalstack with the portal token) ──
+    const ksHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${KS_API_TOKEN}` };
+
+    if (url.pathname === '/admin/social/status') {
+        try {
+            const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/status`, { headers: ksHeaders });
+            const data = await r.json().catch(() => ({}));
+            res.writeHead(r.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify(data));
+        } catch {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end('{"error":"kaushalstack unreachable"}');
+        }
+        return;
+    }
+
+    if (url.pathname.startsWith('/admin/social/connect/') && req.method === 'GET') {
+        const provider = url.pathname.split('/').pop();
+        try {
+            const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${provider}/connect-url`, {
+                method: 'POST', headers: ksHeaders,
+                body: JSON.stringify({ return_url: `https://${req.headers.host}/admin/studio` }),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.url) return html(502, page('Connect failed', `<main class="center"><div class="card"><h1>Connect failed</h1><p style="font-size:13px;color:#57534e">${esc(data.error || 'kaushalstack rejected the request')}</p><p style="margin-top:12px"><a href="/admin/studio">← Back to Studio</a></p></div></main>`));
+            return redirect(data.url);
+        } catch {
+            return html(502, page('Connect failed', `<main class="center"><div class="card"><h1>Connect failed</h1><p style="font-size:13px;color:#57534e">kaushalstack unreachable — try again.</p><p style="margin-top:12px"><a href="/admin/studio">← Back to Studio</a></p></div></main>`));
+        }
+    }
+
+    if (url.pathname === '/admin/social/publish' && req.method === 'POST') {
+        const body = await readBody(req, 25 * 1024 * 1024);
+        let payload;
+        try { payload = JSON.parse(body); } catch { payload = null; }
+        const target = payload?.target === 'linkedin' ? 'linkedin' : payload?.target === 'facebook' ? 'facebook' : '';
+        if (!payload || !target) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end('{"error":"bad publish payload"}');
+            return;
+        }
+        try {
+            const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${target}/publish`, {
+                method: 'POST', headers: ksHeaders,
+                body: JSON.stringify({
+                    kind: payload.kind, image: payload.image, videoUrl: payload.videoUrl,
+                    caption: payload.caption, page_id: payload.page_id,
+                }),
+            });
+            const data = await r.json().catch(() => ({}));
+            res.writeHead(r.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(data));
+        } catch {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end('{"error":"kaushalstack unreachable"}');
+        }
+        return;
+    }
+
+    if (url.pathname.startsWith('/admin/social/disconnect/') && req.method === 'POST') {
+        const provider = url.pathname.split('/').pop();
+        try {
+            await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${provider}`, { method: 'DELETE', headers: ksHeaders });
+        } catch { /* best effort */ }
         return redirect('/admin/studio');
     }
 

@@ -96,6 +96,24 @@ const COLLECTIONS = [
         ],
     },
     {
+        // Per-partner social connections for the multi-tenant publish flow.
+        // One row per (partner, provider). Tokens are AES-GCM encrypted with
+        // KEY_ENCRYPTION_SECRET; Facebook page tokens live as an encrypted
+        // JSON array in pages_encrypted.
+        name: 'partner_social_accounts',
+        fields: [
+            { type: 'text',   name: 'partner_id', required: true },
+            { type: 'select', name: 'provider',   maxSelect: 1, values: ['facebook', 'linkedin'] },
+            { type: 'text',   name: 'account_id',   max: 120 },
+            { type: 'text',   name: 'account_name', max: 200 },
+            { type: 'text',   name: 'token_encrypted',  max: 5000 },
+            { type: 'text',   name: 'pages_encrypted',  max: 20000 },
+            { type: 'text',   name: 'expires_at', max: 40 },
+            { type: 'autodate', name: 'created', onCreate: true },
+            { type: 'autodate', name: 'updated', onCreate: true, onUpdate: true },
+        ],
+    },
+    {
         // Audit log of token top-ups: every time the owner receives a payment
         // and grants tokens, one row lands here and the partner's
         // credit_cap_usd is raised by amount_usd (tokens / 100). The cap is

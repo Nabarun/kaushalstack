@@ -113,6 +113,21 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
         } catch (err) {
             logger.warn(`environment: token mint failed for ${slug} (campaigns disabled): ${err.message}`);
         }
+
+        // The portal authenticates as the token owner — make sure that user
+        // passes membership checks (campaign runs, social connect/publish).
+        try {
+            const m = await pb.collection('partner_members').getList(1, 1, {
+                filter: `partner_id = "${esc(partner.id)}" && user_id = "${esc(addedBy)}"`,
+            });
+            if (!m.items[0] && partner.owner_user_id !== addedBy) {
+                await pb.collection('partner_members').create({
+                    partner_id: partner.id, user_id: addedBy, role: 'editor',
+                });
+            }
+        } catch (err) {
+            logger.warn(`environment: membership grant failed for ${slug}: ${err.message}`);
+        }
     }
 
     const record = await pb.collection('partner_environments').create({
