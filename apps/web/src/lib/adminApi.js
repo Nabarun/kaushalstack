@@ -106,6 +106,11 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify({ tokens, note }),
         }).then(handle);
     },
+    revokePartnerGrant(partnerId, grantId) {
+        return fetch(`${API_BASE}/admin/partners/${partnerId}/credits/${grantId}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
     deletePartner(id) {
         return fetch(`${API_BASE}/admin/partners/${id}`, {
             method: 'DELETE', headers: headers(),

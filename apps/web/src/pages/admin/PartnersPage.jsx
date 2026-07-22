@@ -182,6 +182,7 @@ function TokensDialog({ partner, onClose, onGranted }) {
     const [tokens, setTokens] = useState('');
     const [note, setNote] = useState('');
     const [busy, setBusy] = useState(false);
+    const [revokeId, setRevokeId] = useState('');
 
     useEffect(() => {
         if (!partner) return;
@@ -196,6 +197,25 @@ function TokensDialog({ partner, onClose, onGranted }) {
     const usedTokens = tok(partner.usage?.cost_usd);
     const capTokens = info ? info.tokens_cap : tok(partner.credit_cap_usd);
     const remaining = Math.max(0, capTokens - usedTokens);
+
+    async function onRevoke(grant) {
+        setBusy(true);
+        try {
+            const r = await adminApi.revokePartnerGrant(partner.id, grant.id);
+            setInfo(prev => ({
+                credit_cap_usd: r.credit_cap_usd,
+                tokens_cap: r.tokens_cap,
+                grants: (prev?.grants || []).filter(g => g.id !== grant.id),
+            }));
+            onGranted(partner.id, r.credit_cap_usd);
+            toast.success(`Removed ${Number(grant.tokens).toLocaleString()} tokens — cap is now ${r.tokens_cap.toLocaleString()}`);
+        } catch (err) {
+            toast.error(`Remove failed: ${err.message}`);
+        } finally {
+            setBusy(false);
+            setRevokeId('');
+        }
+    }
 
     async function onGrant(e) {
         e.preventDefault();
@@ -293,6 +313,35 @@ function TokensDialog({ partner, onClose, onGranted }) {
                                     <span className="tabular-nums font-medium">+{Number(g.tokens).toLocaleString()}</span>
                                     <span className="text-muted-foreground truncate flex-1">{g.note || '—'}</span>
                                     <span className="text-muted-foreground flex-shrink-0">{fmtRelative(g.created)}</span>
+                                    {revokeId === g.id ? (
+                                        <span className="flex items-center gap-1 flex-shrink-0">
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => onRevoke(g)}
+                                                className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-medium disabled:opacity-50"
+                                            >
+                                                {busy ? '…' : 'Remove'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => setRevokeId('')}
+                                                className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px]"
+                                            >
+                                                Keep
+                                            </button>
+                                        </span>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            title="Remove this top-up (lowers the cap by its amount)"
+                                            onClick={() => setRevokeId(g.id)}
+                                            className="p-0.5 rounded text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    )}
                                 </div>
                             ))}
                         </div>

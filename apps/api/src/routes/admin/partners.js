@@ -261,6 +261,28 @@ router.post('/admin/partners/:id/credits', requireAdmin, async (req, res) => {
     }
 });
 
+// Revoke a token grant: the partner's cap drops by the grant's amount
+// (floored at 0 so a partner who already spent it can't go negative-capped)
+// and the log row disappears.
+router.delete('/admin/partners/:id/credits/:grantId', requireAdmin, async (req, res) => {
+    try {
+        const grant = await pb.collection('partner_credit_grants').getOne(req.params.grantId).catch(() => null);
+        if (!grant || grant.partner_id !== req.params.id) return res.status(404).json({ error: 'grant not found' });
+        const partner = await pb.collection('partners').getOne(req.params.id);
+        const newCap = Math.max(0, Number(((partner.credit_cap_usd || 0) - (grant.amount_usd || 0)).toFixed(4)));
+        const updated = await pb.collection('partners').update(partner.id, { credit_cap_usd: newCap });
+        await pb.collection('partner_credit_grants').delete(grant.id);
+        logger.info(`admin: revoked grant ${grant.id} (${grant.tokens} tokens) from partner ${partner.name}, cap now $${newCap}`);
+        res.json({
+            credit_cap_usd: updated.credit_cap_usd || 0,
+            tokens_cap: Math.round((updated.credit_cap_usd || 0) / USD_PER_TOKEN),
+        });
+    } catch (err) {
+        logger.error('admin credit grant revoke failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Remove a partner. Memberships and feature subscriptions go with it;
 // usage_events stay so historical spend accounting remains true.
 router.delete('/admin/partners/:id', requireAdmin, async (req, res) => {
