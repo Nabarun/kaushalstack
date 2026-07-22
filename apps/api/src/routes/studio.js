@@ -15,13 +15,31 @@ import { spawn } from 'node:child_process';
 import multer from 'multer';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
-import { safeResolve, fileManifest } from '../builder/workspace.js';
+import { safeResolve, fileManifest, readSessionResult } from '../builder/workspace.js';
+import { recordUsage, checkPartnerCredit } from '../partner/usage.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
 const GEMINI_KEY   = process.env.GEMINI_API_KEY;
 const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const GEMINI_VIDEO_MODEL = 'veo-3.1-generate-preview';
+// Veo bills per second of output video (720p/1080p rate), not per token.
+const VEO_USD_PER_SECOND = Number(process.env.VEO_USD_PER_SECOND || 0.40);
+
+// Tenant attribution for Studio's Gemini generation: the creative run that
+// created this workspace persisted its verified partner_id/user_id in the
+// session result sidecar — read it back so generation spend lands on the
+// same tenant the campaign billed to. Sessions that predate that sidecar
+// field (or ad-hoc sessions with no partner) meter as untagged: still
+// recorded, just not attributed.
+async function sessionMeterInfo(sessionId) {
+    try {
+        const r = await readSessionResult(sessionId);
+        return { partner_id: r?.partner_id || '', user_id: r?.user_id || '' };
+    } catch {
+        return { partner_id: '', user_id: '' };
+    }
+}
 
 // Partner-uploaded media, in-memory then written straight to the session
 // workspace (same place Unsplash pulls land) — 80MB covers a short marketing
@@ -2027,6 +2045,11 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-image$/, async (req, res
     if (!prompt) return sendFragment(res, errFragment('Describe the image you want first.'));
     if (!GEMINI_KEY) return sendFragment(res, errFragment('GEMINI_API_KEY is not configured on the server.'));
     try {
+        const meterInfo = await sessionMeterInfo(id);
+        if (meterInfo.partner_id) {
+            const credit = await checkPartnerCredit(meterInfo.partner_id);
+            if (credit.blocked) return sendFragment(res, errFragment('Token budget exhausted — image generation is paused for this workspace.'));
+        }
         const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
             method: 'POST',
             headers: { 'x-goog-api-key': GEMINI_KEY, 'Content-Type': 'application/json' },
@@ -2037,6 +2060,17 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-image$/, async (req, res
         const outputStep = (data.steps || []).find(s => s.type === 'model_output');
         const imgPart = outputStep?.content?.find(c => c.type === 'image');
         if (!imgPart?.data) return sendFragment(res, errFragment('Gemini did not return an image — try a different prompt.'));
+        // Interactions responses carry exact token usage (image output is
+        // billed as image tokens) — record it against the session's tenant.
+        recordUsage({
+            provider: 'google', model: GEMINI_IMAGE_MODEL,
+            usage: {
+                input_tokens:  data.usage?.total_input_tokens ?? 0,
+                output_tokens: data.usage?.total_output_tokens ?? 0,
+                cached_input_tokens: data.usage?.total_cached_tokens ?? 0,
+            },
+            meter: { ...meterInfo, agent: 'studio', context: 'studio-generate-image' },
+        });
         const ext = imgPart.mime_type === 'image/png' ? 'png' : 'jpg';
         const buf = Buffer.from(imgPart.data, 'base64');
         const slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'gemini';
@@ -2064,6 +2098,11 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video$/, async (req, res
     if (!prompt) return res.status(400).json({ error: 'Describe the video you want first.' });
     if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
     try {
+        const meterInfo = await sessionMeterInfo(id);
+        if (meterInfo.partner_id) {
+            const credit = await checkPartnerCredit(meterInfo.partner_id);
+            if (credit.blocked) return res.status(402).json({ error: 'Token budget exhausted — video generation is paused for this workspace.' });
+        }
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VIDEO_MODEL}:predictLongRunning`, {
             method: 'POST',
             headers: { 'x-goog-api-key': GEMINI_KEY, 'Content-Type': 'application/json' },
@@ -2083,11 +2122,19 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video$/, async (req, res
 // validated so this can't be abused as an open proxy to arbitrary Gemini paths.
 const VEO_OP_RE = /^models\/[\w.-]+\/operations\/[\w-]+$/;
 
+// Completed operations we've already saved + metered, so a client re-polling
+// a finished job gets the same path back instead of re-downloading the clip
+// and (worse) double-billing the tenant. In-memory only: after a restart a
+// re-poll would re-record, but clients stop polling on done, so in practice
+// this window is the same request loop that started the job.
+const veoCompleted = new Map(); // operationName → relPath
+
 router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video-status$/, async (req, res) => {
     const id = req.params[0];
     const operationName = String(req.body?.operationName || '');
     if (!VEO_OP_RE.test(operationName)) return res.status(400).json({ error: 'Bad operation id.' });
     if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+    if (veoCompleted.has(operationName)) return res.json({ ok: true, done: true, path: veoCompleted.get(operationName) });
     try {
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/${operationName}`, {
             headers: { 'x-goog-api-key': GEMINI_KEY },
@@ -2107,6 +2154,17 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video-status$/, async (r
         const abs = await safeResolve(id, relPath);
         await fs.mkdir(path.dirname(abs), { recursive: true });
         await fs.writeFile(abs, buf);
+        veoCompleted.set(operationName, relPath);
+        // Veo bills per second of output — probe the real duration rather than
+        // assuming the 8s default (falls back to 8s if ffprobe can't read it).
+        let seconds = 8;
+        try { seconds = await probeDurationSeconds(abs); } catch { /* keep the default */ }
+        const meterInfo = await sessionMeterInfo(id);
+        recordUsage({
+            provider: 'google', model: GEMINI_VIDEO_MODEL,
+            meter: { ...meterInfo, agent: 'studio', context: 'studio-generate-video' },
+            costUSD: seconds * VEO_USD_PER_SECOND,
+        });
         res.json({ ok: true, done: true, path: relPath });
     } catch (err) {
         logger.error(`studio generate-video-status error session=${id}: ${err.message}`);
@@ -2252,6 +2310,18 @@ async function probeDims(fileAbs) {
     const m = out.trim().match(/^(\d+)x(\d+)/);
     if (!m) throw new Error(`could not probe dimensions: ${out.slice(0, 100)}`);
     return { w: Number(m[1]), h: Number(m[2]) };
+}
+
+// Duration in whole seconds (ceil — Veo bills per started second).
+async function probeDurationSeconds(fileAbs) {
+    const out = await runCmd('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'csv=p=0', fileAbs,
+    ]);
+    const secs = parseFloat(out.trim());
+    if (!Number.isFinite(secs) || secs <= 0) throw new Error(`could not probe duration: ${out.slice(0, 100)}`);
+    return Math.ceil(secs);
 }
 
 router.post(/^\/build\/([a-f0-9]{16})\/studio\/render-video$/, async (req, res) => {

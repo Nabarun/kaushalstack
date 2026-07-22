@@ -932,6 +932,11 @@ export async function runCreativeAgent({
             trace,
             engine:        { provider, model },
             byok_fell_back: byokFellBack,
+            // Tenant attribution, persisted with the session so later Studio
+            // actions on this workspace (e.g. Gemini generation) can meter
+            // their spend against the same partner this run billed to.
+            partner_id:    meterPartnerId,
+            user_id:       userId || '',
             download_url:  `/api/build/${sessionId}/download`,
             preview_url:   `/api/build/${sessionId}/preview/`,
             design_applied: designApplied,   // did this run actually inherit a design brief?

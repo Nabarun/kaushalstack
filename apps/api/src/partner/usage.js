@@ -24,12 +24,17 @@ const PRICE_PER_MTOK = {
     'claude-opus-4-8':    [15.00, 75.00],
     'gemini-2.0-flash':   [0.10, 0.40],
     'gemini-2.5-pro':     [1.25, 10.00],
+    // Nano Banana image output is billed as image tokens (~1120 per 1K
+    // image → ≈$0.067 each at $60/M output).
+    'gemini-3.1-flash-image': [0.30, 60.00],
 };
 const DEFAULT_PRICE = [1.00, 4.00];
 
 function priceFor(model) {
     const m = String(model || '').toLowerCase();
-    for (const [key, price] of Object.entries(PRICE_PER_MTOK)) {
+    // Longest prefix wins, so 'gemini-3.1-flash-image' beats a shorter
+    // 'gemini-3.1-flash' entry regardless of insertion order.
+    for (const [key, price] of Object.entries(PRICE_PER_MTOK).sort((a, b) => b[0].length - a[0].length)) {
         if (m.startsWith(key)) return price;
     }
     return DEFAULT_PRICE;
@@ -79,10 +84,12 @@ export async function checkPartnerCredit(partnerId) {
 }
 
 // Fire-and-forget: metering must never break or slow a chat call.
-export async function recordUsage({ provider, model, usage, promptChars, completionChars, meter }) {
+// costUSD overrides the token-based computation for spend that isn't
+// token-priced at all (e.g. Veo video, billed per second of output).
+export async function recordUsage({ provider, model, usage, promptChars, completionChars, meter, costUSD }) {
     try {
         await ensurePartnerCollections();
-        const estimated = !usage;
+        const estimated = !usage && typeof costUSD !== 'number';
         const input_tokens  = usage?.input_tokens  ?? estimateTokens(promptChars);
         const output_tokens = usage?.output_tokens ?? estimateTokens(completionChars);
         const cached_tokens = usage?.cached_input_tokens ?? 0;
@@ -94,7 +101,9 @@ export async function recordUsage({ provider, model, usage, promptChars, complet
             provider:   provider || '',
             model:      model || '',
             input_tokens, output_tokens, cached_tokens,
-            cost_usd: computeCostUSD(model, input_tokens, output_tokens, cached_tokens),
+            cost_usd: typeof costUSD === 'number'
+                ? Number(costUSD.toFixed(6))
+                : computeCostUSD(model, input_tokens, output_tokens, cached_tokens),
             estimated,
         });
     } catch (err) {
