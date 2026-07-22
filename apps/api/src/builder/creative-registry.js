@@ -9,7 +9,7 @@ import path from 'node:path';
 import logger from '../utils/logger.js';
 import { createSession, sessionDir, fileManifest, readFile, listDir, saveSessionResult } from './workspace.js';
 import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
-import { CONSULT_AGENT_TOOL } from './tools.js';
+import { CONSULT_AGENT_TOOL, GENERATE_IMAGE_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
@@ -311,17 +311,24 @@ If you don't specify, pick based on platform + intent:
 - IG feed / FB / LinkedIn card → Editorial Single
 - X thread / LinkedIn long-form → Thread Stack
 
+IMAGERY POLICY — GENERATED, TEXT-FREE, COPY AS OVERLAYS (NON-NEGOTIABLE):
+- The campaign's hero visuals come from generate_image — custom-made for this exact campaign, not stock.
+- Generated images carry ZERO text. Never ask generate_image for headlines, words, numbers, logos, or signage — the server strips them anyway, and AI-rendered typography is garbage that adds no value.
+- ALL copy (hook, headline, CTA, price, date) lives in HTML text elements — overlaid on the image with absolutely positioned divs, or set beside it. Text layers stay editable, crisp, and on-brand; pixels don't.
+- If a generated visual comes back weak, regenerate with a better scene description — never "fix" it by asking for text in the image.
+
 TOOLS:
 - list_dir(path)                     → see what's already in the workspace
 - read_file(path)                    → read an existing file before modifying
 - write_file(path, contents)         → text files only (HTML, CSS, JSON, plain text). NEVER for images.
-- search_images(query, count)        → downloads photos into assets/, returns paths. MANDATORY — call this at least once at the start of the workflow. The returned paths are then reused as the hero/product image across all four platforms. Without this, posts have no imagery and look broken.
+- generate_image(prompt, filename)   → generates a custom TEXT-FREE campaign visual into assets/, returns the path. PRIMARY image source — call it 1-3 times at the start (hero visual first; optionally one alternate mood/crop). Describe subject, scene, mood, lighting, palette, composition — never words to render.
+- search_images(query, count)        → downloads stock photos into assets/, returns paths. SECONDARY — use for supporting shots or as fallback if generate_image errors twice. Do NOT proceed to write posts without at least one image path in hand from either tool.
 - synthesize_voice(script, filename, voice?, speed?) → generates a TTS voice-over via OpenAI tts-1-hd, saves an mp3 in assets/, returns the local path. MANDATORY for IG Reel, IG Story, and X video posts — those formats are dead without audio. Pick voice "nova" (default, energetic female) for upbeat campaign, "onyx" (deep male) for authoritative B2B, "alloy" (neutral) for explainer. Keep scripts under 60 seconds (~150 words). Spell out URLs in the script (e.g. "mela ventures dot in slash foundr p w r"). Embed in HTML with: <audio controls autoplay src="assets/voiceover-instagram-reel.mp3"></audio>
 
 WORKFLOW:
 1. Call list_dir(".") to see if anything exists.
 2. In your visible response BEFORE the first write: state (a) which platform(s) and which format(s) per platform you'll render and why (one sentence on which user words triggered each), (b) the design style and one sentence on why, (c) the chosen palette, (d) the hook line you'll use.
-3. **MANDATORY: Call search_images(query, count=2) FIRST** with a specific, contextual query (e.g. "founder community dinner Bangalore", not "people meeting"). Capture the returned asset paths. If the call returns an error, retry with a different query — do NOT proceed to write posts without at least one image path in hand.
+3. **MANDATORY: Call generate_image FIRST** with a rich, campaign-specific scene description (e.g. "warm candid photo of founders in animated conversation over dinner at a long table, rooftop restaurant at dusk, Bangalore skyline behind, terracotta and cream palette, soft cinematic light" — subject/mood/palette only, NO words). Capture the returned path — it becomes the hero across all four platforms. Optionally generate one more for variety (story vs feed crop). If generate_image errors twice, fall back to search_images with a specific query. Do NOT write posts without at least one image path in hand.
 4. Write styles.css FIRST with the brand tokens + per-platform chrome CSS classes.
 5. For each (platform, format) pair, write:
     - posts/<platform>/<format>.html — the visual inside the platform chrome
@@ -356,8 +363,9 @@ HARD RULES:
 - Static HTML/CSS/vanilla JS only.
 - All third-party JS/CSS via CDN.
 - All file paths relative.
-- Images via search_images ONLY. NEVER write_file for .jpg/.png/.webp/.gif/.svg.
-- **NEVER write a src or url() referencing a file you did NOT create.** If the file isn't in assets/ from a search_images / synthesize_voice call you actually made this session, do not reference it.
+- Images via generate_image / search_images ONLY. NEVER write_file for .jpg/.png/.webp/.gif/.svg.
+- **NEVER write a src or url() referencing a file you did NOT create.** If the file isn't in assets/ from a generate_image / search_images / synthesize_voice call you actually made this session, do not reference it.
+- **NO text baked into imagery.** Headlines, hooks, CTAs, dates, prices — always HTML text layers over or beside the image, never part of the image pixels.
 - **EVERY platform's post MUST display the hero image** (Instagram in the photo area; Facebook in the body; LinkedIn in the feed-card image slot; X as the tweet-card image above the body). Text-only posts are NOT allowed on any platform unless the user explicitly said "text-only" / "no image" for that platform.
 - Each text file under 200KB.
 - Platform chrome must look realistic — copy the actual UI patterns, don't invent.
@@ -540,6 +548,7 @@ export const CREATIVE_AGENTS = {
         userIntro:            'Design the social campaign for',
         openaiModel:          'gpt-4o',
         anthropicModel:       'claude-opus-4-7',
+        extraTools:           [GENERATE_IMAGE_TOOL], // she generates the campaign visuals (text-free, enforced)
         // Bumped 28 → 44: she now produces 4 platforms × ~3 files each (12 writes)
         // + 1 search_images + 2 synthesize_voice (Reel + X video) + styles.css +
         // index.html gallery + planning + summary ≈ 20 floor. +20 buffer for
@@ -886,6 +895,7 @@ export async function runCreativeAgent({
                     systemPrompt: config.systemPrompt,
                     maxTurns:     config.maxTurns,
                     userIntro:    config.userIntro,
+                    extraTools:   config.extraTools || [],
                     meter,
                     onEvent,
                 }));

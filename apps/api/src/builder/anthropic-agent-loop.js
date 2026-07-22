@@ -37,6 +37,7 @@ export async function runAnthropicAgent({
     systemPrompt,
     maxTurns    = DEFAULT_MAX_TURNS,
     userIntro   = 'Build this for me',
+    extraTools  = [],
     meter,       // { user_id, agent, context } — usage attribution for partner dashboard
     onEvent,
 }) {
@@ -70,7 +71,7 @@ export async function runAnthropicAgent({
         userMessage += `\n\n────────\nDESIGN BRIEF FROM MAYA (UX Designer)\n\nYour teammate Maya already designed the mockups for this. INHERIT her visual decisions — exact palette colors, fonts, spacing scale, button/card shapes, layout patterns — AND reuse the photos she already pulled. Build the production website that embodies her design system.\n\nIMPORTANT:\n- Do NOT preserve her mockup's device frame.\n- Pull the CSS variables / palette from her styles.css verbatim where you can.\n- Use the same typography stack.\n- Mirror the section structure of her screen.\n- For images, USE THE FILES ALREADY IN assets/ (listed below). Only call search_images for NEW image subjects Maya didn't pull.\n\n${briefSections.join('\n\n')}`;
     }
 
-    const tools = toAnthropicTools(TOOL_DEFINITIONS);
+    const tools = toAnthropicTools([...TOOL_DEFINITIONS, ...extraTools]);
     const messages = [{ role: 'user', content: userMessage }];
 
     // Cache the system prompt + tools. Both are stable across the entire run
@@ -172,7 +173,7 @@ export async function runAnthropicAgent({
         const resultBlocks = [];
         for (const tu of toolUses) {
             const args = tu.input || {};
-            const result = await executeTool(sessionId, tu.name, args);
+            const result = await executeTool(sessionId, tu.name, args, { meter });
             const traceEntry = {
                 turn,
                 kind: 'tool',

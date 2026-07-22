@@ -2,9 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { listDir, readFile, writeFile, safeResolve } from './workspace.js';
 import { ensureCache, refreshCache, getSkillByAgentName } from '../embeddings/cache.js';
+import { recordUsage } from '../partner/usage.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
+const GEMINI_KEY   = process.env.GEMINI_API_KEY;
+const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const VALID_TTS_VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
 
 // Ask another KaushalStack agent for guidance. The consulted agent's skill
@@ -149,6 +152,62 @@ async function synthesizeVoice(sessionId, script, filename, voice = 'nova', spee
     };
 }
 
+// Generate a campaign visual with Gemini and save it under assets/. The
+// no-text rule is ENFORCED server-side (appended to every prompt): generated
+// typography is reliably garbled and adds nothing — copy belongs in HTML
+// text layers, not baked into pixels. (Owner decision, 2026-07-23.)
+const NO_TEXT_SUFFIX = ' — IMPORTANT: absolutely NO text, no words, no letters, no numbers, no typography, no captions, no watermarks, no logos, no signage with readable writing anywhere in the image. A clean photographic or illustrative visual only; any copy will be overlaid separately.';
+
+async function generateImage(sessionId, prompt, filename, meter = null) {
+    if (!GEMINI_KEY) {
+        return { error: 'GEMINI_API_KEY not configured on server; image generation unavailable.' };
+    }
+    const p = String(prompt || '').trim().slice(0, 600);
+    if (!p) return { error: 'prompt is required' };
+
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: { 'x-goog-api-key': GEMINI_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: GEMINI_IMAGE_MODEL, input: [{ type: 'text', text: p + NO_TEXT_SUFFIX }] }),
+    });
+    if (!r.ok) {
+        return { error: `Gemini returned ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    }
+    const data = await r.json();
+    const outputStep = (data.steps || []).find(s => s.type === 'model_output');
+    const imgPart = outputStep?.content?.find(c => c.type === 'image');
+    if (!imgPart?.data) return { error: 'Gemini did not return an image — rephrase the prompt and try once more.' };
+
+    if (meter) {
+        try {
+            recordUsage({
+                provider: 'google', model: GEMINI_IMAGE_MODEL,
+                usage: {
+                    input_tokens:  data.usage?.total_input_tokens ?? 0,
+                    output_tokens: data.usage?.total_output_tokens ?? 0,
+                    cached_input_tokens: data.usage?.total_cached_tokens ?? 0,
+                },
+                meter,
+            });
+        } catch { /* metering must never break the tool */ }
+    }
+
+    const ext = imgPart.mime_type === 'image/png' ? 'png' : 'jpg';
+    const fname = String(filename || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 60)
+        || p.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+        || 'generated';
+    const relPath = `assets/gen-${fname.replace(/\.(png|jpe?g|webp)$/i, '')}-${Date.now()}.${ext}`;
+    const buf = Buffer.from(imgPart.data, 'base64');
+    const abs = await safeResolve(sessionId, relPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, buf);
+    return {
+        path: relPath,
+        bytes: buf.length,
+        note: 'Image is text-free by design — overlay any copy as HTML text, never regenerate to add words.',
+    };
+}
+
 // OpenAI tool definitions (function calling schema). When we add Anthropic
 // support later, the dispatcher will translate from this shape.
 export const TOOL_DEFINITIONS = [
@@ -229,6 +288,25 @@ export const TOOL_DEFINITIONS = [
     },
 ];
 
+// Not in TOOL_DEFINITIONS — opt-in via the agent's registry row (extraTools).
+// Currently Tara: she generates the campaign's hero visuals. The no-text rule
+// is enforced server-side; her prompt also forbids asking for words.
+export const GENERATE_IMAGE_TOOL = {
+    type: 'function',
+    function: {
+        name: 'generate_image',
+        description: 'Generate a custom campaign visual with Gemini and save it into the workspace under assets/. Returns the local file path for <img src="...">. The image will contain NO text of any kind (enforced) — describe subject, scene, mood, lighting, palette, and composition only. All copy (headlines, hooks, CTAs) must be layered as HTML text over or beside the image, never baked into pixels. Prefer this over search_images for the hero visual so the imagery matches the campaign exactly; use search_images for secondary/supporting photos.',
+        parameters: {
+            type: 'object',
+            properties: {
+                prompt:   { type: 'string', description: 'Visual description WITHOUT any words to render: subject, setting, style, mood, colors, composition, lighting. E.g. "warm candid photo of two founders talking over coffee at a rooftop cafe at dusk, Bangalore skyline, soft bokeh, terracotta and cream palette".' },
+                filename: { type: 'string', description: 'Short name for the file (saved as assets/gen-<filename>-<ts>.png). E.g. "hero-founders-dinner".' },
+            },
+            required: ['prompt'],
+        },
+    },
+};
+
 // Not in TOOL_DEFINITIONS — only agents whose registry row opts in (currently
 // Ananya) get this one, so Maya/Kavya/Tara don't burn turns consulting.
 export const CONSULT_AGENT_TOOL = {
@@ -250,7 +328,7 @@ export const CONSULT_AGENT_TOOL = {
 // Dispatch a tool call to the workspace. Returns the string result to feed
 // back into the LLM. Errors are stringified, never thrown — the agent loop
 // can keep going and the LLM can adapt.
-export async function executeTool(sessionId, name, args) {
+export async function executeTool(sessionId, name, args, extra = {}) {
     try {
         if (name === 'list_dir') {
             const entries = await listDir(sessionId, args.path);
@@ -277,6 +355,11 @@ export async function executeTool(sessionId, name, args) {
         }
         if (name === 'synthesize_voice') {
             const r = await synthesizeVoice(sessionId, args.script, args.filename, args.voice, args.speed);
+            return JSON.stringify(r);
+        }
+        if (name === 'generate_image') {
+            const meter = extra.meter ? { ...extra.meter, context: `${extra.meter.context || 'creative'}-generate-image` } : null;
+            const r = await generateImage(sessionId, args.prompt, args.filename, meter);
             return JSON.stringify(r);
         }
         if (name === 'consult_agent') {

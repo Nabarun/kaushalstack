@@ -232,7 +232,7 @@ export async function runBuildAgent({
             if (call.function.name === 'consult_agent') consulted = true;
             let parsed = {};
             try { parsed = JSON.parse(call.function.arguments || '{}'); } catch { /* ignored */ }
-            const result = await executeTool(sessionId, call.function.name, parsed);
+            const result = await executeTool(sessionId, call.function.name, parsed, { meter });
             const traceEntry = {
                 turn,
                 kind: 'tool',
