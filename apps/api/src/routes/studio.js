@@ -2,6 +2,9 @@
 // GET  /build/:id/studio/                 → full page: image/text gallery (left) + card composer (right)
 // POST /build/:id/studio/recommend-images → 3 fresh Unsplash images saved into the workspace, returned as an HTML fragment
 // POST /build/:id/studio/recommend-text   → 3 LLM copy variants of the current caption, returned as an HTML fragment
+// POST /build/:id/studio/generate-image   → 1 Gemini-generated image saved into the workspace, returned as an HTML fragment
+// POST /build/:id/studio/generate-video          → starts a Veo generation, returns { operationName }
+// POST /build/:id/studio/generate-video-status   → polled by the client; downloads + saves the video once Gemini's job is done
 // The composed card downloads client-side via html2canvas (images are
 // same-origin through the preview route, so the canvas is never tainted).
 
@@ -16,6 +19,9 @@ import { safeResolve, fileManifest } from '../builder/workspace.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
+const GEMINI_KEY   = process.env.GEMINI_API_KEY;
+const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
+const GEMINI_VIDEO_MODEL = 'veo-3.1-generate-preview';
 
 // Partner-uploaded media, in-memory then written straight to the session
 // workspace (same place Unsplash pulls land) — 80MB covers a short marketing
@@ -443,6 +449,22 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           <span id="img-spin" class="htmx-indicator">searching Unsplash…</span>
         </div>
         <div class="ctl-group">
+          <div class="ctl-label">Generate with Gemini</div>
+          <textarea id="gen-prompt" rows="2" placeholder="Describe the image or video you want…"
+                    style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit"></textarea>
+          <div class="ctl-row" style="margin-top:8px">
+            <button class="btn btn-blue" type="button"
+                    hx-post="generate-image" hx-vals="js:{prompt: document.getElementById('gen-prompt').value}"
+                    hx-target="#img-recs" hx-swap="innerHTML" hx-indicator="#gen-img-spin">
+              Generate image
+            </button>
+            <button class="btn btn-blue" type="button" id="genVideoBtn" onclick="generateVideo()">Generate video</button>
+            <span id="gen-img-spin" class="htmx-indicator">generating…</span>
+          </div>
+          <div class="hint" id="gen-vid-status" style="margin-top:6px"></div>
+          <div id="gen-vid-result"></div>
+        </div>
+        <div class="ctl-group">
           <div class="ctl-label">Edit</div>
           <div class="ctl-row">
             <button class="btn btn-blue"
@@ -720,6 +742,63 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       setTimeout(function () { status.style.display = 'none'; }, 4000);
     }).finally(function () { document.getElementById('uploadInput').value = ''; });
   }
+
+  // ---- Gemini video generation: Veo runs as a long job (a minute or more),
+  // so this kicks it off then polls every few seconds rather than holding one
+  // long request open. The result is offered as a click-to-use thumbnail —
+  // same "pick it, don't force it" pattern as the image recommendations —
+  // instead of silently replacing whatever's on the card right now.
+  function generateVideo() {
+    var prompt = (document.getElementById('gen-prompt').value || '').trim();
+    var status = document.getElementById('gen-vid-status');
+    var btn = document.getElementById('genVideoBtn');
+    document.getElementById('gen-vid-result').innerHTML = '';
+    if (!prompt) { status.innerHTML = '<span style="color:#b91c1c">Describe the video you want first.</span>'; return; }
+    btn.disabled = true; btn.textContent = 'Starting…';
+    status.textContent = '';
+    fetch('generate-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: prompt }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Could not start video generation.'); return d; }); })
+      .then(function (d) {
+        btn.textContent = 'Generating…';
+        status.textContent = 'This can take a few minutes — feel free to keep editing while you wait.';
+        pollVideoGen(d.operationName, Date.now());
+      })
+      .catch(function (err) {
+        btn.disabled = false; btn.textContent = 'Generate video';
+        status.innerHTML = '<span style="color:#b91c1c">' + esc(err.message) + '</span>';
+      });
+  }
+  function pollVideoGen(operationName, startedAt) {
+    var btn = document.getElementById('genVideoBtn');
+    var status = document.getElementById('gen-vid-status');
+    fetch('generate-video-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operationName: operationName }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Video status check failed.'); return d; }); })
+      .then(function (d) {
+        if (!d.done) {
+          var secs = Math.round((Date.now() - startedAt) / 1000);
+          status.textContent = 'Still generating… (' + secs + 's)';
+          setTimeout(function () { pollVideoGen(operationName, startedAt); }, 6000);
+          return;
+        }
+        btn.disabled = false; btn.textContent = 'Generate video';
+        if (d.error) { status.innerHTML = '<span style="color:#b91c1c">' + esc(d.error) + '</span>'; return; }
+        status.innerHTML = '<span style="color:#1b7a45">✓ Video ready — click it to use.</span>';
+        var previewBase = location.href.replace(/studio\\/$/, 'preview/');
+        var v = document.createElement('video');
+        v.className = 'rec-thumb'; v.muted = true; v.preload = 'metadata';
+        v.dataset.type = 'video';
+        v.src = previewBase + d.path + '#t=0.1';
+        v.title = 'Generated with Gemini — click to use';
+        v.style.cssText = 'width:100%;max-width:160px;border-radius:8px;cursor:pointer;display:block;margin-top:8px';
+        v.onclick = function () { selectMedia(v); };
+        document.getElementById('gen-vid-result').appendChild(v);
+      })
+      .catch(function (err) {
+        btn.disabled = false; btn.textContent = 'Generate video';
+        status.innerHTML = '<span style="color:#b91c1c">' + esc(err.message) + '</span>';
+      });
+  }
+
   document.addEventListener('click', function (e) {
     var del = e.target.closest('.thumb-del');
     if (del) {
@@ -1934,6 +2013,104 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-images$/, async (req, r
     } catch (err) {
         logger.error(`studio recommend-images error session=${id}: ${err.message}`);
         sendFragment(res, errFragment('Image search failed — try again.'));
+    }
+});
+
+// ----------------------------------------------------- generate-image (htmx)
+// Gemini's "Nano Banana" image model, via the Interactions API. Synchronous
+// (a few seconds) so this fits the same htmx fragment pattern as
+// recommend-images above — one generated image dropped into #img-recs.
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-image$/, async (req, res) => {
+    const id = req.params[0];
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 600);
+    if (!prompt) return sendFragment(res, errFragment('Describe the image you want first.'));
+    if (!GEMINI_KEY) return sendFragment(res, errFragment('GEMINI_API_KEY is not configured on the server.'));
+    try {
+        const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+            method: 'POST',
+            headers: { 'x-goog-api-key': GEMINI_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: GEMINI_IMAGE_MODEL, input: [{ type: 'text', text: prompt }] }),
+        });
+        if (!r.ok) return sendFragment(res, errFragment(`Gemini returned ${r.status}: ${(await r.text()).slice(0, 200)}`));
+        const data = await r.json();
+        const outputStep = (data.steps || []).find(s => s.type === 'model_output');
+        const imgPart = outputStep?.content?.find(c => c.type === 'image');
+        if (!imgPart?.data) return sendFragment(res, errFragment('Gemini did not return an image — try a different prompt.'));
+        const ext = imgPart.mime_type === 'image/png' ? 'png' : 'jpg';
+        const buf = Buffer.from(imgPart.data, 'base64');
+        const slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'gemini';
+        const relPath = `assets/studio-gen-${slug}-${Date.now()}.${ext}`;
+        const abs = await safeResolve(id, relPath);
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, buf);
+        const previewBase = `/api/build/${id}/preview/`;
+        sendFragment(res, `<img class="rec-thumb" data-type="image" src="${esc(previewBase + relPath)}" title="Generated with Gemini: ${esc(prompt)}" onclick="selectMedia(this)">`);
+    } catch (err) {
+        logger.error(`studio generate-image error session=${id}: ${err.message}`);
+        sendFragment(res, errFragment('Image generation failed — try again.'));
+    }
+});
+
+// ------------------------------------------------------ generate-video (JSON)
+// Veo, via the classic long-running-operation pattern: kick off the job here
+// (returns immediately with an operation name), then the client polls
+// generate-video-status below. No server-side job state is kept — each poll
+// re-asks Gemini directly, so this survives a server restart mid-generation.
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video$/, async (req, res) => {
+    const id = req.params[0];
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 600);
+    if (!prompt) return res.status(400).json({ error: 'Describe the video you want first.' });
+    if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+    try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VIDEO_MODEL}:predictLongRunning`, {
+            method: 'POST',
+            headers: { 'x-goog-api-key': GEMINI_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instances: [{ prompt }] }),
+        });
+        if (!r.ok) return res.status(502).json({ error: `Gemini returned ${r.status}: ${(await r.text()).slice(0, 200)}` });
+        const data = await r.json();
+        if (!data.name) return res.status(502).json({ error: 'Gemini did not return an operation id.' });
+        res.json({ ok: true, operationName: data.name });
+    } catch (err) {
+        logger.error(`studio generate-video error session=${id}: ${err.message}`);
+        res.status(502).json({ error: 'Video generation failed to start — try again.' });
+    }
+});
+
+// Operation names look like "models/veo-3.1-generate-preview/operations/xyz" —
+// validated so this can't be abused as an open proxy to arbitrary Gemini paths.
+const VEO_OP_RE = /^models\/[\w.-]+\/operations\/[\w-]+$/;
+
+router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video-status$/, async (req, res) => {
+    const id = req.params[0];
+    const operationName = String(req.body?.operationName || '');
+    if (!VEO_OP_RE.test(operationName)) return res.status(400).json({ error: 'Bad operation id.' });
+    if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+    try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/${operationName}`, {
+            headers: { 'x-goog-api-key': GEMINI_KEY },
+        });
+        if (!r.ok) return res.status(502).json({ error: `Gemini returned ${r.status}: ${(await r.text()).slice(0, 200)}` });
+        const data = await r.json();
+        if (!data.done) return res.json({ ok: true, done: false });
+        if (data.error) return res.json({ ok: true, done: true, error: data.error.message || 'Video generation failed.' });
+        const videoUri = data.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+        if (!videoUri) return res.json({ ok: true, done: true, error: 'Gemini finished but returned no video.' });
+        // fetch() follows the file host's redirect automatically (unlike curl,
+        // which needs -L) — no extra config needed here.
+        const vRes = await fetch(videoUri, { headers: { 'x-goog-api-key': GEMINI_KEY } });
+        if (!vRes.ok) return res.json({ ok: true, done: true, error: `Could not download the generated video (${vRes.status}).` });
+        const buf = Buffer.from(await vRes.arrayBuffer());
+        const relPath = `assets/studio-genvid-${Date.now()}.mp4`;
+        const abs = await safeResolve(id, relPath);
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, buf);
+        res.json({ ok: true, done: true, path: relPath });
+    } catch (err) {
+        logger.error(`studio generate-video-status error session=${id}: ${err.message}`);
+        res.status(502).json({ error: 'Could not check video status — try again.' });
     }
 });
 
