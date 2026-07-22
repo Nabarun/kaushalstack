@@ -4,6 +4,7 @@ import { ZipArchive } from 'archiver';
 import logger from '../utils/logger.js';
 import path from 'node:path';
 import { sessionDir, safeResolve, readSessionResult, fileManifest } from '../builder/workspace.js';
+import { frameAncestors } from '../partner/environment.js';
 import { ANANYA_SKILL_ID } from '../builder/creative-registry.js';
 import { handle } from './creative-http.js';
 
@@ -14,8 +15,10 @@ import { handle } from './creative-http.js';
 // so the Site Builder's canvas iframe works when the builder itself is
 // embedded in a partner portal — the browser checks EVERY ancestor of the
 // preview frame, including the portal at the top. Same env allowlist as Studio.
-const PREVIEW_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
-const PREVIEW_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-src https:; frame-ancestors ${PREVIEW_FRAME_ANCESTORS.join(' ')};`;
+async function previewCsp() {
+    const ancestors = await frameAncestors();
+    return `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-src https:; frame-ancestors ${ancestors.join(' ')};`;
+}
 
 // strict: true so `/preview` and `/preview/` are distinct — the no-slash
 // version redirects to the slash version (so relative paths inside the
@@ -121,7 +124,7 @@ router.all(/^\/build\/([a-f0-9]{16})\/preview\/(.*)$/, async (req, res) => {
         const abs = await safeResolve(id, rel);
         await fs.stat(abs); // throws if missing
         // Override helmet's strict CSP so CDN-loaded JS/CSS works.
-        res.setHeader('Content-Security-Policy', PREVIEW_CSP);
+        res.setHeader('Content-Security-Policy', await previewCsp());
         res.sendFile(abs);
     } catch {
         res.status(404).end();

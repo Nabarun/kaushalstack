@@ -76,6 +76,25 @@ const COLLECTIONS = [
         ],
     },
     {
+        // One row per provisioned partner portal environment (the per-partner
+        // studio container on the VPS). admin_pass is NOT stored — it lives
+        // only in the container's env; rotate by recreating the environment.
+        name: 'partner_environments',
+        fields: [
+            { type: 'text',   name: 'partner_id', required: true },
+            { type: 'text',   name: 'slug',       required: true, max: 40 },
+            { type: 'text',   name: 'url',        max: 300 },
+            { type: 'select', name: 'status',     maxSelect: 1, values: ['provisioning', 'running', 'failed', 'removed'] },
+            { type: 'text',   name: 'portal_name', max: 120 },
+            { type: 'text',   name: 'admin_user',  max: 60 },
+            { type: 'text',   name: 'container_id', max: 80 },
+            { type: 'text',   name: 'error',       max: 1000 },
+            { type: 'text',   name: 'added_by' },
+            { type: 'autodate', name: 'created', onCreate: true },
+            { type: 'autodate', name: 'updated', onCreate: true, onUpdate: true },
+        ],
+    },
+    {
         // Audit log of token top-ups: every time the owner receives a payment
         // and grants tokens, one row lands here and the partner's
         // credit_cap_usd is raised by amount_usd (tokens / 100). The cap is

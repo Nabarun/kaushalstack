@@ -119,6 +119,19 @@ export const adminApi = {
     getRoundtableStats(range = 'mtd') {
         return fetch(`${API_BASE}/admin/roundtable-stats?range=${range}`, { headers: headers() }).then(handle);
     },
+    listEnvironments() {
+        return fetch(`${API_BASE}/admin/environments`, { headers: headers() }).then(handle);
+    },
+    createEnvironment(partnerId, data) {
+        return fetch(`${API_BASE}/admin/partners/${partnerId}/environment`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    deleteEnvironment(partnerId) {
+        return fetch(`${API_BASE}/admin/partners/${partnerId}/environment`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
     listWorkspaces() {
         return fetch(`${API_BASE}/admin/workspaces`, { headers: headers() }).then(handle);
     },

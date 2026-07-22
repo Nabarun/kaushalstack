@@ -17,6 +17,7 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { safeResolve, fileManifest, readSessionResult } from '../builder/workspace.js';
 import { recordUsage, checkPartnerCredit } from '../partner/usage.js';
+import { frameAncestors } from '../partner/environment.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
@@ -54,8 +55,10 @@ const upload = multer({
 // frame-ancestors is explicit (not just omitted) so it supersedes helmet's
 // default X-Frame-Options: SAMEORIGIN and lets partner portals (e.g. the
 // Mr n Mr admin studio tab) embed this page cross-origin.
-const STUDIO_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
-const STUDIO_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${STUDIO_FRAME_ANCESTORS.join(' ')};`;
+async function studioCsp() {
+    const ancestors = await frameAncestors();
+    return `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${ancestors.join(' ')};`;
+}
 
 const IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
@@ -117,7 +120,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     try {
         const manifest = await fileManifest(id);
         if (!manifest.length) {
-            res.setHeader('Content-Security-Policy', STUDIO_CSP);
+            res.setHeader('Content-Security-Policy', await studioCsp());
             return res.status(404).send('<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;color:#64748b">This session has no files yet (or the id is wrong).</body>');
         }
 
@@ -1975,7 +1978,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
 </body>
 </html>`;
 
-        res.setHeader('Content-Security-Policy', STUDIO_CSP);
+        res.setHeader('Content-Security-Policy', await studioCsp());
         res.set('Content-Type', 'text/html; charset=utf-8').send(page);
     } catch (err) {
         logger.error(`studio page error session=${id}: ${err.message}`);

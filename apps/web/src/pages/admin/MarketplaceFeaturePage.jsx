@@ -3,10 +3,173 @@ import { Helmet } from 'react-helmet';
 import { Link, useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, IndianRupee, Plus, Sparkles } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Plus, Sparkles, Server, ExternalLink, Trash2, RefreshCw } from 'lucide-react';
 import { FEATURES, StatusPill, SubStatusPill, fmtDate } from './MarketplacePage.jsx';
+
+function slugify(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+}
+
+function genPassword() {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let out = '';
+    const buf = new Uint32Array(14);
+    crypto.getRandomValues(buf);
+    for (const v of buf) out += chars[v % chars.length];
+    return out;
+}
+
+// Environment creation popup — collects everything needed to provision the
+// partner's studio portal container on the VPS.
+function EnvironmentDialog({ partner, onClose, onCreated }) {
+    const [form, setForm] = useState({ slug: '', portal_name: '', admin_user: 'admin', admin_pass: '', session_id: '' });
+    const [busy, setBusy] = useState(false);
+    const [result, setResult] = useState(null);
+
+    useEffect(() => {
+        if (partner) {
+            setForm({
+                slug: slugify(partner.name),
+                portal_name: partner.name,
+                admin_user: 'admin',
+                admin_pass: genPassword(),
+                session_id: '',
+            });
+            setResult(null);
+        }
+    }, [partner]);
+
+    if (!partner) return null;
+
+    async function onSubmit(e) {
+        e.preventDefault();
+        if (!/^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/.test(form.slug)) {
+            toast.error('Subdomain must be 3-30 chars: lowercase letters, digits, hyphens');
+            return;
+        }
+        if (form.admin_pass.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+        setBusy(true);
+        try {
+            const r = await adminApi.createEnvironment(partner.id, form);
+            setResult({ ...r.item, admin_pass: form.admin_pass });
+            onCreated(r.item);
+            toast.success(`Environment created at ${r.item.url}`);
+        } catch (err) {
+            toast.error(`Provisioning failed: ${err.message}`);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Dialog open={!!partner} onOpenChange={open => { if (!open && !busy) onClose(); }}>
+            <DialogContent className="bg-card border text-foreground">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Server className="w-4 h-4 text-primary" /> Studio environment — {partner.name}
+                    </DialogTitle>
+                </DialogHeader>
+
+                {result ? (
+                    <div className="space-y-3">
+                        <p className="text-sm">
+                            Environment is up at{' '}
+                            <a href={result.url} target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
+                                {result.url.replace('https://', '')}
+                            </a>
+                            . The HTTPS certificate may take a minute on first load.
+                        </p>
+                        <div className="rounded-lg border bg-background p-3 text-sm space-y-1">
+                            <div><span className="text-muted-foreground">Username:</span> <span className="font-mono">{result.admin_user}</span></div>
+                            <div><span className="text-muted-foreground">Password:</span> <span className="font-mono">{result.admin_pass}</span></div>
+                        </div>
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                            Save the password now — it is not stored anywhere and cannot be recovered, only reset by recreating the environment.
+                        </p>
+                        <DialogFooter>
+                            <Button type="button" onClick={onClose}>Done</Button>
+                        </DialogFooter>
+                    </div>
+                ) : (
+                    <form onSubmit={onSubmit} className="space-y-3">
+                        <div>
+                            <Label htmlFor="env-slug">Subdomain</Label>
+                            <div className="flex items-center gap-1">
+                                <Input
+                                    id="env-slug"
+                                    value={form.slug}
+                                    onChange={e => setForm({ ...form, slug: e.target.value.toLowerCase() })}
+                                    className="bg-background border font-mono text-sm"
+                                    required
+                                />
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">.srv1562298.hstgr.cloud</span>
+                            </div>
+                        </div>
+                        <div>
+                            <Label htmlFor="env-name">Portal display name</Label>
+                            <Input
+                                id="env-name"
+                                value={form.portal_name}
+                                onChange={e => setForm({ ...form, portal_name: e.target.value })}
+                                className="bg-background border"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label htmlFor="env-user">Admin username</Label>
+                                <Input
+                                    id="env-user"
+                                    value={form.admin_user}
+                                    onChange={e => setForm({ ...form, admin_user: e.target.value })}
+                                    className="bg-background border"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <Label htmlFor="env-pass">Password</Label>
+                                <div className="flex items-center gap-1">
+                                    <Input
+                                        id="env-pass"
+                                        value={form.admin_pass}
+                                        onChange={e => setForm({ ...form, admin_pass: e.target.value })}
+                                        className="bg-background border font-mono text-sm"
+                                        required
+                                    />
+                                    <Button type="button" size="sm" variant="ghost" title="Generate new password"
+                                        onClick={() => setForm({ ...form, admin_pass: genPassword() })}>
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <Label htmlFor="env-session">Design session id <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                            <Input
+                                id="env-session"
+                                value={form.session_id}
+                                onChange={e => setForm({ ...form, session_id: e.target.value.trim() })}
+                                placeholder="16-character build session to preload in Studio"
+                                className="bg-background border font-mono text-sm"
+                                pattern="[a-f0-9]{16}"
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+                            <Button type="submit" disabled={busy}>
+                                {busy ? 'Provisioning…' : 'Create environment'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                )}
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 export default function MarketplaceFeaturePage() {
     const { featureId } = useParams();
@@ -19,6 +182,10 @@ export default function MarketplaceFeaturePage() {
     const [busyId, setBusyId] = useState('');
     const [addId, setAddId] = useState('');
     const [adding, setAdding] = useState(false);
+    const [environments, setEnvironments] = useState([]);
+    const [envFor, setEnvFor] = useState(null);
+
+    const isStudio = featureId === 'studio';
 
     useEffect(() => {
         setLoading(true);
@@ -30,7 +197,27 @@ export default function MarketplaceFeaturePage() {
             })
             .catch(err => toast.error(`Failed to load subscriptions: ${err.message}`))
             .finally(() => setLoading(false));
+        if (featureId === 'studio') {
+            adminApi.listEnvironments()
+                .then(r => setEnvironments(r.items || []))
+                .catch(() => {});
+        }
     }, [featureId]);
+
+    const envByPartner = useMemo(
+        () => Object.fromEntries(environments.filter(e => e.status !== 'removed').map(e => [e.partner_id, e])),
+        [environments],
+    );
+
+    async function onRemoveEnv(env) {
+        try {
+            await adminApi.deleteEnvironment(env.partner_id);
+            setEnvironments(prev => prev.filter(e => e.id !== env.id));
+            toast.success(`Environment ${env.slug} removed`);
+        } catch (err) {
+            toast.error(`Remove failed: ${err.message}`);
+        }
+    }
 
     function upsertSub(item) {
         setSubs(prev => {
@@ -63,6 +250,9 @@ export default function MarketplaceFeaturePage() {
             upsertSub(r.item);
             setAddId('');
             toast.success(`${partner.name} subscribed to ${feature?.title || featureId}`);
+            // Studio without an environment is unusable — offer to create one
+            // right away, prefilled from the partner.
+            if (isStudio && !envByPartner[partner.id]) setEnvFor(partner);
         } catch (err) {
             toast.error(`Subscribe failed: ${err.message}`);
         } finally {
@@ -219,9 +409,36 @@ export default function MarketplaceFeaturePage() {
                                             {sub.last_paid_at && (
                                                 <span className="text-[11px] text-muted-foreground">last paid {fmtDate(sub.last_paid_at)}</span>
                                             )}
+                                            {isStudio && envByPartner[sub.partner_id] && (
+                                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                                                    <Server className="w-3 h-3" />
+                                                    <a href={envByPartner[sub.partner_id].url} target="_blank" rel="noreferrer" className="hover:underline">
+                                                        {envByPartner[sub.partner_id].slug}.srv1562298.hstgr.cloud
+                                                    </a>
+                                                    <ExternalLink className="w-2.5 h-2.5" />
+                                                    <button
+                                                        type="button"
+                                                        title="Remove environment (portal goes offline)"
+                                                        onClick={() => onRemoveEnv(envByPartner[sub.partner_id])}
+                                                        className="ml-0.5 text-muted-foreground hover:text-red-600"
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                        {isStudio && !cancelled && !envByPartner[sub.partner_id] && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="border-sky-500/40 text-sky-600 dark:text-sky-400"
+                                                onClick={() => setEnvFor(partners.find(p => p.id === sub.partner_id) || { id: sub.partner_id, name: sub.partner_name })}
+                                            >
+                                                <Server className="w-3.5 h-3.5 mr-1" /> Create environment
+                                            </Button>
+                                        )}
                                         {cancelled ? (
                                             <Button size="sm" variant="outline" disabled={busy} onClick={() => onResubscribe(sub)}>
                                                 Re-subscribe
@@ -249,6 +466,12 @@ export default function MarketplaceFeaturePage() {
                     })}
                 </div>
             )}
+
+            <EnvironmentDialog
+                partner={envFor}
+                onClose={() => setEnvFor(null)}
+                onCreated={env => setEnvironments(prev => [env, ...prev.filter(e => e.id !== env.id)])}
+            />
         </>
     );
 }

@@ -17,6 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
 import { safeResolve, fileManifest } from '../builder/workspace.js';
+import { frameAncestors } from '../partner/environment.js';
 
 // Same media rules as Card Studio uploads: images + short video, 80MB cap.
 const upload = multer({
@@ -26,8 +27,10 @@ const upload = multer({
 });
 
 // Same embedding rules as Card Studio: partner portals iframe this page.
-const SB_FRAME_ANCESTORS = ["'self'", ...String(process.env.STUDIO_FRAME_ANCESTORS || 'https://mrnmr.srv1562298.hstgr.cloud').split(',').map((s) => s.trim()).filter(Boolean)];
-const SB_CSP = `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${SB_FRAME_ANCESTORS.join(' ')};`;
+async function sbCsp() {
+    const ancestors = await frameAncestors();
+    return `default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src *; font-src * data: https:; frame-ancestors ${ancestors.join(' ')};`;
+}
 
 const PAGE_RE = /\.html?$/i;
 const IMG_RE = /\.(jpe?g|png|webp|gif|svg)$/i;
@@ -108,7 +111,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/sitebuilder\/$/, async (req, res) => {
     } catch {
         manifest = [];
     }
-    res.setHeader('Content-Security-Policy', SB_CSP);
+    res.setHeader('Content-Security-Policy', await sbCsp());
     // The editor evolves often — never let browsers serve a stale copy.
     res.setHeader('Cache-Control', 'no-store');
     if (!manifest.length) {
