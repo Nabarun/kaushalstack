@@ -14,6 +14,7 @@ const COLLECTIONS = [
             { type: 'text',   name: 'name',            required: true, max: 200 },
             { type: 'text',   name: 'owner_user_id',   required: true },
             { type: 'select', name: 'status',          maxSelect: 1, values: ['active', 'suspended'] },
+            { type: 'text',   name: 'website',         max: 300 },
             { type: 'number', name: 'monthly_budget_usd', min: 0 },
             // Hard lifetime credit: when > 0, roundtable/spec calls tagged
             // with this partner are rejected (402) once lifetime spend hits
@@ -71,6 +72,21 @@ const COLLECTIONS = [
             { type: 'number', name: 'cached_tokens', min: 0 },
             { type: 'number', name: 'cost_usd',      min: 0 },
             { type: 'bool',   name: 'estimated' },
+            { type: 'autodate', name: 'created', onCreate: true },
+        ],
+    },
+    {
+        // Audit log of token top-ups: every time the owner receives a payment
+        // and grants tokens, one row lands here and the partner's
+        // credit_cap_usd is raised by amount_usd (tokens / 100). The cap is
+        // still the single enforcement point — this log is the paper trail.
+        name: 'partner_credit_grants',
+        fields: [
+            { type: 'text',   name: 'partner_id', required: true },
+            { type: 'number', name: 'tokens',     required: true, min: 0 },
+            { type: 'number', name: 'amount_usd', min: 0 },
+            { type: 'text',   name: 'note',       max: 500 },
+            { type: 'text',   name: 'added_by' },
             { type: 'autodate', name: 'created', onCreate: true },
         ],
     },

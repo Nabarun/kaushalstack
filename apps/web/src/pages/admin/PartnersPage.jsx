@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { Users, ChevronDown, ChevronRight, Mail, Search, Activity, DollarSign, Clock, Plus, Trash2 } from 'lucide-react';
+import { Users, ChevronDown, ChevronRight, Mail, Search, Activity, DollarSign, Clock, Plus, Trash2, Globe, Coins } from 'lucide-react';
 
 const CATEGORY_COLORS = {
     'sales':            'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -174,7 +174,136 @@ function UsagePills({ usage }) {
     );
 }
 
-function PartnerRow({ partner, defaultOpen, onRemove }) {
+// 1 token = $0.01 of credit cap — mirrors USD_PER_TOKEN on the api side.
+function tok(usd) { return Math.round(Number(usd || 0) * 100); }
+
+function TokensDialog({ partner, onClose, onGranted }) {
+    const [info, setInfo] = useState(null);
+    const [tokens, setTokens] = useState('');
+    const [note, setNote] = useState('');
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        if (!partner) return;
+        setInfo(null);
+        adminApi.getPartnerCredits(partner.id)
+            .then(setInfo)
+            .catch(err => toast.error(`Failed to load credits: ${err.message}`));
+    }, [partner]);
+
+    if (!partner) return null;
+
+    const usedTokens = tok(partner.usage?.cost_usd);
+    const capTokens = info ? info.tokens_cap : tok(partner.credit_cap_usd);
+    const remaining = Math.max(0, capTokens - usedTokens);
+
+    async function onGrant(e) {
+        e.preventDefault();
+        const n = Math.round(Number(tokens));
+        if (!Number.isFinite(n) || n <= 0) { toast.error('Enter a positive token amount'); return; }
+        setBusy(true);
+        try {
+            const r = await adminApi.grantPartnerTokens(partner.id, n, note.trim());
+            setInfo(prev => ({
+                credit_cap_usd: r.credit_cap_usd,
+                tokens_cap: r.tokens_cap,
+                grants: r.grant ? [r.grant, ...(prev?.grants || [])] : (prev?.grants || []),
+            }));
+            onGranted(partner.id, r.credit_cap_usd);
+            setTokens('');
+            setNote('');
+            toast.success(`${n.toLocaleString()} tokens added — cap is now ${r.tokens_cap.toLocaleString()} tokens`);
+        } catch (err) {
+            toast.error(`Grant failed: ${err.message}`);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Dialog open={!!partner} onOpenChange={open => { if (!open && !busy) onClose(); }}>
+            <DialogContent className="bg-card border text-foreground">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-amber-500" /> Tokens — {partner.name}
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg border bg-background p-3">
+                        <div className="text-lg font-semibold tabular-nums">{capTokens.toLocaleString()}</div>
+                        <div className="text-[11px] text-muted-foreground">Assigned</div>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                        <div className="text-lg font-semibold tabular-nums">{usedTokens.toLocaleString()}</div>
+                        <div className="text-[11px] text-muted-foreground">Used</div>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                        <div className={`text-lg font-semibold tabular-nums ${remaining === 0 && capTokens > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                            {capTokens === 0 ? '∞' : remaining.toLocaleString()}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">{capTokens === 0 ? 'Uncapped' : 'Remaining'}</div>
+                    </div>
+                </div>
+
+                <form onSubmit={onGrant} className="space-y-3">
+                    <div>
+                        <Label htmlFor="grant-tokens">Tokens to add</Label>
+                        <Input
+                            id="grant-tokens"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={tokens}
+                            onChange={e => setTokens(e.target.value)}
+                            placeholder="e.g., 1000"
+                            className="bg-background border"
+                            autoFocus
+                        />
+                        {Number(tokens) > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                = ${(Number(tokens) * 0.01).toFixed(2)} of credit cap
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <Label htmlFor="grant-note">Payment note <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                        <Input
+                            id="grant-note"
+                            value={note}
+                            onChange={e => setNote(e.target.value)}
+                            placeholder="e.g., ₹1000 received via UPI, 22 Jul"
+                            className="bg-background border"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Close</Button>
+                        <Button type="submit" disabled={busy || !tokens}>
+                            {busy ? 'Adding…' : 'Add tokens'}
+                        </Button>
+                    </DialogFooter>
+                </form>
+
+                {info?.grants?.length > 0 && (
+                    <div className="border-t pt-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Recent top-ups</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {info.grants.slice(0, 8).map(g => (
+                                <div key={g.id} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="tabular-nums font-medium">+{Number(g.tokens).toLocaleString()}</span>
+                                    <span className="text-muted-foreground truncate flex-1">{g.note || '—'}</span>
+                                    <span className="text-muted-foreground flex-shrink-0">{fmtRelative(g.created)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function PartnerRow({ partner, defaultOpen, onRemove, onTokens }) {
     const [open, setOpen] = useState(!!defaultOpen);
     const hasTeam = partner.team && partner.team.length > 0;
 
@@ -207,6 +336,18 @@ function PartnerRow({ partner, defaultOpen, onRemove }) {
                             ) : (
                                 <span className="italic">no owner</span>
                             )}
+                            {partner.website && (
+                                <a
+                                    href={partner.website}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                    <Globe className="w-3 h-3" />
+                                    <span className="truncate">{partner.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
+                                </a>
+                            )}
                             <span>· {partner.team_size} {partner.team_size === 1 ? 'member' : 'members'}</span>
                         </div>
                         <div className="mt-2">
@@ -215,6 +356,14 @@ function PartnerRow({ partner, defaultOpen, onRemove }) {
                     </div>
                 </div>
                 <div className="pt-1 flex-shrink-0 flex items-center gap-2">
+                    <span
+                        role="button"
+                        title={`Assign tokens to ${partner.name}`}
+                        onClick={(e) => { e.stopPropagation(); onTokens(partner); }}
+                        className="p-1 rounded text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                    >
+                        <Coins className="w-4 h-4" />
+                    </span>
                     <span
                         role="button"
                         title={`Remove ${partner.name}`}
@@ -252,10 +401,11 @@ export default function PartnersPage() {
     const [q, setQ] = useState('');
     const [sort, setSort] = useState('last_active');
     const [createOpen, setCreateOpen] = useState(false);
-    const [createForm, setCreateForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '' });
+    const [createForm, setCreateForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '', website: '' });
     const [creating, setCreating] = useState(false);
     const [removing, setRemoving] = useState(null);
     const [removeBusy, setRemoveBusy] = useState(false);
+    const [tokensFor, setTokensFor] = useState(null);
 
     useEffect(() => {
         setLoading(true);
@@ -274,11 +424,12 @@ export default function PartnersPage() {
             const payload = { name };
             if (createForm.owner_email.trim()) payload.owner_email = createForm.owner_email.trim();
             if (createForm.monthly_budget_usd) payload.monthly_budget_usd = Number(createForm.monthly_budget_usd);
+            if (createForm.website.trim()) payload.website = createForm.website.trim();
             const r = await adminApi.createPartner(payload);
             if (r?.item) setItems(prev => [r.item, ...prev]);
             toast.success(`Partner "${r.item?.name || name}" created`);
             setCreateOpen(false);
-            setCreateForm({ name: '', owner_email: '', monthly_budget_usd: '' });
+            setCreateForm({ name: '', owner_email: '', monthly_budget_usd: '', website: '' });
         } catch (err) {
             toast.error(`Failed: ${err.message}`);
         } finally {
@@ -402,10 +553,16 @@ export default function PartnersPage() {
             ) : (
                 <div className="grid gap-3">
                     {filtered.map(p => (
-                        <PartnerRow key={p.id} partner={p} defaultOpen={filtered.length === 1} onRemove={setRemoving} />
+                        <PartnerRow key={p.id} partner={p} defaultOpen={filtered.length === 1} onRemove={setRemoving} onTokens={setTokensFor} />
                     ))}
                 </div>
             )}
+
+            <TokensDialog
+                partner={tokensFor}
+                onClose={() => setTokensFor(null)}
+                onGranted={(id, newCap) => setItems(prev => prev.map(p => p.id === id ? { ...p, credit_cap_usd: newCap } : p))}
+            />
 
             <Dialog open={!!removing} onOpenChange={open => { if (!open && !removeBusy) setRemoving(null); }}>
                 <DialogContent className="bg-card border text-foreground">
@@ -462,6 +619,17 @@ export default function PartnersPage() {
                             <p className="text-xs text-muted-foreground mt-1">
                                 Must match a user already signed up on kaushalstack.
                             </p>
+                        </div>
+                        <div>
+                            <Label htmlFor="partner-website">Website <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                            <Input
+                                id="partner-website"
+                                type="url"
+                                value={createForm.website}
+                                onChange={e => setCreateForm({ ...createForm, website: e.target.value })}
+                                placeholder="https://example.com"
+                                className="bg-background border"
+                            />
                         </div>
                         <div>
                             <Label htmlFor="partner-budget">Monthly budget (USD) <span className="text-muted-foreground font-normal">(optional)</span></Label>

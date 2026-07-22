@@ -98,6 +98,14 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    getPartnerCredits(id) {
+        return fetch(`${API_BASE}/admin/partners/${id}/credits`, { headers: headers() }).then(handle);
+    },
+    grantPartnerTokens(id, tokens, note) {
+        return fetch(`${API_BASE}/admin/partners/${id}/credits`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ tokens, note }),
+        }).then(handle);
+    },
     deletePartner(id) {
         return fetch(`${API_BASE}/admin/partners/${id}`, {
             method: 'DELETE', headers: headers(),

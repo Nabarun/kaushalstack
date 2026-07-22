@@ -218,7 +218,7 @@ export default function BusinessesPage() {
     const [form, setForm] = useState({ name: '', website_url: '', description: '' });
     const [saving, setSaving] = useState(false);
     const [partnerOpen, setPartnerOpen] = useState(false);
-    const [partnerForm, setPartnerForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '' });
+    const [partnerForm, setPartnerForm] = useState({ name: '', owner_email: '', monthly_budget_usd: '', website: '' });
     const [creatingPartner, setCreatingPartner] = useState(false);
 
     const load = async () => {
@@ -263,10 +263,11 @@ export default function BusinessesPage() {
             const payload = { name };
             if (partnerForm.owner_email.trim()) payload.owner_email = partnerForm.owner_email.trim();
             if (partnerForm.monthly_budget_usd) payload.monthly_budget_usd = Number(partnerForm.monthly_budget_usd);
+            if (partnerForm.website.trim()) payload.website = partnerForm.website.trim();
             const r = await adminApi.createPartner(payload);
             toast.success(`Partner "${r.item?.name || name}" created — now available in Teams and Marketplace`);
             setPartnerOpen(false);
-            setPartnerForm({ name: '', owner_email: '', monthly_budget_usd: '' });
+            setPartnerForm({ name: '', owner_email: '', monthly_budget_usd: '', website: '' });
         } catch (err) {
             toast.error(`Failed: ${err.message}`);
         } finally {
@@ -391,6 +392,17 @@ export default function BusinessesPage() {
                             <p className="text-xs text-muted-foreground mt-1">
                                 Must match a user already signed up on kaushalstack.
                             </p>
+                        </div>
+                        <div>
+                            <Label htmlFor="bp-partner-website">Website <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                            <Input
+                                id="bp-partner-website"
+                                type="url"
+                                value={partnerForm.website}
+                                onChange={e => setPartnerForm({ ...partnerForm, website: e.target.value })}
+                                placeholder="https://example.com"
+                                className="bg-background border"
+                            />
                         </div>
                         <div>
                             <Label htmlFor="bp-partner-budget">Monthly budget (USD) <span className="text-muted-foreground font-normal">(optional)</span></Label>

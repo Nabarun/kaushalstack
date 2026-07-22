@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../../utils/logger.js';
 import pb from '../../utils/pocketbaseClient.js';
+import { ensurePartnerCollections } from '../../partner/collections.js';
 import { requireAdmin } from './auth.js';
 
 const router = Router();
@@ -81,6 +82,7 @@ router.get('/admin/partners', requireAdmin, async (req, res) => {
                 id: p.id,
                 name: p.name,
                 status: p.status || 'active',
+                website: p.website || '',
                 owner_user_id: p.owner_user_id,
                 owner: owner ? {
                     id: owner.id,
@@ -115,6 +117,7 @@ function toRow(partner, owner) {
         id: partner.id,
         name: partner.name,
         status: partner.status || 'active',
+        website: partner.website || '',
         owner_user_id: partner.owner_user_id,
         owner: owner ? {
             id: owner.id,
@@ -135,6 +138,7 @@ router.post('/admin/partners', requireAdmin, async (req, res) => {
     const name = (req.body?.name || '').trim();
     const ownerEmail = (req.body?.owner_email || '').trim().toLowerCase();
     const monthlyBudget = Number(req.body?.monthly_budget_usd) || 0;
+    const website = (req.body?.website || '').trim().slice(0, 300);
 
     if (!name) return res.status(400).json({ error: 'name is required' });
 
@@ -164,6 +168,7 @@ router.post('/admin/partners', requireAdmin, async (req, res) => {
             owner_user_id: ownerId,
             status: 'active',
             monthly_budget_usd: monthlyBudget,
+            ...(website ? { website } : {}),
         });
 
         try {
@@ -179,6 +184,79 @@ router.post('/admin/partners', requireAdmin, async (req, res) => {
         res.json({ item: toRow(partner, ownerUser) });
     } catch (err) {
         logger.error('admin partner create failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Token credits ────────────────────────────────────────────────────────────
+// 1 token = $0.01 of credit_cap_usd (the ₹-paid → tokens conversion is the
+// owner's call at grant time). Granting tokens raises the partner's hard cap
+// and logs the grant so every payment has a paper trail.
+
+const USD_PER_TOKEN = 0.01;
+
+router.get('/admin/partners/:id/credits', requireAdmin, async (req, res) => {
+    try {
+        await ensurePartnerCollections();
+        const partner = await pb.collection('partners').getOne(req.params.id);
+        let grants = [];
+        try {
+            grants = await pb.collection('partner_credit_grants').getFullList({
+                filter: `partner_id = "${req.params.id.replace(/"/g, '\\"')}"`,
+                sort: '-created',
+            });
+        } catch { /* collection may not exist yet */ }
+        res.json({
+            credit_cap_usd: partner.credit_cap_usd || 0,
+            tokens_cap: Math.round((partner.credit_cap_usd || 0) / USD_PER_TOKEN),
+            grants: grants.map(g => ({
+                id: g.id, tokens: g.tokens, amount_usd: g.amount_usd,
+                note: g.note || '', created: g.created,
+            })),
+        });
+    } catch (err) {
+        logger.error('admin partner credits list failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/admin/partners/:id/credits', requireAdmin, async (req, res) => {
+    const tokens = Math.round(Number(req.body?.tokens));
+    const note = String(req.body?.note || '').trim().slice(0, 500);
+    if (!Number.isFinite(tokens) || tokens <= 0) {
+        return res.status(400).json({ error: 'tokens must be a positive number' });
+    }
+    try {
+        await ensurePartnerCollections();
+        const partner = await pb.collection('partners').getOne(req.params.id);
+        const amountUsd = Number((tokens * USD_PER_TOKEN).toFixed(4));
+        const newCap = Number(((partner.credit_cap_usd || 0) + amountUsd).toFixed(4));
+
+        const updated = await pb.collection('partners').update(partner.id, { credit_cap_usd: newCap });
+        let grant = null;
+        try {
+            grant = await pb.collection('partner_credit_grants').create({
+                partner_id: partner.id,
+                tokens,
+                amount_usd: amountUsd,
+                note,
+                added_by: req.adminUserId || '',
+            });
+        } catch (e) {
+            logger.warn('credit grant log failed (cap was raised):', e.message);
+        }
+
+        logger.info(`admin: granted ${tokens} tokens ($${amountUsd}) to partner ${partner.name} (${partner.id}), cap now $${newCap}`);
+        res.json({
+            credit_cap_usd: updated.credit_cap_usd || 0,
+            tokens_cap: Math.round((updated.credit_cap_usd || 0) / USD_PER_TOKEN),
+            grant: grant ? {
+                id: grant.id, tokens: grant.tokens, amount_usd: grant.amount_usd,
+                note: grant.note || '', created: grant.created,
+            } : null,
+        });
+    } catch (err) {
+        logger.error('admin partner credit grant failed:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
