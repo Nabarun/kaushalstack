@@ -172,6 +172,23 @@ function EnvironmentDialog({ partner, onClose, onCreated }) {
                         <p className="text-xs text-red-600 dark:text-red-400">
                             Save the password now — it is not stored anywhere and cannot be recovered, only reset by recreating the environment.
                         </p>
+                        <div className="rounded-lg border bg-background p-3 text-sm space-y-2">
+                            <p className="font-medium flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5 text-primary" /> One manual step — register the OAuth callback URLs</p>
+                            <p className="text-xs text-muted-foreground">
+                                Social Connect works from this portal&apos;s own domain. Add these redirect URLs to the shared
+                                &quot;KaushalStack Social Publishing&quot; apps or connecting will fail with a redirect-URI mismatch:
+                            </p>
+                            <div className="space-y-1 text-xs">
+                                <div>
+                                    <span className="text-muted-foreground">Facebook app → Facebook Login for Business → Settings → Valid OAuth Redirect URIs:</span>
+                                    <div className="font-mono select-all break-all">{result.url}/admin/facebook/callback</div>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">LinkedIn app → Auth → Authorized redirect URLs:</span>
+                                    <div className="font-mono select-all break-all">{result.url}/admin/linkedin/callback</div>
+                                </div>
+                            </div>
+                        </div>
                         <DialogFooter>
                             <Button type="button" onClick={onClose}>Done</Button>
                         </DialogFooter>

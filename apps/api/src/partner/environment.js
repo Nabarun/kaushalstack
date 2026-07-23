@@ -157,6 +157,19 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
                 `PARTNER_ID=${partner.id}`,
                 ...(ksToken ? [`KS_API_TOKEN=${ksToken}`, `TARA_AGENT_ID=${TARA_SKILL_ID}`] : []),
                 ...(sessionId ? [`SESSION_ID=${sessionId}`] : []),
+                // Direct social OAuth on the portal's own domain: the portal
+                // serves /admin/{facebook,linkedin}/callback itself. Those two
+                // URLs must be registered on the shared Meta/LinkedIn apps —
+                // the create-environment dialog shows them to the admin.
+                ...(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET ? [
+                    `FACEBOOK_APP_ID=${process.env.FACEBOOK_APP_ID}`,
+                    `FACEBOOK_APP_SECRET=${process.env.FACEBOOK_APP_SECRET}`,
+                ] : []),
+                ...(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET ? [
+                    `LINKEDIN_CLIENT_ID=${process.env.LINKEDIN_CLIENT_ID}`,
+                    `LINKEDIN_CLIENT_SECRET=${process.env.LINKEDIN_CLIENT_SECRET}`,
+                    `LINKEDIN_VERSION=${process.env.LINKEDIN_VERSION || '202606'}`,
+                ] : []),
                 'DATA_DIR=/data',
                 'PORT=8080',
             ],
