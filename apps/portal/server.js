@@ -11,6 +11,12 @@
 //   SESSION_ID    optional initial build-session id for the Studio tab
 //   DATA_DIR      persistent dir        (default: /data)
 //   PORT          listen port           (default: 8080)
+//
+// Optional — direct social OAuth on this portal's own domain (register
+// https://<portal-host>/admin/facebook/callback and /admin/linkedin/callback
+// on the provider apps; without these creds social proxies to kaushalstack):
+//   FACEBOOK_APP_ID / FACEBOOK_APP_SECRET / FACEBOOK_SCOPE
+//   LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET / LINKEDIN_SCOPE / LINKEDIN_VERSION
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -27,6 +33,22 @@ const KS_API_TOKEN = process.env.KS_API_TOKEN || '';
 const PARTNER_ID = process.env.PARTNER_ID || '';
 const TARA_AGENT_ID = process.env.TARA_AGENT_ID || '';
 const CAN_CREATE_CAMPAIGNS = !!(KS_API_TOKEN && TARA_AGENT_ID);
+
+// Direct social OAuth (optional). With the shared Meta/LinkedIn app creds in
+// the env, Connect runs against this portal's own /admin/<provider>/callback
+// (which must be registered as a redirect URI on the provider app) and tokens
+// live in DATA_DIR/social.json — same pattern as the mrnmr/CC portals. Without
+// creds the social routes proxy to kaushalstack central OAuth as before.
+const FB_APP_ID = process.env.FACEBOOK_APP_ID || '';
+const FB_APP_SECRET = process.env.FACEBOOK_APP_SECRET || '';
+const FB_SCOPE = process.env.FACEBOOK_SCOPE || 'pages_show_list,pages_read_engagement,pages_manage_posts';
+const FB_GRAPH = 'https://graph.facebook.com/v21.0';
+const LI_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID || '';
+const LI_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET || '';
+const LI_SCOPE = process.env.LINKEDIN_SCOPE || 'openid profile w_member_social';
+const LI_VERSION = process.env.LINKEDIN_VERSION || '202606';
+const LOCAL_FB = !!(FB_APP_ID && FB_APP_SECRET);
+const LOCAL_LI = !!(LI_CLIENT_ID && LI_CLIENT_SECRET);
 
 if (!ADMIN_USER || !ADMIN_PASS) {
     console.error('ADMIN_USER and ADMIN_PASS are required');
@@ -56,6 +78,15 @@ function writeConfig(cfg) {
 }
 if (!readConfig().session_id && /^[a-f0-9]{16}$/.test(process.env.SESSION_ID || '')) {
     writeConfig({ session_id: process.env.SESSION_ID });
+}
+
+// ── Social tokens (direct-OAuth mode only) ──────────────────────────────────
+const SOCIAL_FILE = path.join(DATA_DIR, 'social.json');
+function readSocial() {
+    try { return JSON.parse(fs.readFileSync(SOCIAL_FILE, 'utf8')); } catch { return {}; }
+}
+function writeSocial(s) {
+    fs.writeFileSync(SOCIAL_FILE, JSON.stringify(s), { mode: 0o600 });
 }
 
 // ── Campaign runs (Tara via kaushalstack /api/creative) ─────────────────────
@@ -124,6 +155,24 @@ function validSession(raw) {
     if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return false;
     return Number(payload) > Date.now();
 }
+// OAuth state for direct mode: HMAC-signed with the session secret, 15-minute
+// TTL — proves the dance started from this portal's authed Connect click.
+function oauthState(provider) {
+    const payload = `${provider}.${Date.now() + 15 * 60 * 1000}.${crypto.randomBytes(8).toString('hex')}`;
+    return `${payload}.${sign(payload)}`;
+}
+function validOauthState(raw, provider) {
+    const i = String(raw || '').lastIndexOf('.');
+    if (i < 1) return false;
+    const payload = raw.slice(0, i);
+    const mac = raw.slice(i + 1);
+    const expect = sign(payload);
+    if (mac.length !== expect.length) return false;
+    if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return false;
+    const [p, exp] = payload.split('.');
+    return p === provider && Number(exp) > Date.now();
+}
+
 function cookies(req) {
     const out = {};
     for (const part of String(req.headers.cookie || '').split(';')) {
@@ -231,7 +280,7 @@ ${campaign.status === 'failed' ? `<div class="err">Last run failed: ${esc(campai
         body = `<div class="empty">No design session linked yet.<br>Paste a kaushalstack build-session id above to open Card Studio.</div>`;
     }
 
-    const socialBar = KS_API_TOKEN ? `
+    const socialBar = (KS_API_TOKEN || LOCAL_FB || LOCAL_LI) ? `
 <div class="bar" id="social-bar" style="border-top:0;padding-top:0">
   <span class="hint">Publishing</span>
   <span id="fb-chip" class="chip">Facebook: checking…</span>
@@ -317,6 +366,91 @@ function formFields(body) {
     return out;
 }
 
+function dataUrlToBuffer(dataUrl) {
+    const m = /^data:(image\/(?:png|jpeg));base64,(.+)$/.exec(String(dataUrl || ''));
+    if (!m) return null;
+    return { mime: m[1], buf: Buffer.from(m[2], 'base64') };
+}
+
+// Direct-mode publishing — same Graph / Posts API calls the central
+// social-connect route makes, but with the locally stored tokens.
+async function publishFacebookLocal(payload) {
+    const pages = readSocial().facebook?.pages || [];
+    const pageSel = pages.find(p => p.page_id === payload.page_id) || pages[0];
+    if (!pageSel) return { status: 400, body: { error: 'Facebook is not connected — use Connect Facebook first' } };
+    const caption = String(payload.caption || '').slice(0, 3000);
+    const fd = new FormData();
+    fd.append('access_token', pageSel.page_token);
+    if (payload.kind === 'video') {
+        const videoUrl = String(payload.videoUrl || '');
+        if (!videoUrl.startsWith(`${KS_ORIGIN}/`)) return { status: 400, body: { error: 'videoUrl must be a kaushalstack URL' } };
+        const vid = await fetch(videoUrl).then(r => r.arrayBuffer());
+        fd.append('description', caption);
+        fd.append('source', new Blob([vid], { type: 'video/mp4' }), 'card.mp4');
+        const out = await fetch(`${FB_GRAPH}/${pageSel.page_id}/videos`, { method: 'POST', body: fd }).then(r => r.json());
+        if (out.error) return { status: 502, body: { error: out.error.message } };
+        return { status: 200, body: { ok: true, id: out.id, note: `Posted video to ${pageSel.page_name}` } };
+    }
+    const img = dataUrlToBuffer(payload.image);
+    if (!img) return { status: 400, body: { error: 'image must be a png/jpeg data URL' } };
+    fd.append('caption', caption);
+    fd.append('source', new Blob([img.buf], { type: img.mime }), 'card.png');
+    const out = await fetch(`${FB_GRAPH}/${pageSel.page_id}/photos`, { method: 'POST', body: fd }).then(r => r.json());
+    if (out.error) return { status: 502, body: { error: out.error.message } };
+    return { status: 200, body: { ok: true, id: out.post_id || out.id, note: `Posted to ${pageSel.page_name}` } };
+}
+
+async function publishLinkedinLocal(payload) {
+    const li = readSocial().linkedin;
+    if (!li?.access_token) return { status: 400, body: { error: 'LinkedIn is not connected — use Connect LinkedIn first' } };
+    if (li.expires_at && new Date(li.expires_at) < new Date()) {
+        return { status: 400, body: { error: 'LinkedIn token expired — reconnect from the portal' } };
+    }
+    const caption = String(payload.caption || '').slice(0, 3000);
+    const author = `urn:li:person:${li.member_id}`;
+    const liHeaders = {
+        Authorization: `Bearer ${li.access_token}`,
+        'LinkedIn-Version': LI_VERSION,
+        'X-Restli-Protocol-Version': '2.0.0',
+        'Content-Type': 'application/json',
+    };
+    let content;
+    const img = payload.kind !== 'video' ? dataUrlToBuffer(payload.image) : null;
+    if (img) {
+        const init = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+            method: 'POST', headers: liHeaders,
+            body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
+        }).then(r => r.json());
+        const uploadUrl = init?.value?.uploadUrl;
+        const imageUrn = init?.value?.image;
+        if (!uploadUrl || !imageUrn) return { status: 502, body: { error: init?.message || 'LinkedIn image upload init failed' } };
+        const put = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${li.access_token}`, 'Content-Type': img.mime },
+            body: img.buf,
+        });
+        if (!put.ok) return { status: 502, body: { error: `LinkedIn image upload failed (${put.status})` } };
+        content = { media: { id: imageUrn, title: 'card' } };
+    }
+    const post = await fetch('https://api.linkedin.com/rest/posts', {
+        method: 'POST', headers: liHeaders,
+        body: JSON.stringify({
+            author,
+            commentary: caption,
+            visibility: 'PUBLIC',
+            distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
+            lifecycleState: 'PUBLISHED',
+            ...(content ? { content } : {}),
+        }),
+    });
+    if (!post.ok) {
+        const body = await post.json().catch(() => ({}));
+        return { status: 502, body: { error: body.message || `LinkedIn returned ${post.status}` } };
+    }
+    const urn = post.headers.get('x-restli-id') || post.headers.get('x-linkedin-id') || '';
+    return { status: 200, body: { ok: true, id: urn, note: `Posted to LinkedIn as ${li.member_name}${payload.kind === 'video' ? ' (text-only — video posting coming later)' : ''}` } };
+}
+
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const authed = validSession(cookies(req)[COOKIE]);
@@ -351,6 +485,90 @@ const server = http.createServer(async (req, res) => {
         return redirect('/login', `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
     }
 
+    // ── Direct-OAuth callbacks (public — provider redirects land here; the
+    // signed state is the proof the flow started from an authed Connect) ────
+    const portalOrigin = `https://${req.headers.host}`;
+    const backToStudio = (params) => redirect(`/admin/studio?${new URLSearchParams(params)}`);
+
+    if (url.pathname === '/admin/facebook/callback' && LOCAL_FB) {
+        if (!validOauthState(String(url.searchParams.get('state') || ''), 'facebook')) {
+            return html(400, page('Connect failed', `<main class="center"><div class="card"><h1>Connect failed</h1><p style="font-size:13px;color:#57534e">Invalid or expired state — go back to Studio and try Connect again.</p></div></main>`));
+        }
+        const fail = (msg) => backToStudio({ social_error: String(msg).slice(0, 140) });
+        try {
+            if (url.searchParams.get('error')) return fail(url.searchParams.get('error_description') || url.searchParams.get('error'));
+            const code = String(url.searchParams.get('code') || '');
+            if (!code) return fail('facebook returned no code');
+
+            const shortTok = await fetch(`${FB_GRAPH}/oauth/access_token?${new URLSearchParams({
+                client_id: FB_APP_ID, client_secret: FB_APP_SECRET,
+                redirect_uri: `${portalOrigin}/admin/facebook/callback`, code,
+            })}`).then(r => r.json());
+            if (!shortTok.access_token) return fail(shortTok.error?.message || 'token exchange failed');
+
+            const longTok = await fetch(`${FB_GRAPH}/oauth/access_token?${new URLSearchParams({
+                grant_type: 'fb_exchange_token', client_id: FB_APP_ID, client_secret: FB_APP_SECRET,
+                fb_exchange_token: shortTok.access_token,
+            })}`).then(r => r.json());
+            const userToken = longTok.access_token || shortTok.access_token;
+
+            const me = await fetch(`${FB_GRAPH}/me?fields=name&access_token=${encodeURIComponent(userToken)}`).then(r => r.json());
+            const pagesResp = await fetch(`${FB_GRAPH}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(userToken)}`).then(r => r.json());
+            const pages = (pagesResp.data || []).filter(p => p.id && p.access_token)
+                .map(p => ({ page_id: p.id, page_name: p.name || p.id, page_token: p.access_token }));
+            if (pages.length === 0) return fail('no Facebook Pages on this account — the connected user must manage at least one Page');
+
+            writeSocial({ ...readSocial(), facebook: { account_name: me.name || '', pages, connected: new Date().toISOString() } });
+            console.log(`social: facebook connected directly (${pages.length} pages)`);
+            return backToStudio({ social: 'facebook-connected' });
+        } catch (err) {
+            console.error('facebook callback failed:', err.message);
+            return fail('facebook connection failed — try again');
+        }
+    }
+
+    if (url.pathname === '/admin/linkedin/callback' && LOCAL_LI) {
+        if (!validOauthState(String(url.searchParams.get('state') || ''), 'linkedin')) {
+            return html(400, page('Connect failed', `<main class="center"><div class="card"><h1>Connect failed</h1><p style="font-size:13px;color:#57534e">Invalid or expired state — go back to Studio and try Connect again.</p></div></main>`));
+        }
+        const fail = (msg) => backToStudio({ social_error: String(msg).slice(0, 140) });
+        try {
+            if (url.searchParams.get('error')) return fail(url.searchParams.get('error_description') || url.searchParams.get('error'));
+            const code = String(url.searchParams.get('code') || '');
+            if (!code) return fail('linkedin returned no code');
+
+            const tok = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    grant_type: 'authorization_code', code,
+                    redirect_uri: `${portalOrigin}/admin/linkedin/callback`,
+                    client_id: LI_CLIENT_ID, client_secret: LI_CLIENT_SECRET,
+                }),
+            }).then(r => r.json());
+            if (!tok.access_token) return fail(tok.error_description || 'token exchange failed');
+
+            const info = await fetch('https://api.linkedin.com/v2/userinfo', {
+                headers: { Authorization: `Bearer ${tok.access_token}` },
+            }).then(r => r.json());
+            if (!info.sub) return fail('could not read LinkedIn profile');
+
+            writeSocial({
+                ...readSocial(),
+                linkedin: {
+                    member_id: info.sub, member_name: info.name || '',
+                    access_token: tok.access_token,
+                    expires_at: new Date(Date.now() + (tok.expires_in || 0) * 1000).toISOString(),
+                },
+            });
+            console.log(`social: linkedin connected directly (${info.name})`);
+            return backToStudio({ social: 'linkedin-connected' });
+        } catch (err) {
+            console.error('linkedin callback failed:', err.message);
+            return fail('linkedin connection failed — try again');
+        }
+    }
+
     if (!authed) return redirect('/login');
 
     if (url.pathname === '/' || url.pathname === '/admin' || url.pathname === '/admin/') {
@@ -374,20 +592,55 @@ const server = http.createServer(async (req, res) => {
     const ksHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${KS_API_TOKEN}` };
 
     if (url.pathname === '/admin/social/status') {
-        try {
-            const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/status`, { headers: ksHeaders });
-            const data = await r.json().catch(() => ({}));
-            res.writeHead(r.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify(data));
-        } catch {
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end('{"error":"kaushalstack unreachable"}');
+        let central = null;
+        if ((!LOCAL_FB || !LOCAL_LI) && KS_API_TOKEN) {
+            try {
+                central = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/status`, { headers: ksHeaders })
+                    .then(r => r.json());
+            } catch { central = null; }
         }
+        const s = (LOCAL_FB || LOCAL_LI) ? readSocial() : {};
+        const li = s.linkedin;
+        const liLive = !!(li && (!li.expires_at || new Date(li.expires_at) > new Date()));
+        const out = {
+            facebook: LOCAL_FB ? {
+                configured: true,
+                connected: !!(s.facebook?.pages?.length),
+                account_name: s.facebook?.account_name || '',
+                pages: (s.facebook?.pages || []).map(p => ({ page_id: p.page_id, page_name: p.page_name })),
+            } : (central?.facebook || { configured: false, connected: false, account_name: '', pages: [] }),
+            linkedin: LOCAL_LI ? {
+                configured: true,
+                connected: liLive,
+                account_name: li?.member_name || '',
+                expires_at: li?.expires_at || '',
+            } : (central?.linkedin || { configured: false, connected: false, account_name: '', expires_at: '' }),
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(out));
         return;
     }
 
     if (url.pathname.startsWith('/admin/social/connect/') && req.method === 'GET') {
         const provider = url.pathname.split('/').pop();
+        if (provider === 'facebook' && LOCAL_FB) {
+            return redirect(`https://www.facebook.com/v21.0/dialog/oauth?${new URLSearchParams({
+                client_id: FB_APP_ID,
+                redirect_uri: `${portalOrigin}/admin/facebook/callback`,
+                response_type: 'code',
+                scope: FB_SCOPE,
+                state: oauthState('facebook'),
+            })}`);
+        }
+        if (provider === 'linkedin' && LOCAL_LI) {
+            return redirect(`https://www.linkedin.com/oauth/v2/authorization?${new URLSearchParams({
+                response_type: 'code',
+                client_id: LI_CLIENT_ID,
+                redirect_uri: `${portalOrigin}/admin/linkedin/callback`,
+                scope: LI_SCOPE,
+                state: oauthState('linkedin'),
+            })}`);
+        }
         try {
             const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${provider}/connect-url`, {
                 method: 'POST', headers: ksHeaders,
@@ -411,6 +664,18 @@ const server = http.createServer(async (req, res) => {
             res.end('{"error":"bad publish payload"}');
             return;
         }
+        if ((target === 'facebook' && LOCAL_FB) || (target === 'linkedin' && LOCAL_LI)) {
+            try {
+                const out = target === 'facebook' ? await publishFacebookLocal(payload) : await publishLinkedinLocal(payload);
+                res.writeHead(out.status, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(out.body));
+            } catch (err) {
+                console.error(`social publish ${target} failed:`, err.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end('{"error":"publish failed — try again"}');
+            }
+            return;
+        }
         try {
             const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${target}/publish`, {
                 method: 'POST', headers: ksHeaders,
@@ -431,6 +696,12 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname.startsWith('/admin/social/disconnect/') && req.method === 'POST') {
         const provider = url.pathname.split('/').pop();
+        if ((provider === 'facebook' && LOCAL_FB) || (provider === 'linkedin' && LOCAL_LI)) {
+            const s = readSocial();
+            delete s[provider];
+            writeSocial(s);
+            return redirect('/admin/studio');
+        }
         try {
             await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${provider}`, { method: 'DELETE', headers: ksHeaders });
         } catch { /* best effort */ }
