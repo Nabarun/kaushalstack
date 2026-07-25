@@ -42,7 +42,7 @@ export const FEATURES = [
         icon: Users,
         category: 'Workspace',
         status: 'live',
-        href: '/admin/teams',
+        href: '/admin/customers',
     },
     {
         id: 'research',

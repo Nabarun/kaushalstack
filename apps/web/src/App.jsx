@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Route, Routes, BrowserRouter as Router, useLocation } from 'react-router-dom';
+import { Route, Routes, BrowserRouter as Router, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/contexts/AuthContext.jsx';
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
@@ -32,12 +32,11 @@ import BlogPage from '@/pages/BlogPage.jsx';
 import BlogPostPage from '@/pages/BlogPostPage.jsx';
 import AdminLoginPage from '@/pages/admin/AdminLoginPage.jsx';
 import AdminLayout from '@/pages/admin/AdminLayout.jsx';
-import BusinessesPage from '@/pages/admin/BusinessesPage.jsx';
+import CustomersPage from '@/pages/admin/CustomersPage.jsx';
 import BusinessDetailPage from '@/pages/admin/BusinessDetailPage.jsx';
 import ReportDetailPage from '@/pages/admin/ReportDetailPage.jsx';
 import ReviewsPage from '@/pages/admin/ReviewsPage.jsx';
 import AdminBlogPage from '@/pages/admin/AdminBlogPage.jsx';
-import PartnersPage from '@/pages/admin/PartnersPage.jsx';
 import MarketplacePage from '@/pages/admin/MarketplacePage.jsx';
 import MarketplaceFeaturePage from '@/pages/admin/MarketplaceFeaturePage.jsx';
 import FoldersPage from '@/pages/admin/FoldersPage.jsx';
@@ -155,12 +154,15 @@ function App() {
                   </AdminProtectedRoute>
                 }
               >
-                <Route index element={<BusinessesPage />} />
-                <Route path="businesses" element={<BusinessesPage />} />
+                <Route index element={<CustomersPage />} />
+                <Route path="customers" element={<CustomersPage />} />
+                {/* Businesses and Teams merged into Customers — keep the old
+                    paths working for bookmarks and in-app back-links. */}
+                <Route path="businesses" element={<Navigate to="/admin/customers" replace />} />
+                <Route path="teams" element={<Navigate to="/admin/customers" replace />} />
                 <Route path="businesses/:id" element={<BusinessDetailPage />} />
                 <Route path="reports/:id" element={<ReportDetailPage />} />
                 <Route path="reviews" element={<ReviewsPage />} />
-                <Route path="teams" element={<PartnersPage />} />
                 <Route path="sprint" element={<SprintPage />} />
                 <Route path="marketplace" element={<MarketplacePage />} />
                 <Route path="marketplace/:featureId" element={<MarketplaceFeaturePage />} />

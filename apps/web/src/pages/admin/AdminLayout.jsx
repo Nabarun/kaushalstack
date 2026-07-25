@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '@/contexts/AdminAuthContext.jsx';
-import { Shield, Briefcase, GitPullRequest, LogOut, FileText, Users, Store, FolderOpen, Rocket } from 'lucide-react';
+import { Shield, Briefcase, GitPullRequest, LogOut, FileText, Store, FolderOpen, Rocket } from 'lucide-react';
 
 export default function AdminLayout() {
     const { adminUser, logout } = useAdminAuth();
@@ -20,16 +20,13 @@ export default function AdminLayout() {
     return (
         <div className="min-h-screen bg-background text-foreground flex">
             <aside className="w-60 border-r border bg-card p-4 flex flex-col print:hidden">
-                <Link to="/admin/businesses" className="flex items-center gap-2 mb-6">
+                <Link to="/admin/customers" className="flex items-center gap-2 mb-6">
                     <Shield className="w-5 h-5" />
                     <span className="font-semibold">Admin</span>
                 </Link>
                 <nav className="flex-1 space-y-1">
-                    <NavLink to="/admin/businesses" className={linkClass}>
-                        <Briefcase className="w-4 h-4" /> Businesses
-                    </NavLink>
-                    <NavLink to="/admin/teams" className={linkClass}>
-                        <Users className="w-4 h-4" /> Teams
+                    <NavLink to="/admin/customers" className={linkClass}>
+                        <Briefcase className="w-4 h-4" /> Customers
                     </NavLink>
                     <NavLink to="/admin/sprint" className={linkClass}>
                         <Rocket className="w-4 h-4" /> Sprint

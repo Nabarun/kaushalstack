@@ -18,7 +18,7 @@ export default function AdminLoginPage() {
     const [submitting, setSubmitting] = useState(false);
 
     if (isAdminAuthenticated) {
-        const to = location.state?.from || '/admin/businesses';
+        const to = location.state?.from || '/admin/customers';
         return <Navigate to={to} replace />;
     }
 
@@ -29,7 +29,7 @@ export default function AdminLoginPage() {
         setSubmitting(false);
         if (r.success) {
             toast.success('Welcome, admin');
-            navigate(location.state?.from || '/admin/businesses');
+            navigate(location.state?.from || '/admin/customers');
         } else {
             toast.error(r.error || 'Sign-in failed');
         }

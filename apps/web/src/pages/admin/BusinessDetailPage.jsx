@@ -144,8 +144,8 @@ export default function BusinessDetailPage() {
         <>
             <Helmet><title>{business.name} · Admin</title></Helmet>
             <div className="mb-6">
-                <Link to="/admin/businesses" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-                    <ArrowLeft className="w-4 h-4" /> Businesses
+                <Link to="/admin/customers" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                    <ArrowLeft className="w-4 h-4" /> Customers
                 </Link>
                 <div className="flex items-center justify-between mt-2">
                     <h1 className="text-2xl font-semibold">{name || business.name}</h1>
