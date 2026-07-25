@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import {
     Rocket, ChevronDown, ChevronRight, Plus, Trash2, Users, ClipboardList,
     CheckCircle2, XCircle, MinusCircle, FlaskConical, Megaphone, RefreshCw,
+    MessageSquare, Send, Eraser,
 } from 'lucide-react';
 
 const STATUSES = ['backlog', 'planned', 'in_progress', 'review', 'done', 'blocked'];
@@ -164,6 +165,144 @@ function AddItemForm({ teamId, onAdded }) {
                 <Button size="sm" onClick={submit} disabled={busy || !title.trim()}>Add</Button>
             </div>
         </div>
+    );
+}
+
+// Minimal renderer for the **Name (Role):** speaker markers in replies —
+// bold segments only, everything else verbatim.
+function ChatText({ text }) {
+    const parts = String(text).split(/(\*\*[^*]+\*\*)/g);
+    return (
+        <span className="whitespace-pre-wrap">
+            {parts.map((p, i) => p.startsWith('**') && p.endsWith('**')
+                ? <strong key={i}>{p.slice(2, -2)}</strong>
+                : <span key={i}>{p}</span>)}
+        </span>
+    );
+}
+
+function CeoChat({ teams }) {
+    const [open, setOpen] = useState(false);
+    const [audience, setAudience] = useState('all');
+    const [messages, setMessages] = useState([]);
+    const [draft, setDraft] = useState('');
+    const [sending, setSending] = useState(false);
+    const endRef = React.useRef(null);
+
+    const load = async (aud) => {
+        try {
+            const { items } = await adminApi.listSprintChat(aud);
+            setMessages(items);
+        } catch (e) {
+            toast.error(e.message);
+        }
+    };
+
+    useEffect(() => { if (open) load(audience); }, [open, audience]);
+    useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, sending]);
+
+    const send = async () => {
+        const message = draft.trim();
+        if (!message || sending) return;
+        setSending(true);
+        setDraft('');
+        setMessages(m => [...m, { id: 'tmp', role: 'user', agent_name: 'CEO', content: message }]);
+        try {
+            const { items } = await adminApi.sendSprintChat(audience, message);
+            setMessages(m => [...m.filter(x => x.id !== 'tmp'), ...items]);
+        } catch (e) {
+            toast.error(e.message);
+            setMessages(m => m.filter(x => x.id !== 'tmp'));
+            setDraft(message);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const clear = async () => {
+        if (!window.confirm('Clear this thread?')) return;
+        try {
+            await adminApi.clearSprintChat(audience);
+            setMessages([]);
+        } catch (e) {
+            toast.error(e.message);
+        }
+    };
+
+    const audienceName = audience === 'all' ? 'All teams' : (teams.find(t => t.id === audience)?.name || 'Team');
+
+    return (
+        <Card>
+            <CardContent className="p-4">
+                <button className="w-full flex items-center gap-3 text-left" onClick={() => setOpen(!open)}>
+                    {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="font-semibold flex-1">Ask the teams</span>
+                    <span className="text-xs text-muted-foreground">CEO chat · {audienceName}</span>
+                </button>
+
+                {open && (
+                    <div className="mt-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={audience}
+                                onChange={e => setAudience(e.target.value)}
+                                className="text-sm border rounded-md px-2 py-1.5 bg-background"
+                            >
+                                <option value="all">All teams (stand-up)</option>
+                                {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                            <div className="flex-1" />
+                            {messages.length > 0 && (
+                                <Button variant="ghost" size="sm" className="text-xs" onClick={clear}>
+                                    <Eraser className="w-3.5 h-3.5 mr-1" /> Clear thread
+                                </Button>
+                            )}
+                        </div>
+
+                        <div className="rounded-lg border bg-muted/20 p-3 max-h-96 overflow-y-auto space-y-3">
+                            {messages.length === 0 && !sending && (
+                                <div className="text-xs text-muted-foreground text-center py-6">
+                                    Ask {audienceName === 'All teams' ? 'all your teams' : `the ${audienceName} team`} anything —
+                                    status, plans, risks, or brainstorm an enhancement.
+                                </div>
+                            )}
+                            {messages.map((m, i) => (
+                                <div key={m.id || i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                                        m.role === 'user'
+                                            ? 'bg-accent text-white'
+                                            : 'bg-card border'
+                                    }`}>
+                                        {m.role === 'assistant' && (
+                                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{m.agent_name}</div>
+                                        )}
+                                        <ChatText text={m.content} />
+                                    </div>
+                                </div>
+                            ))}
+                            {sending && (
+                                <div className="text-xs text-muted-foreground italic">The team is preparing an answer…</div>
+                            )}
+                            <div ref={endRef} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Input
+                                placeholder={`Message ${audienceName}…`}
+                                value={draft}
+                                onChange={e => setDraft(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                                disabled={sending}
+                            />
+                            <Button onClick={send} disabled={sending || !draft.trim()}>
+                                <Send className="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     );
 }
 
@@ -378,6 +517,8 @@ export default function SprintPage() {
                 a daily test dashboard covering positive and negative flows with critical integrations mocked.
                 Green/red status is the latest daily run.
             </p>
+
+            {teams.length > 0 && <CeoChat teams={teams} />}
 
             {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
             {!loading && teams.length === 0 && (

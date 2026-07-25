@@ -53,6 +53,19 @@ const COLLECTIONS = [
         ],
     },
     {
+        // CEO ↔ team chat threads. audience is a sprint_teams id, or 'all'
+        // for the stand-up thread where every team lead answers together.
+        // agent_name labels assistant turns with who spoke (team name).
+        name: 'sprint_chat_messages',
+        fields: [
+            { type: 'text',   name: 'audience', required: true, max: 40 },
+            { type: 'select', name: 'role',     maxSelect: 1, values: ['user', 'assistant'] },
+            { type: 'text',   name: 'agent_name', max: 120 },
+            { type: 'text',   name: 'content',  required: true, max: 12000 },
+            { type: 'autodate', name: 'created', onCreate: true },
+        ],
+    },
+    {
         // One row per daily test-dashboard run. The per-project test suites
         // POST their result here; the sprint tab shows the latest run per
         // team so a red team is visible at a glance.

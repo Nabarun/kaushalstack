@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import logger from '../../utils/logger.js';
 import pb from '../../utils/pocketbaseClient.js';
+import { chatComplete } from '../../providers/index.js';
 import { ensureSprintCollections } from '../../sprint/collections.js';
 import { SEED_TEAMS } from '../../sprint/seed-teams.js';
 import { requireAdmin } from './auth.js';
 
 const router = Router();
+
+const CHAT_PROVIDER = 'openai';
+const CHAT_MODEL = 'gpt-4o-mini';
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 
@@ -230,6 +234,159 @@ router.post('/admin/sprints/:teamId/test-runs', requireAdmin, async (req, res) =
     }
 });
 
+// ── CEO chat ─────────────────────────────────────────────────────────────────
+// The CEO talks to one team (audience = team id) or runs a stand-up with all
+// of them (audience = 'all'). Replies are generated with each team's full
+// context — agents, work items, latest briefing and latest test run — so the
+// teams answer about their real backlog, not generically.
+
+function teamContext(team, items, report, run) {
+    const agents = (team.teamNorm || []).map(m =>
+        `  - ${m.agent_name} (${m.role}): ${m.why}`).join('\n');
+    const workItems = items.map(i =>
+        `  - [${i.priority}/${i.status}] ${i.title}${i.detail ? ` — ${i.detail}` : ''}`).join('\n');
+    const testLine = run
+        ? `${run.status.toUpperCase()} ${run.passed}/${run.total} (${run.created})${run.notes ? ` — ${run.notes}` : ''}`
+        : 'no test runs recorded yet';
+    return [
+        `## Team: ${team.name}`,
+        `Project: ${team.project || '—'}`,
+        `Mission: ${team.mission || '—'}`,
+        `Agents:\n${agents || '  (none)'}`,
+        `Work items:\n${workItems || '  (none)'}`,
+        `Latest test-dashboard run: ${testLine}`,
+        report ? `Latest briefing to the CEO: ${report.summary}` : 'No briefing recorded yet.',
+    ].join('\n');
+}
+
+async function loadTeamBundles(teamFilterId = null) {
+    const [teams, items, reports, runs] = await Promise.all([
+        pb.collection('sprint_teams').getFullList({ sort: 'name' }),
+        pb.collection('sprint_work_items').getFullList({ sort: '-updated' }).catch(() => []),
+        pb.collection('sprint_reports').getFullList({ sort: '-created' }).catch(() => []),
+        pb.collection('sprint_test_runs').getFullList({ sort: '-created' }).catch(() => []),
+    ]);
+    const wanted = teamFilterId ? teams.filter(t => t.id === teamFilterId) : teams;
+    return wanted.map(t => {
+        const team = { ...t, teamNorm: normalizeTeam(t.team) };
+        const teamItems = items.filter(i => i.team_id === t.id).map(itemRow);
+        const report = reports.find(r => r.team_id === t.id) || null;
+        const run = runs.find(r => r.team_id === t.id) || null;
+        return { team, items: teamItems, report, run };
+    });
+}
+
+function chatRow(m) {
+    return {
+        id: m.id,
+        audience: m.audience,
+        role: m.role,
+        agent_name: m.agent_name || '',
+        content: m.content,
+        created: m.created,
+    };
+}
+
+router.get('/admin/sprints/chat', requireAdmin, async (req, res) => {
+    const audience = String(req.query.audience || 'all').slice(0, 40);
+    try {
+        await ensureSprintCollections();
+        const rows = await pb.collection('sprint_chat_messages').getFullList({
+            filter: `audience = "${esc(audience)}"`,
+            sort: 'created',
+        }).catch(() => []);
+        res.json({ items: rows.slice(-60).map(chatRow) });
+    } catch (err) {
+        logger.error('admin sprint chat list failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/admin/sprints/chat', requireAdmin, async (req, res) => {
+    const audience = String(req.body?.audience || 'all').slice(0, 40);
+    const message = String(req.body?.message || '').trim().slice(0, 4000);
+    if (!message) return res.status(400).json({ error: 'message is required' });
+    if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI not configured on the server' });
+
+    try {
+        await ensureSprintCollections();
+        const bundles = await loadTeamBundles(audience === 'all' ? null : audience);
+        if (bundles.length === 0) return res.status(404).json({ error: 'team not found' });
+
+        const userMsg = await pb.collection('sprint_chat_messages').create({
+            audience, role: 'user', agent_name: 'CEO', content: message,
+        });
+
+        // Last few turns of this thread for continuity (excluding the message
+        // just saved — it goes in as the live question).
+        const history = await pb.collection('sprint_chat_messages').getFullList({
+            filter: `audience = "${esc(audience)}"`,
+            sort: '-created',
+        }).catch(() => []);
+        const transcript = history
+            .filter(m => m.id !== userMsg.id)
+            .slice(0, 10)
+            .reverse()
+            .map(m => `${m.role === 'user' ? 'CEO' : (m.agent_name || 'Team')}: ${m.content}`)
+            .join('\n');
+
+        const single = audience !== 'all';
+        const systemPrompt = [
+            single
+                ? `You are the "${bundles[0].team.name}" dev-agent team on the KaushalStack sprint board, in a chat with your CEO.`
+                : `You are the nine dev-agent teams on the KaushalStack sprint board, gathered for a stand-up with your CEO.`,
+            `Answer the CEO's question concretely using ONLY the team context below — real work items, priorities, test status, briefings. Never invent features or status that are not in the context; if you don't know, say what you'd need to find out.`,
+            single
+                ? `Have the right agent(s) answer, each turn prefixed like "**${bundles[0].team.teamNorm[0]?.agent_name || 'Lead'} (${bundles[0].team.teamNorm[0]?.role || 'Tech Lead'}):**". Use only agents listed in the context. Keep it under ~250 words total.`
+                : `Answer as a moderated stand-up: only the teams relevant to the question speak, each as one short paragraph prefixed like "**<Lead name> — <Team>:**" using that team's lead agent. If the question applies to everyone, keep each team to 1-2 sentences.`,
+            `Be direct with trade-offs and honest about risks — the CEO wants signal, not cheerleading.`,
+            '',
+            '# Team context',
+            ...bundles.map(b => teamContext(b.team, b.items, b.report, b.run)),
+        ].join('\n\n');
+
+        const userPrompt = transcript
+            ? `Recent conversation:\n${transcript}\n\nCEO: ${message}`
+            : `CEO: ${message}`;
+
+        const reply = await chatComplete(CHAT_PROVIDER, {
+            key: process.env.OPENAI_API_KEY,
+            model: CHAT_MODEL,
+            systemPrompt,
+            userPrompt,
+            meter: { user_id: req.adminUserId || '', agent: 'sprint-chat', context: 'sprint-chat' },
+        });
+
+        const assistantMsg = await pb.collection('sprint_chat_messages').create({
+            audience,
+            role: 'assistant',
+            agent_name: single ? bundles[0].team.name : 'All teams',
+            content: String(reply || '').slice(0, 12000),
+        });
+
+        res.json({ items: [chatRow(userMsg), chatRow(assistantMsg)] });
+    } catch (err) {
+        logger.error('admin sprint chat failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/admin/sprints/chat', requireAdmin, async (req, res) => {
+    const audience = String(req.query.audience || '').slice(0, 40);
+    if (!audience) return res.status(400).json({ error: 'audience is required' });
+    try {
+        const rows = await pb.collection('sprint_chat_messages').getFullList({
+            filter: `audience = "${esc(audience)}"`,
+            fields: 'id',
+        }).catch(() => []);
+        for (const r of rows) await pb.collection('sprint_chat_messages').delete(r.id).catch(() => {});
+        res.json({ ok: true, deleted: rows.length });
+    } catch (err) {
+        logger.error('admin sprint chat clear failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Remove a team and its child rows (items, reports, test runs).
 router.delete('/admin/sprints/:teamId', requireAdmin, async (req, res) => {
     const id = req.params.teamId;
@@ -245,6 +402,13 @@ router.delete('/admin/sprints/:teamId', requireAdmin, async (req, res) => {
                 for (const r of rows) await pb.collection(col).delete(r.id).catch(() => {});
             } catch { /* collection may not exist yet */ }
         }
+        try {
+            const chats = await pb.collection('sprint_chat_messages').getFullList({
+                filter: `audience = "${esc(id)}"`,
+                fields: 'id',
+            });
+            for (const r of chats) await pb.collection('sprint_chat_messages').delete(r.id).catch(() => {});
+        } catch { /* collection may not exist yet */ }
         await pb.collection('sprint_teams').delete(id);
         logger.info(`admin: sprint team ${team.name} (${id}) removed by ${req.adminUserId}`);
         res.json({ ok: true });

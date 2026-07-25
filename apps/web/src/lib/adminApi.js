@@ -196,6 +196,19 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    listSprintChat(audience) {
+        return fetch(`${API_BASE}/admin/sprints/chat?audience=${encodeURIComponent(audience)}`, { headers: headers() }).then(handle);
+    },
+    sendSprintChat(audience, message) {
+        return fetch(`${API_BASE}/admin/sprints/chat`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ audience, message }),
+        }).then(handle);
+    },
+    clearSprintChat(audience) {
+        return fetch(`${API_BASE}/admin/sprints/chat?audience=${encodeURIComponent(audience)}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
     deleteSprintTeam(teamId) {
         return fetch(`${API_BASE}/admin/sprints/${teamId}`, {
             method: 'DELETE', headers: headers(),
