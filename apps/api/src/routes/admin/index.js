@@ -9,6 +9,7 @@ import marketplaceRouter from './marketplace.js';
 import workspacesRouter from './workspaces.js';
 import environmentsRouter from './environments.js';
 import roundtableStatsRouter from './roundtable-stats.js';
+import sprintsRouter from './sprints.js';
 import { ensureAdminCollections } from './collections.js';
 
 ensureAdminCollections().catch(() => {});
@@ -24,5 +25,6 @@ router.use(marketplaceRouter);
 router.use(workspacesRouter);
 router.use(environmentsRouter);
 router.use(roundtableStatsRouter);
+router.use(sprintsRouter);
 
 export default router;

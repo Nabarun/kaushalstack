@@ -164,6 +164,44 @@ export const adminApi = {
             method: 'POST', headers: headers(),
         }).then(handle);
     },
+    // Sprint board
+    listSprintTeams() {
+        return fetch(`${API_BASE}/admin/sprints`, { headers: headers() }).then(handle);
+    },
+    seedSprintTeams() {
+        return fetch(`${API_BASE}/admin/sprints/seed`, { method: 'POST', headers: headers() }).then(handle);
+    },
+    createSprintItem(teamId, data) {
+        return fetch(`${API_BASE}/admin/sprints/${teamId}/items`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    updateSprintItem(itemId, data) {
+        return fetch(`${API_BASE}/admin/sprints/items/${itemId}`, {
+            method: 'PATCH', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    deleteSprintItem(itemId) {
+        return fetch(`${API_BASE}/admin/sprints/items/${itemId}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
+    addSprintReport(teamId, summary, sprint) {
+        return fetch(`${API_BASE}/admin/sprints/${teamId}/reports`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ summary, sprint }),
+        }).then(handle);
+    },
+    recordSprintTestRun(teamId, data) {
+        return fetch(`${API_BASE}/admin/sprints/${teamId}/test-runs`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    deleteSprintTeam(teamId) {
+        return fetch(`${API_BASE}/admin/sprints/${teamId}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
+
     listEdits(status = 'pending') {
         return fetch(`${API_BASE}/admin/edits?status=${encodeURIComponent(status)}`, { headers: headers() }).then(handle);
     },
