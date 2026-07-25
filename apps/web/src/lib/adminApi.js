@@ -209,6 +209,9 @@ export const adminApi = {
             method: 'DELETE', headers: headers(),
         }).then(handle);
     },
+    getTestDashboard() {
+        return fetch(`${API_BASE}/admin/sprints/test-dashboard`, { headers: headers() }).then(handle);
+    },
     deleteSprintTeam(teamId) {
         return fetch(`${API_BASE}/admin/sprints/${teamId}`, {
             method: 'DELETE', headers: headers(),

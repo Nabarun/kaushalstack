@@ -78,6 +78,11 @@ const COLLECTIONS = [
             { type: 'number', name: 'failed',  min: 0 },
             { type: 'text',   name: 'report_url', max: 500 },
             { type: 'text',   name: 'notes',   max: 2000 },
+            // Per-test rows from the portfolio framework's results.json, so
+            // the Tests dashboard can show which test failed, not just a count.
+            { type: 'json',   name: 'tests' },
+            { type: 'text',   name: 'runner',  max: 60 },
+            { type: 'number', name: 'duration_ms', min: 0 },
             { type: 'autodate', name: 'created', onCreate: true },
         ],
     },

@@ -11,6 +11,34 @@ const router = Router();
 const CHAT_PROVIDER = 'openai';
 const CHAT_MODEL = 'gpt-4o-mini';
 
+// Standing context every team shares. Lives here rather than in each team's
+// seeded briefing so already-seeded boards learn it too, without a migration.
+const HOUSE_FACTS = `# How we work (applies to every team)
+
+There is one shared test framework for the whole portfolio, at
+~/Projects/KaushalStackTestFramework. Each team owns a suite under
+suites/<project>/. The rules:
+
+- Test code NEVER lives inside a customer's own repository. A suite reaches into
+  its project by absolute path, and the project must be byte-identical before
+  and after a run. If a test cannot run without changing the project's source,
+  that change is raised as a work item — never made quietly.
+- Every external service is mocked or starved of credentials: OpenProcure,
+  Facebook/Instagram/LinkedIn, the kaushalstack partner API, Sarvam, OpenAI,
+  Anthropic, Twilio, Razorpay, SMTP, Cloudinary. A suite must pass offline.
+- Runners are 'node --test' (zero dependencies) or pytest for Python projects.
+- './run_all.sh' runs everything; 'run_daily.sh' is the scheduled daily job. It
+  posts results to the admin Test dashboard (/admin/tests), which is where the
+  green/red state on your sprint card comes from.
+
+As of 26 Jul 2026 every team has ONE happy-path test passing (11 tests across 9
+suites, all green). The agreed next step for every team is negative-path
+coverage — the failure modes named in your mandated P0 work item. Writing those
+first happy tests already surfaced three confirmed bugs (ReFunction's
+unauthenticated patient endpoints, TallyVisualizer's credit-note revenue
+inflation, J4E's stale Prisma client), so treat the negative suite as bug-finding
+work, not paperwork.`;
+
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 
 function normalizeTeam(raw) {
@@ -341,6 +369,8 @@ router.post('/admin/sprints/chat', requireAdmin, async (req, res) => {
                 : `Answer as a moderated stand-up: only the teams relevant to the question speak, each as one short paragraph prefixed like "**<Lead name> — <Team>:**" using that team's lead agent. If the question applies to everyone, keep each team to 1-2 sentences.`,
             `Be direct with trade-offs and honest about risks — the CEO wants signal, not cheerleading.`,
             '',
+            HOUSE_FACTS,
+            '',
             '# Team context',
             ...bundles.map(b => teamContext(b.team, b.items, b.report, b.run)),
         ].join('\n\n');
@@ -383,6 +413,143 @@ router.delete('/admin/sprints/chat', requireAdmin, async (req, res) => {
         res.json({ ok: true, deleted: rows.length });
     } catch (err) {
         logger.error('admin sprint chat clear failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Test dashboard ───────────────────────────────────────────────────────────
+// The portfolio test framework (~/Projects/KaushalStackTestFramework) posts one
+// results.json here per daily run; the server fans it out into a test-run row
+// per team so the Sprint badges and the Tests dashboard stay in sync from a
+// single call.
+
+// Suite directory name → sprint team slug. Explicit so renaming a suite fails
+// loudly here instead of silently dropping a project off the dashboard.
+const SUITE_TO_TEAM = {
+    tallyvisualizer: 'tallyvisualizer',
+    j4e: 'j4e',
+    mrnmr: 'mrnmr',
+    lakshyan: 'lakshyan',
+    consciousconnections: 'consciousconnections',
+    vajrahasta: 'vajrahasta',
+    enrollengineer: 'enrollengineer',
+    refunction: 'refunction',
+    kaushalstack: 'kaushalstack-platform',
+};
+
+router.post('/admin/sprints/test-report', requireAdmin, async (req, res) => {
+    const rows = Array.isArray(req.body?.tests) ? req.body.tests : null;
+    if (!rows) return res.status(400).json({ error: 'tests[] is required' });
+
+    try {
+        await ensureSprintCollections();
+        const teams = await pb.collection('sprint_teams').getFullList({ fields: 'id,slug' });
+        const idBySlug = Object.fromEntries(teams.map(t => [t.slug, t.id]));
+
+        const bySuite = {};
+        for (const t of rows) {
+            const suite = String(t.suite || 'unknown');
+            (bySuite[suite] ||= []).push({
+                name: String(t.name || 'unnamed').slice(0, 300),
+                status: t.status === 'pass' ? 'pass' : 'fail',
+                error: t.error ? String(t.error).slice(0, 1000) : null,
+                duration_ms: Number(t.duration_ms) || 0,
+                runner: String(t.runner || '').slice(0, 60),
+            });
+        }
+
+        const recorded = [];
+        const skipped = [];
+        for (const [suite, tests] of Object.entries(bySuite)) {
+            const teamId = idBySlug[SUITE_TO_TEAM[suite]];
+            if (!teamId) { skipped.push(suite); continue; }
+
+            const passed = tests.filter(t => t.status === 'pass').length;
+            const failed = tests.length - passed;
+            const failing = tests.filter(t => t.status === 'fail').map(t => t.name);
+
+            await pb.collection('sprint_test_runs').create({
+                team_id: teamId,
+                status: failed === 0 ? 'pass' : (passed === 0 ? 'fail' : 'partial'),
+                total: tests.length,
+                passed,
+                failed,
+                tests,
+                runner: tests[0]?.runner || '',
+                duration_ms: Math.round(tests.reduce((s, t) => s + t.duration_ms, 0)),
+                notes: failed === 0
+                    ? 'Daily portfolio run — all green.'
+                    : `Failing: ${failing.slice(0, 5).join(', ')}`,
+            });
+            recorded.push({ suite, passed, failed });
+        }
+
+        logger.info(`admin: test report ingested — ${recorded.length} suite(s), ${rows.length} tests`);
+        res.json({ recorded, skipped });
+    } catch (err) {
+        logger.error('admin sprint test-report failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Everything the Tests dashboard renders: latest run per team with its
+// individual tests, plus a short history for the trend strip.
+router.get('/admin/sprints/test-dashboard', requireAdmin, async (req, res) => {
+    try {
+        await ensureSprintCollections();
+        const [teams, runs] = await Promise.all([
+            pb.collection('sprint_teams').getFullList({ sort: 'name' }),
+            pb.collection('sprint_test_runs').getFullList({ sort: '-created' }).catch(() => []),
+        ]);
+
+        const runsByTeam = {};
+        for (const r of runs) (runsByTeam[r.team_id] ||= []).push(r);
+
+        const items = teams.map((t) => {
+            const history = runsByTeam[t.id] || [];
+            const latest = history[0] || null;
+            return {
+                team_id: t.id,
+                name: t.name,
+                slug: t.slug,
+                project: t.project || '',
+                latest: latest ? {
+                    id: latest.id,
+                    status: latest.status || 'partial',
+                    total: latest.total || 0,
+                    passed: latest.passed || 0,
+                    failed: latest.failed || 0,
+                    runner: latest.runner || '',
+                    duration_ms: latest.duration_ms || 0,
+                    notes: latest.notes || '',
+                    created: latest.created,
+                    tests: Array.isArray(latest.tests) ? latest.tests : [],
+                } : null,
+                history: history.slice(0, 14).map(r => ({
+                    status: r.status || 'partial',
+                    passed: r.passed || 0,
+                    failed: r.failed || 0,
+                    created: r.created,
+                })).reverse(),
+            };
+        });
+
+        const covered = items.filter(i => i.latest);
+        res.json({
+            generated_at: new Date().toISOString(),
+            totals: {
+                teams: items.length,
+                reporting: covered.length,
+                green: covered.filter(i => i.latest.status === 'pass').length,
+                red: covered.filter(i => i.latest.status !== 'pass').length,
+                tests: covered.reduce((s, i) => s + i.latest.total, 0),
+                passed: covered.reduce((s, i) => s + i.latest.passed, 0),
+                failed: covered.reduce((s, i) => s + i.latest.failed, 0),
+            },
+            items,
+        });
+    } catch (err) {
+        logger.error('admin sprint test-dashboard failed:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
