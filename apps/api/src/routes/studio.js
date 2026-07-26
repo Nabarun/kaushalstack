@@ -490,7 +490,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
           <div class="ctl-row">
             <button class="btn btn-blue"
                     hx-post="recommend-text"
-                    hx-vals="js:{text: document.getElementById(activeTextId).innerText}"
+                    hx-vals="js:{text: document.getElementById(activeTextId).innerText, image: cardImageRelPath()}"
                     hx-target="#text-recs" hx-swap="innerHTML" hx-indicator="#text-spin">
               Get more text variants
             </button>
@@ -642,7 +642,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     </div>
     <div class="panel">
       <h2>Text variants <span id="text-spin" class="htmx-indicator">writing variants…</span></h2>
-      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get more text variants” for a LinkedIn/Facebook/Twitter/Instagram rewrite of the current caption.</div></div>
+      <div id="text-recs" class="recs" style="grid-template-columns:1fr"><div class="hint">Hit “Get more text variants” for a LinkedIn/Facebook/Twitter/Instagram rewrite of the current caption, grounded in the card’s image.</div></div>
     </div>
   </section>
 </div>
@@ -667,6 +667,15 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   // (data-type="video") — selecting either shows/hides the matching element
   // in the card so the gradient + text zones (siblings of both, in
   // #card-img-wrap) overlay identically no matter which is active.
+  // Workspace-relative path of the card's current image (empty when the card
+  // shows a video or nothing) — sent with recommend-text so the copy model
+  // sees the visual it is writing for.
+  function cardImageRelPath() {
+    var img = document.getElementById('card-img');
+    if (!img || img.style.display === 'none' || !img.getAttribute('src')) return '';
+    var m = (img.getAttribute('src') || '').match(/\\/preview\\/(.+?)(?:[#?].*)?$/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
   function selectMedia(el) {
     var img = document.getElementById('card-img');
     var vid = document.getElementById('card-video');
@@ -2222,8 +2231,26 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video-status$/, async (r
 router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res) => {
     const id = req.params[0];
     const text = String(req.body?.text || '').trim().slice(0, 1200);
-    if (!text) return sendFragment(res, errFragment('The card has no caption to rewrite yet.'));
+    const imagePath = String(req.body?.image || '').trim();
     if (!OPENAI_KEY) return sendFragment(res, errFragment('OPENAI_API_KEY is not configured on the server.'));
+
+    // The card's current image (a workspace-relative path) grounds the copy in
+    // what the post actually shows. Unreadable/invalid paths just degrade to
+    // text-only — never a hard failure.
+    let imageUrl = '';
+    if (imagePath && IMG_RE.test(imagePath)) {
+        try {
+            const buf = await fs.readFile(await safeResolve(id, imagePath));
+            if (buf.length <= 8 * 1024 * 1024) {
+                const mime = /\.png$/i.test(imagePath) ? 'image/png'
+                    : /\.webp$/i.test(imagePath) ? 'image/webp'
+                        : /\.gif$/i.test(imagePath) ? 'image/gif' : 'image/jpeg';
+                imageUrl = `data:${mime};base64,${buf.toString('base64')}`;
+            }
+        } catch { /* image missing — text-only */ }
+    }
+    if (!text && !imageUrl) return sendFragment(res, errFragment('The card has no caption or image to work from yet.'));
+
     try {
         const r = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -2235,9 +2262,15 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are a senior social media copywriter. Rewrite the caption you are given as 4 platform-tailored variants: LinkedIn, Facebook, Twitter/X, and Instagram. Tune tone, length, and hashtag/emoji use to what actually performs on each platform (LinkedIn: professional, credibility-led, minimal emoji; Facebook: warm, conversational, community-oriented; Twitter/X: short, punchy, hook-first; Instagram: visual-storytelling, emoji-friendly, hashtag-friendly). Keep the same language and core message as the original. For each variant also give a one-sentence "why" explaining the specific tailoring choice for that platform\'s audience/format — this is shown to the user as context, never inserted into the post itself, so it should explain the REASONING, not repeat the copy. Respond with JSON: {"variants": [{"platform": "LinkedIn", "text": "...", "why": "..."}, {"platform": "Facebook", "text": "...", "why": "..."}, {"platform": "Twitter/X", "text": "...", "why": "..."}, {"platform": "Instagram", "text": "...", "why": "..."}]}',
+                        content: 'You are a senior social media copywriter. Write 4 platform-tailored caption variants: LinkedIn, Facebook, Twitter/X, and Instagram. Tune tone, length, and hashtag/emoji use to what actually performs on each platform (LinkedIn: professional, credibility-led, minimal emoji; Facebook: warm, conversational, community-oriented; Twitter/X: short, punchy, hook-first; Instagram: visual-storytelling, emoji-friendly, hashtag-friendly). If the post\'s image is attached, ground every variant in what it actually shows — subject, mood, setting, colours — so the copy and the visual read as one post; never describe the image mechanically or contradict it. If a current caption is given, keep its language and core message; if only the image is given, write fresh copy from the image. For each variant also give a one-sentence "why" explaining the specific tailoring choice for that platform\'s audience/format — this is shown to the user as context, never inserted into the post itself, so it should explain the REASONING, not repeat the copy. Respond with JSON: {"variants": [{"platform": "LinkedIn", "text": "...", "why": "..."}, {"platform": "Facebook", "text": "...", "why": "..."}, {"platform": "Twitter/X", "text": "...", "why": "..."}, {"platform": "Instagram", "text": "...", "why": "..."}]}',
                     },
-                    { role: 'user', content: text },
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: text || 'No caption yet — write the copy from the attached image.' },
+                            ...(imageUrl ? [{ type: 'image_url', image_url: { url: imageUrl, detail: 'low' } }] : []),
+                        ],
+                    },
                 ],
             }),
         });
