@@ -123,27 +123,83 @@ router.get('/admin/sprints', requireAdmin, async (req, res) => {
     }
 });
 
-// Idempotent seed: teams are matched by slug; existing ones are skipped
-// entirely (their items/reports may have diverged from the seed on purpose).
+// Sync the board with the seed roster. Teams are matched by slug.
+//
+// Additive only, never destructive: a team that already exists keeps its rows,
+// and only work items whose title isn't on the board yet get added. That
+// matters because the CEO re-prioritizes and re-statuses items directly in the
+// admin — re-running this must never stomp that. It also means new findings
+// (a confirmed bug written into the seed) reach a board that was seeded weeks
+// earlier, which a create-only seed could never do.
+//
+// The agent roster and mission ARE refreshed on existing teams: those are
+// authored in the seed file, not edited in the UI, so the seed is the source
+// of truth for them.
 router.post('/admin/sprints/seed', requireAdmin, async (req, res) => {
     try {
         await ensureSprintCollections();
-        const existing = await pb.collection('sprint_teams').getFullList({ fields: 'id,slug' });
-        const have = new Set(existing.map(t => t.slug));
-        let createdTeams = 0, createdItems = 0;
+        const existing = await pb.collection('sprint_teams').getFullList();
+        const bySlug = Object.fromEntries(existing.map(t => [t.slug, t]));
+        let createdTeams = 0, createdItems = 0, refreshedTeams = 0, updatedItems = 0;
+        const added = [];
 
         for (const seed of SEED_TEAMS) {
-            if (have.has(seed.slug)) continue;
-            const team = await pb.collection('sprint_teams').create({
-                name: seed.name,
-                slug: seed.slug,
-                project: seed.project || '',
-                mission: seed.mission || '',
-                status: 'active',
-                team: seed.team || [],
-            });
-            createdTeams++;
+            let team = bySlug[seed.slug];
+
+            if (!team) {
+                team = await pb.collection('sprint_teams').create({
+                    name: seed.name,
+                    slug: seed.slug,
+                    project: seed.project || '',
+                    mission: seed.mission || '',
+                    status: 'active',
+                    team: seed.team || [],
+                });
+                createdTeams++;
+                if (seed.report) {
+                    await pb.collection('sprint_reports').create({
+                        team_id: team.id, sprint: 'S1', summary: seed.report,
+                    });
+                }
+            } else if (
+                team.mission !== (seed.mission || '')
+                || team.project !== (seed.project || '')
+                || JSON.stringify(team.team || []) !== JSON.stringify(seed.team || [])
+            ) {
+                await pb.collection('sprint_teams').update(team.id, {
+                    name: seed.name,
+                    project: seed.project || '',
+                    mission: seed.mission || '',
+                    team: seed.team || [],
+                });
+                refreshedTeams++;
+            }
+
+            // Split of ownership: the seed owns an item's description (it's
+            // authored documentation — e.g. a bug write-up gaining a confirmed
+            // reproduction), the CEO owns where it sits in the pipeline. So an
+            // existing item gets its detail refreshed but keeps whatever
+            // status and priority the board has it at.
+            let onBoard = [];
+            try {
+                onBoard = await pb.collection('sprint_work_items').getFullList({
+                    filter: `team_id = "${esc(team.id)}"`,
+                    fields: 'id,title,detail',
+                });
+            } catch { /* none yet */ }
+            const byTitle = Object.fromEntries(onBoard.map(i => [i.title, i]));
+
             for (const item of seed.items || []) {
+                const current = byTitle[item.title];
+                if (current) {
+                    if ((current.detail || '') !== (item.detail || '')) {
+                        await pb.collection('sprint_work_items').update(current.id, {
+                            detail: item.detail || '',
+                        });
+                        updatedItems++;
+                    }
+                    continue;
+                }
                 await pb.collection('sprint_work_items').create({
                     team_id: team.id,
                     title: item.title,
@@ -154,18 +210,18 @@ router.post('/admin/sprints/seed', requireAdmin, async (req, res) => {
                     sprint: item.sprint || 'S1',
                 });
                 createdItems++;
-            }
-            if (seed.report) {
-                await pb.collection('sprint_reports').create({
-                    team_id: team.id,
-                    sprint: 'S1',
-                    summary: seed.report,
-                });
+                added.push(`${seed.name}: ${item.title}`);
             }
         }
 
-        logger.info(`admin: sprint seed created ${createdTeams} teams / ${createdItems} items`);
-        res.json({ created_teams: createdTeams, created_items: createdItems, skipped: SEED_TEAMS.length - createdTeams });
+        logger.info(`admin: sprint sync — ${createdTeams} new team(s), ${refreshedTeams} refreshed, ${createdItems} new item(s), ${updatedItems} detail update(s)`);
+        res.json({
+            created_teams: createdTeams,
+            refreshed_teams: refreshedTeams,
+            created_items: createdItems,
+            updated_items: updatedItems,
+            added,
+        });
     } catch (err) {
         logger.error('admin sprint seed failed:', err.message);
         res.status(500).json({ error: err.message });

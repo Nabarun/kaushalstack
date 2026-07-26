@@ -467,7 +467,11 @@ export default function SprintPage() {
         setSeeding(true);
         try {
             const r = await adminApi.seedSprintTeams();
-            toast.success(`Seeded ${r.created_teams} teams, ${r.created_items} work items`);
+            const parts = [];
+            if (r.created_teams) parts.push(`${r.created_teams} new team${r.created_teams === 1 ? '' : 's'}`);
+            if (r.created_items) parts.push(`${r.created_items} new work item${r.created_items === 1 ? '' : 's'}`);
+            if (r.refreshed_teams) parts.push(`${r.refreshed_teams} roster${r.refreshed_teams === 1 ? '' : 's'} refreshed`);
+            toast.success(parts.length ? `Synced — ${parts.join(', ')}` : 'Already up to date');
             await load();
         } catch (e) {
             toast.error(e.message);
@@ -507,8 +511,13 @@ export default function SprintPage() {
                 <Button variant="outline" size="sm" onClick={load}>
                     <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
                 </Button>
-                <Button size="sm" onClick={seed} disabled={seeding}>
-                    <Plus className="w-3.5 h-3.5 mr-1" /> {seeding ? 'Seeding…' : 'Seed default teams'}
+                <Button
+                    size="sm"
+                    onClick={seed}
+                    disabled={seeding}
+                    title="Add any teams and work items from the seed roster that aren't on the board yet. Never changes items you've already re-prioritized."
+                >
+                    <Plus className="w-3.5 h-3.5 mr-1" /> {seeding ? 'Syncing…' : 'Sync teams'}
                 </Button>
             </div>
 
