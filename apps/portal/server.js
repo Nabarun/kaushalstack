@@ -315,6 +315,28 @@ ${campaign.status === 'failed' ? `<div class="err">Last run failed: ${esc(campai
   window.addEventListener('message', function (ev) {
     if (ev.origin !== KS) return;
     var d = ev.data || {};
+    if (d.type === 'ks-studio-schedule-dates') {
+      fetch('/admin/social/schedule/dates').then(function (r) { return r.json(); }).then(function (j) {
+        ev.source.postMessage({ type: 'ks-studio-schedule-dates-result', dates: j.dates || [] }, KS);
+      }).catch(function () {
+        ev.source.postMessage({ type: 'ks-studio-schedule-dates-result', dates: [] }, KS);
+      });
+      return;
+    }
+    if (d.type === 'ks-studio-schedule') {
+      fetch('/admin/social/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption: d.caption, imageUrl: d.imageUrl, sessionId: d.sessionId, targets: d.targets, scheduledAt: d.scheduledAt, collaborators: d.collaborators }),
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (out) {
+          ev.source.postMessage({ type: 'ks-studio-schedule-result', ok: !!(out.ok && out.j.ok), id: out.j.id, scheduled_at: out.j.scheduled_at, error: out.j.error }, KS);
+        })
+        .catch(function () {
+          ev.source.postMessage({ type: 'ks-studio-schedule-result', ok: false, error: 'portal could not reach the scheduler' }, KS);
+        });
+      return;
+    }
     if (d.type !== 'ks-studio-publish') return;
     var target = d.target === 'linkedin' ? 'linkedin' : 'facebook';
     fetch('/admin/social/publish', {
@@ -450,6 +472,88 @@ async function publishLinkedinLocal(payload) {
     const urn = post.headers.get('x-restli-id') || post.headers.get('x-linkedin-id') || '';
     return { status: 200, body: { ok: true, id: urn, note: `Posted to LinkedIn as ${li.member_name}${payload.kind === 'video' ? ' (text-only — video posting coming later)' : ''}` } };
 }
+
+// One door for both the interactive publish route and the scheduler: local
+// tokens when direct mode has them, the kaushalstack proxy otherwise.
+async function publishTarget(target, payload) {
+    if ((target === 'facebook' && LOCAL_FB) || (target === 'linkedin' && LOCAL_LI)) {
+        return target === 'facebook' ? publishFacebookLocal(payload) : publishLinkedinLocal(payload);
+    }
+    const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${target}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KS_API_TOKEN}` },
+        body: JSON.stringify({
+            kind: payload.kind, image: payload.image, videoUrl: payload.videoUrl,
+            caption: payload.caption, page_id: payload.page_id,
+        }),
+    });
+    const data = await r.json().catch(() => ({}));
+    return { status: r.status, body: data };
+}
+
+// ── Scheduled posts (Studio "Schedule post" hand-off) ───────────────────────
+// JSON-file queue + staged images in DATA_DIR so a post survives portal
+// restarts between staging and firing. A 60s tick fires due posts through
+// publishTarget — identical publish logic to "post now".
+const SCHEDULE_FILE = path.join(DATA_DIR, 'schedule.json');
+const SCHEDULED_DIR = path.join(DATA_DIR, 'scheduled');
+const SCHEDULE_TARGETS = new Set(['facebook', 'linkedin']);
+const KS_IMAGE_URL_RE = new RegExp(`^${KS_ORIGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/api/build/[a-f0-9]{16}/preview/assets/[\\w.-]+\\.(?:png|jpe?g)$`);
+
+function readSchedule() {
+    try { return JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8')); } catch { return []; }
+}
+function writeSchedule(list) {
+    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(list));
+}
+
+async function fireScheduledPost(post) {
+    // Claim first so an overlapping tick can never double-post the same row.
+    const list = readSchedule();
+    const row = list.find(p => p.id === post.id);
+    if (!row || row.status !== 'pending') return;
+    row.status = 'posting';
+    writeSchedule(list);
+
+    let image = '';
+    try {
+        const buf = fs.readFileSync(path.join(SCHEDULED_DIR, row.image_file));
+        image = `data:${row.image_file.endsWith('.png') ? 'image/png' : 'image/jpeg'};base64,${buf.toString('base64')}`;
+    } catch { /* per-target error below */ }
+
+    const results = {};
+    for (const target of row.targets) {
+        try {
+            if (!image) throw new Error('staged image is missing');
+            const out = await publishTarget(target, { kind: 'image', image, caption: row.caption });
+            results[target] = out.status === 200 && out.body.ok
+                ? { ok: true, id: out.body.id || '', note: out.body.note || '' }
+                : { ok: false, error: out.body.error || `publish returned ${out.status}` };
+        } catch (err) {
+            results[target] = { ok: false, error: String(err.message || err) };
+        }
+    }
+
+    const after = readSchedule();
+    const done = after.find(p => p.id === row.id);
+    if (done) {
+        done.status = Object.values(results).some(r => r.ok) ? 'posted' : 'failed';
+        done.results = results;
+        done.fired_at = new Date().toISOString();
+        writeSchedule(after);
+    }
+    console.log(`scheduled post ${row.id}:`, JSON.stringify(results));
+}
+
+async function runScheduledPosts() {
+    const now = new Date().toISOString();
+    const due = readSchedule().filter(p => p.status === 'pending' && p.scheduled_at <= now).slice(0, 10);
+    for (const post of due) {
+        await fireScheduledPost(post).catch(e => console.error(`scheduled post ${post.id} crashed:`, e.message));
+    }
+}
+setInterval(() => { runScheduledPosts().catch(e => console.error('schedule tick error:', e.message)); }, 60 * 1000);
+runScheduledPosts().catch(e => console.error('schedule boot catch-up error:', e.message));
 
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -664,34 +768,68 @@ const server = http.createServer(async (req, res) => {
             res.end('{"error":"bad publish payload"}');
             return;
         }
-        if ((target === 'facebook' && LOCAL_FB) || (target === 'linkedin' && LOCAL_LI)) {
-            try {
-                const out = target === 'facebook' ? await publishFacebookLocal(payload) : await publishLinkedinLocal(payload);
-                res.writeHead(out.status, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(out.body));
-            } catch (err) {
-                console.error(`social publish ${target} failed:`, err.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end('{"error":"publish failed — try again"}');
-            }
-            return;
-        }
         try {
-            const r = await fetch(`${KS_ORIGIN}/api/partner/${PARTNER_ID}/social/${target}/publish`, {
-                method: 'POST', headers: ksHeaders,
-                body: JSON.stringify({
-                    kind: payload.kind, image: payload.image, videoUrl: payload.videoUrl,
-                    caption: payload.caption, page_id: payload.page_id,
-                }),
-            });
-            const data = await r.json().catch(() => ({}));
-            res.writeHead(r.status, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(data));
-        } catch {
+            const out = await publishTarget(target, payload);
+            res.writeHead(out.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(out.body));
+        } catch (err) {
+            console.error(`social publish ${target} failed:`, err.message);
             res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end('{"error":"kaushalstack unreachable"}');
+            res.end('{"error":"publish failed — try again"}');
         }
         return;
+    }
+
+    // ── Scheduling (backs the Studio iframe's "Schedule post" hand-off) ──────
+    if (url.pathname === '/admin/social/schedule/dates') {
+        const dates = [...new Set(readSchedule().filter(p => p.status === 'pending').map(p => String(p.scheduled_at).slice(0, 10)))];
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ dates }));
+        return;
+    }
+
+    if (url.pathname === '/admin/social/schedule' && req.method === 'POST') {
+        const json = (status, obj) => {
+            res.writeHead(status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(obj));
+        };
+        let p;
+        try { p = JSON.parse(await readBody(req, 64 * 1024)); } catch { p = null; }
+        if (!p) return json(400, { error: 'bad schedule payload' });
+        const wanted = Array.isArray(p.targets) ? p.targets : [];
+        if (wanted.includes('instagram')) return json(400, { error: 'Instagram scheduling is not supported on this portal yet — pick Facebook or LinkedIn.' });
+        const targets = wanted.filter(t => SCHEDULE_TARGETS.has(t));
+        if (!targets.length) return json(400, { error: 'Pick at least one platform.' });
+        if (!KS_IMAGE_URL_RE.test(String(p.imageUrl || ''))) return json(400, { error: 'Missing or bad image URL.' });
+        const when = new Date(p.scheduledAt);
+        if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() + 30000) {
+            return json(400, { error: 'Pick a time at least a minute in the future.' });
+        }
+        const id = crypto.randomUUID();
+        let imageFile;
+        try {
+            const imgRes = await fetch(p.imageUrl);
+            if (!imgRes.ok) throw new Error(`could not fetch the composed image (${imgRes.status})`);
+            const buf = Buffer.from(await imgRes.arrayBuffer());
+            fs.mkdirSync(SCHEDULED_DIR, { recursive: true });
+            imageFile = `${id}.${/\.png$/i.test(p.imageUrl) ? 'png' : 'jpg'}`;
+            fs.writeFileSync(path.join(SCHEDULED_DIR, imageFile), buf);
+        } catch (err) {
+            return json(502, { error: `Could not stage the image: ${err.message}` });
+        }
+        const list = readSchedule();
+        list.push({
+            id,
+            session_id: /^[a-f0-9]{16}$/.test(String(p.sessionId || '')) ? p.sessionId : '',
+            caption: String(p.caption || '').slice(0, 3000),
+            targets,
+            image_file: imageFile,
+            scheduled_at: when.toISOString(),
+            status: 'pending',
+            created: new Date().toISOString(),
+        });
+        writeSchedule(list);
+        return json(200, { ok: true, id, scheduled_at: when.toISOString() });
     }
 
     if (url.pathname.startsWith('/admin/social/disconnect/') && req.method === 'POST') {
