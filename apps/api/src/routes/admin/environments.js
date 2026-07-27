@@ -8,6 +8,8 @@ import { requireAdmin } from './auth.js';
 import { ensurePartnerCollections } from '../../partner/collections.js';
 import {
     provisionEnvironment, removeEnvironment, resetEnvironmentPassword, getEnvironment, SLUG_RE,
+    setEnvironmentDomain, normalizeDomain, checkDomainDns, defaultPortalHost,
+    PORTAL_PUBLIC_IP, PORTAL_DOMAIN_SUFFIX,
 } from '../../partner/environment.js';
 import { dockerAvailable } from '../../utils/dockerEngine.js';
 
@@ -19,6 +21,8 @@ function toRow(e) {
         partner_id: e.partner_id,
         slug: e.slug,
         url: e.url,
+        custom_domain: e.custom_domain || '',
+        default_host: e.slug ? defaultPortalHost(e.slug) : '',
         status: e.status,
         portal_name: e.portal_name || '',
         admin_user: e.admin_user || '',
@@ -37,7 +41,12 @@ router.get('/admin/environments', requireAdmin, async (req, res) => {
                 sort: '-created',
             });
         } catch { /* collection may not exist yet */ }
-        res.json({ items: items.map(toRow), docker_available: await dockerAvailable() });
+        res.json({
+            items: items.map(toRow),
+            docker_available: await dockerAvailable(),
+            portal_public_ip: PORTAL_PUBLIC_IP,
+            portal_domain_suffix: PORTAL_DOMAIN_SUFFIX,
+        });
     } catch (err) {
         logger.error('admin environments list failed:', err.message);
         res.status(500).json({ error: err.message });
@@ -50,6 +59,7 @@ router.post('/admin/partners/:id/environment', requireAdmin, async (req, res) =>
     const adminUser = String(req.body?.admin_user || '').trim().slice(0, 60);
     const adminPass = String(req.body?.admin_pass || '');
     const sessionId = String(req.body?.session_id || '').trim();
+    const customDomain = normalizeDomain(req.body?.custom_domain);
     if (sessionId && !/^[a-f0-9]{16}$/.test(sessionId)) {
         return res.status(400).json({ error: 'session_id must be a 16-character build session id' });
     }
@@ -61,11 +71,44 @@ router.post('/admin/partners/:id/environment', requireAdmin, async (req, res) =>
         if (!partner) return res.status(404).json({ error: 'partner not found' });
 
         const env = await provisionEnvironment({
-            partner, slug, portalName, adminUser, adminPass, sessionId,
+            partner, slug, portalName, adminUser, adminPass, sessionId, customDomain,
             addedBy: req.adminUserId,
         });
-        res.json({ item: toRow(env) });
+        res.json({
+            item: toRow(env),
+            dns: customDomain ? await checkDomainDns(customDomain) : null,
+            expected_ip: PORTAL_PUBLIC_IP,
+        });
     } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// Check where a domain currently points before committing to it. Advisory —
+// the UI warns, it doesn't block, because DNS may simply not have propagated.
+router.get('/admin/environments/dns-check', requireAdmin, async (req, res) => {
+    const domain = normalizeDomain(req.query.domain);
+    if (!domain) return res.status(400).json({ error: 'domain is required' });
+    const dns = await checkDomainDns(domain);
+    res.json({ domain, expected_ip: PORTAL_PUBLIC_IP, ...dns });
+});
+
+// Point a portal at a domain the partner procured, or clear it (send an empty
+// string) to fall back to the issued subdomain.
+router.post('/admin/partners/:id/environment/domain', requireAdmin, async (req, res) => {
+    const raw = String(req.body?.custom_domain ?? '');
+    try {
+        const env = await getEnvironment(req.params.id);
+        if (!env) return res.status(404).json({ error: 'no environment for this partner' });
+        const updated = await setEnvironmentDomain(env, raw);
+        const domain = updated.custom_domain;
+        res.json({
+            item: toRow(updated),
+            dns: domain ? await checkDomainDns(domain) : null,
+            expected_ip: PORTAL_PUBLIC_IP,
+        });
+    } catch (err) {
+        logger.error('admin environment domain update failed:', err.message);
         res.status(err.status || 500).json({ error: err.message });
     }
 });

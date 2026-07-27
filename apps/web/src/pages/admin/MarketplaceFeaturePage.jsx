@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { ArrowLeft, IndianRupee, Plus, Sparkles, Server, ExternalLink, Trash2, RefreshCw, KeyRound } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Plus, Sparkles, Server, ExternalLink, Trash2, RefreshCw, KeyRound, Globe } from 'lucide-react';
 import { FEATURES, StatusPill, SubStatusPill, fmtDate } from './MarketplacePage.jsx';
 
 function slugify(name) {
@@ -61,7 +61,7 @@ function ResetPasswordDialog({ env, onClose }) {
                 </DialogHeader>
                 {done ? (
                     <div className="space-y-3">
-                        <p className="text-sm">New credentials for <span className="font-mono">{env.slug}.srv1562298.hstgr.cloud</span>:</p>
+                        <p className="text-sm">New credentials for <span className="font-mono">{env.custom_domain || env.default_host || env.slug}</span>:</p>
                         <div className="rounded-lg border bg-background p-3 text-sm space-y-1">
                             <div><span className="text-muted-foreground">Username:</span> <span className="font-mono">{env.admin_user || 'admin'}</span></div>
                             <div><span className="text-muted-foreground">Password:</span> <span className="font-mono">{pass}</span></div>
@@ -105,10 +105,145 @@ function ResetPasswordDialog({ env, onClose }) {
     );
 }
 
+// Point a partner's portal at a domain they procured themselves. Traefik keeps
+// routing the issued subdomain too, so this is safe to set before DNS has
+// finished propagating — the portal never goes dark.
+function DomainDialog({ env, expectedIp, onClose, onSaved }) {
+    const [domain, setDomain] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [dns, setDns] = useState(null);
+    const [checking, setChecking] = useState(false);
+
+    useEffect(() => {
+        if (env) { setDomain(env.custom_domain || ''); setDns(null); }
+    }, [env]);
+
+    if (!env) return null;
+
+    const clean = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '');
+    const changed = clean !== (env.custom_domain || '');
+
+    async function onCheck() {
+        if (!clean) return;
+        setChecking(true);
+        try {
+            setDns(await adminApi.checkEnvironmentDns(clean));
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setChecking(false);
+        }
+    }
+
+    async function onSave() {
+        setBusy(true);
+        try {
+            const r = await adminApi.setEnvironmentDomain(env.partner_id, clean);
+            onSaved(r.item);
+            toast.success(clean ? `Portal now answers on ${clean}` : 'Custom domain cleared');
+            onClose();
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Dialog open={!!env} onOpenChange={open => { if (!open && !busy) onClose(); }}>
+            <DialogContent className="bg-card border text-foreground">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-primary" /> Custom domain — {env.portal_name || env.slug}
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-3">
+                    <div>
+                        <Label htmlFor="env-domain">Domain the partner owns</Label>
+                        <div className="flex items-center gap-1">
+                            <Input
+                                id="env-domain"
+                                value={domain}
+                                onChange={e => { setDomain(e.target.value); setDns(null); }}
+                                placeholder="royalinterior.in"
+                                className="bg-background border font-mono text-sm"
+                                autoFocus
+                            />
+                            <Button type="button" size="sm" variant="ghost" onClick={onCheck} disabled={!clean || checking}>
+                                {checking ? '…' : 'Check DNS'}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Leave blank to go back to the issued subdomain.
+                        </p>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1.5">
+                        <p className="font-medium">Before this works, the domain's DNS must point here</p>
+                        <p className="text-muted-foreground">
+                            Add an <span className="font-mono">A</span> record
+                            {expectedIp
+                                ? <> for <span className="font-mono">@</span> (and <span className="font-mono">www</span>) pointing at <span className="font-mono select-all">{expectedIp}</span></>
+                                : <> for <span className="font-mono">@</span> pointing at this server's public IP</>}.
+                            The HTTPS certificate is issued automatically on the first request once DNS resolves.
+                        </p>
+                        <p className="text-muted-foreground">
+                            <span className="font-mono">{env.default_host || `${env.slug}`}</span> keeps working either way,
+                            so the portal stays reachable while DNS propagates.
+                        </p>
+                    </div>
+
+                    {dns && (
+                        <div className={`rounded-lg border p-3 text-xs ${
+                            dns.points_here === true
+                                ? 'border-green-500/40 bg-green-500/5'
+                                : 'border-amber-500/40 bg-amber-500/5'
+                        }`}>
+                            {dns.points_here === true && <p className="text-green-700 dark:text-green-400">DNS is pointing here — good to save.</p>}
+                            {dns.points_here === false && dns.resolved?.length > 0 && (
+                                <p className="text-amber-700 dark:text-amber-400">
+                                    Resolves to <span className="font-mono">{dns.resolved.join(', ')}</span>
+                                    {expectedIp && <> — expected <span className="font-mono">{expectedIp}</span></>}.
+                                    You can still save; the certificate will be issued once DNS is corrected.
+                                </p>
+                            )}
+                            {dns.resolved?.length === 0 && (
+                                <p className="text-amber-700 dark:text-amber-400">
+                                    Not resolving yet ({dns.error || 'no A record'}). Saving is safe — the portal keeps
+                                    answering on its subdomain until DNS is live.
+                                </p>
+                            )}
+                            {dns.points_here === null && dns.resolved?.length > 0 && (
+                                <p className="text-muted-foreground">
+                                    Resolves to <span className="font-mono">{dns.resolved.join(', ')}</span>. Set
+                                    <span className="font-mono"> PORTAL_PUBLIC_IP</span> on the api to verify automatically.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    <p className="text-xs text-muted-foreground">
+                        Saving restarts the portal container to update its routing — a few seconds of downtime.
+                        Studio config, sessions and credentials are preserved.
+                    </p>
+                </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+                    <Button type="button" onClick={onSave} disabled={busy || !changed}>
+                        {busy ? 'Applying…' : (clean ? 'Point domain here' : 'Clear domain')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 // Environment creation popup — collects everything needed to provision the
 // partner's studio portal container on the VPS.
-function EnvironmentDialog({ partner, onClose, onCreated }) {
-    const [form, setForm] = useState({ slug: '', portal_name: '', admin_user: 'admin', admin_pass: '', session_id: '' });
+function EnvironmentDialog({ partner, domainSuffix, onClose, onCreated }) {
+    const [form, setForm] = useState({ slug: '', portal_name: '', admin_user: 'admin', admin_pass: '', session_id: '', custom_domain: '' });
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState(null);
 
@@ -205,7 +340,7 @@ function EnvironmentDialog({ partner, onClose, onCreated }) {
                                     className="bg-background border font-mono text-sm"
                                     required
                                 />
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">.srv1562298.hstgr.cloud</span>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">.{domainSuffix}</span>
                             </div>
                         </div>
                         <div>
@@ -246,6 +381,22 @@ function EnvironmentDialog({ partner, onClose, onCreated }) {
                             </div>
                         </div>
                         <div>
+                            <Label htmlFor="env-domain-new">
+                                Custom domain <span className="text-muted-foreground font-normal">(optional — if the partner already owns one)</span>
+                            </Label>
+                            <Input
+                                id="env-domain-new"
+                                value={form.custom_domain}
+                                onChange={e => setForm({ ...form, custom_domain: e.target.value })}
+                                placeholder="royalinterior.in"
+                                className="bg-background border font-mono text-sm"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Its DNS must point an A record at this server. The subdomain above keeps working
+                                either way, and you can add or change this later.
+                            </p>
+                        </div>
+                        <div>
                             <Label htmlFor="env-session">Design session id <span className="text-muted-foreground font-normal">(optional)</span></Label>
                             <Input
                                 id="env-session"
@@ -283,6 +434,8 @@ export default function MarketplaceFeaturePage() {
     const [environments, setEnvironments] = useState([]);
     const [envFor, setEnvFor] = useState(null);
     const [resetFor, setResetFor] = useState(null);
+    const [domainFor, setDomainFor] = useState(null);
+    const [portalMeta, setPortalMeta] = useState({ ip: '', suffix: 'srv1562298.hstgr.cloud' });
 
     const isStudio = featureId === 'studio';
 
@@ -298,7 +451,13 @@ export default function MarketplaceFeaturePage() {
             .finally(() => setLoading(false));
         if (featureId === 'studio') {
             adminApi.listEnvironments()
-                .then(r => setEnvironments(r.items || []))
+                .then(r => {
+                    setEnvironments(r.items || []);
+                    setPortalMeta({
+                        ip: r.portal_public_ip || '',
+                        suffix: r.portal_domain_suffix || 'srv1562298.hstgr.cloud',
+                    });
+                })
                 .catch(() => {});
         }
     }, [featureId]);
@@ -512,9 +671,19 @@ export default function MarketplaceFeaturePage() {
                                                 <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
                                                     <Server className="w-3 h-3" />
                                                     <a href={envByPartner[sub.partner_id].url} target="_blank" rel="noreferrer" className="hover:underline">
-                                                        {envByPartner[sub.partner_id].slug}.srv1562298.hstgr.cloud
+                                                        {envByPartner[sub.partner_id].custom_domain || envByPartner[sub.partner_id].default_host}
                                                     </a>
                                                     <ExternalLink className="w-2.5 h-2.5" />
+                                                    <button
+                                                        type="button"
+                                                        title={envByPartner[sub.partner_id].custom_domain
+                                                            ? `Custom domain: ${envByPartner[sub.partner_id].custom_domain} — click to change`
+                                                            : 'Point a domain the partner owns at this portal'}
+                                                        onClick={() => setDomainFor(envByPartner[sub.partner_id])}
+                                                        className="ml-0.5 text-muted-foreground hover:text-primary"
+                                                    >
+                                                        <Globe className="w-3 h-3" />
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         title="Reset portal password"
@@ -575,12 +744,20 @@ export default function MarketplaceFeaturePage() {
             )}
 
             <EnvironmentDialog
+                domainSuffix={portalMeta.suffix}
                 partner={envFor}
                 onClose={() => setEnvFor(null)}
                 onCreated={env => setEnvironments(prev => [env, ...prev.filter(e => e.id !== env.id)])}
             />
 
             <ResetPasswordDialog env={resetFor} onClose={() => setResetFor(null)} />
+
+            <DomainDialog
+                env={domainFor}
+                expectedIp={portalMeta.ip}
+                onClose={() => setDomainFor(null)}
+                onSaved={(item) => setEnvironments(prev => prev.map(e => (e.id === item.id ? item : e)))}
+            />
         </>
     );
 }

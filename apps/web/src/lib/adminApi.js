@@ -127,6 +127,16 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    setEnvironmentDomain(partnerId, customDomain) {
+        return fetch(`${API_BASE}/admin/partners/${partnerId}/environment/domain`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ custom_domain: customDomain }),
+        }).then(handle);
+    },
+    checkEnvironmentDns(domain) {
+        return fetch(`${API_BASE}/admin/environments/dns-check?domain=${encodeURIComponent(domain)}`, {
+            headers: headers(),
+        }).then(handle);
+    },
     resetEnvironmentPassword(partnerId, adminPass) {
         return fetch(`${API_BASE}/admin/partners/${partnerId}/environment/reset-password`, {
             method: 'POST', headers: headers(), body: JSON.stringify({ admin_pass: adminPass }),

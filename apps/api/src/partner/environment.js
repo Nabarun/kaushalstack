@@ -12,17 +12,55 @@ import { dockerAvailable, dockerRequest } from '../utils/dockerEngine.js';
 import { hashApiToken, API_TOKEN_PREFIX } from '../utils/auth.js';
 import { TARA_SKILL_ID } from '../builder/creative-registry.js';
 import { ensurePartnerCollections } from './collections.js';
+import {
+    PORTAL_DOMAIN_SUFFIX, DOMAIN_RE, defaultPortalHost, portalUrl,
+    normalizeDomain, assertUsableDomain, traefikHostRule,
+} from './domain.js';
+
+// Re-exported so existing importers keep working unchanged.
+export {
+    PORTAL_DOMAIN_SUFFIX, DOMAIN_RE, defaultPortalHost, portalUrl,
+    normalizeDomain, assertUsableDomain, traefikHostRule,
+};
 
 const PORTAL_IMAGE = process.env.PORTAL_IMAGE || 'nabarun1/studio-portal:latest';
-const PORTAL_DOMAIN_SUFFIX = process.env.PORTAL_DOMAIN_SUFFIX || 'srv1562298.hstgr.cloud';
 const KS_ORIGIN = process.env.PORTAL_KS_ORIGIN || 'https://kaushalstack.com';
 
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
 
+// The A record a partner must point their domain at. Left blank rather than
+// hardcoded so a different VPS doesn't silently hand out the wrong IP; the
+// admin dialog degrades to generic guidance when it isn't set.
+export const PORTAL_PUBLIC_IP = process.env.PORTAL_PUBLIC_IP || '';
+
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 
-export function portalUrl(slug) {
-    return `https://${slug}.${PORTAL_DOMAIN_SUFFIX}`;
+export async function domainTaken(domain, exceptId) {
+    try {
+        const r = await pb.collection('partner_environments').getList(1, 1, {
+            filter: `custom_domain = "${esc(domain)}" && status != "removed"`,
+        });
+        const hit = r.items[0];
+        return !!hit && hit.id !== exceptId;
+    } catch {
+        return false;
+    }
+}
+
+// Advisory DNS check — never blocks. Setting a domain before the A record
+// exists is the common mistake, and it fails confusingly later (Traefik can't
+// complete the ACME challenge), so surface it at the point of decision.
+export async function checkDomainDns(domain) {
+    try {
+        const { promises: dns } = await import('node:dns');
+        const ips = await dns.resolve4(domain);
+        return {
+            resolved: ips,
+            points_here: PORTAL_PUBLIC_IP ? ips.includes(PORTAL_PUBLIC_IP) : null,
+        };
+    } catch (err) {
+        return { resolved: [], points_here: false, error: err.code || String(err.message || err) };
+    }
 }
 
 // Origins of running environments — studio/sitebuilder frame-ancestors pull
@@ -35,9 +73,17 @@ export async function environmentOrigins() {
         await ensurePartnerCollections();
         const envs = await pb.collection('partner_environments').getFullList({
             filter: 'status = "running"',
-            fields: 'url',
+            fields: 'url,slug,custom_domain',
         });
-        originsCache = { at: Date.now(), list: envs.map(e => e.url).filter(Boolean) };
+        // Both hosts route to a portal, so both must be allowed to embed
+        // Studio — otherwise a partner on a custom domain gets a blank frame
+        // on whichever host isn't listed.
+        const list = [];
+        for (const e of envs) {
+            if (e.url) list.push(e.url);
+            if (e.slug) list.push(`https://${defaultPortalHost(e.slug)}`);
+        }
+        originsCache = { at: Date.now(), list: Array.from(new Set(list)) };
     } catch {
         originsCache = { at: Date.now(), list: originsCache.list };
     }
@@ -80,8 +126,14 @@ export async function slugTaken(slug) {
     }
 }
 
-export async function provisionEnvironment({ partner, slug, portalName, adminUser, adminPass, sessionId, addedBy }) {
+export async function provisionEnvironment({ partner, slug, portalName, adminUser, adminPass, sessionId, addedBy, customDomain }) {
     if (!SLUG_RE.test(slug)) throw Object.assign(new Error('slug must be 3-30 chars: a-z, 0-9, hyphens'), { status: 400 });
+    if (customDomain) {
+        assertUsableDomain(customDomain);
+        if (await domainTaken(customDomain)) {
+            throw Object.assign(new Error(`${customDomain} is already routed to another portal`), { status: 409 });
+        }
+    }
     if (!adminUser || !adminPass) throw Object.assign(new Error('admin username and password are required'), { status: 400 });
     if (adminPass.length < 8) throw Object.assign(new Error('password must be at least 8 characters'), { status: 400 });
     if (!(await dockerAvailable())) {
@@ -133,7 +185,8 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
     const record = await pb.collection('partner_environments').create({
         partner_id: partner.id,
         slug,
-        url: portalUrl(slug),
+        url: portalUrl(slug, customDomain),
+        custom_domain: customDomain || '',
         status: 'provisioning',
         portal_name: portalName || partner.name,
         admin_user: adminUser,
@@ -175,7 +228,7 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
             ],
             Labels: {
                 'traefik.enable': 'true',
-                [`traefik.http.routers.${router}.rule`]: `Host(\`${slug}.${PORTAL_DOMAIN_SUFFIX}\`)`,
+                [`traefik.http.routers.${router}.rule`]: traefikHostRule(slug, customDomain),
                 [`traefik.http.routers.${router}.entrypoints`]: 'websecure',
                 [`traefik.http.routers.${router}.tls.certresolver`]: 'letsencrypt',
                 [`traefik.http.services.${router}.loadbalancer.server.port`]: '8080',
@@ -196,7 +249,7 @@ export async function provisionEnvironment({ partner, slug, portalName, adminUse
             container_id: create.Id.slice(0, 12),
         });
         invalidateOriginsCache();
-        logger.info(`environment: provisioned ${containerName} for partner ${partner.name} at ${portalUrl(slug)}`);
+        logger.info(`environment: provisioned ${containerName} for partner ${partner.name} at ${portalUrl(slug, customDomain)}`);
         return updated;
     } catch (err) {
         await pb.collection('partner_environments').update(record.id, {
@@ -237,6 +290,57 @@ export async function resetEnvironmentPassword(record, newPass) {
         status: 'running',
     });
     logger.info(`environment: password reset for ${name}`);
+    return updated;
+}
+
+// Point a portal at a domain the partner procured (or clear it, falling back
+// to the issued subdomain). Traefik routes from container labels, so the
+// container is recreated with a new Host rule — same image, env, volume and
+// credentials, so the studio config and sessions survive. Traefik requests the
+// Let's Encrypt cert for the new host on first request, which is why DNS has
+// to be pointed here first.
+export async function setEnvironmentDomain(record, rawDomain) {
+    const domain = normalizeDomain(rawDomain);
+    if (domain) {
+        assertUsableDomain(domain);
+        if (await domainTaken(domain, record.id)) {
+            throw Object.assign(new Error(`${domain} is already routed to another portal`), { status: 409 });
+        }
+    }
+    if (!(await dockerAvailable())) {
+        throw Object.assign(new Error('docker socket not available to the api — mount /var/run/docker.sock'), { status: 503 });
+    }
+
+    const name = `portal-${record.slug}`;
+    const inspect = await dockerRequest('GET', `/containers/${name}/json`);
+    const routerName = `portal-${record.slug}`;
+    const labels = {
+        ...(inspect.Config.Labels || {}),
+        [`traefik.http.routers.${routerName}.rule`]: traefikHostRule(record.slug, domain),
+    };
+
+    await dockerRequest('DELETE', `/containers/${name}?force=true`);
+    const create = await dockerRequest('POST', `/containers/create?name=${name}`, {
+        Image: inspect.Config.Image,
+        Env: inspect.Config.Env || [],
+        Labels: labels,
+        ExposedPorts: { '8080/tcp': {} },
+        HostConfig: {
+            Binds: inspect.HostConfig?.Binds || [],
+            RestartPolicy: { Name: 'unless-stopped' },
+        },
+    });
+    await dockerRequest('POST', `/containers/${create.Id}/start`);
+
+    const updated = await pb.collection('partner_environments').update(record.id, {
+        custom_domain: domain,
+        url: portalUrl(record.slug, domain),
+        container_id: create.Id.slice(0, 12),
+        status: 'running',
+        error: '',
+    });
+    invalidateOriginsCache();
+    logger.info(`environment: ${name} now routes ${traefikHostRule(record.slug, domain)}`);
     return updated;
 }
 

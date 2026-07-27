@@ -84,6 +84,11 @@ const COLLECTIONS = [
             { type: 'text',   name: 'partner_id', required: true },
             { type: 'text',   name: 'slug',       required: true, max: 40 },
             { type: 'text',   name: 'url',        max: 300 },
+            // A domain the partner procured themselves (e.g. royalinterior.in).
+            // When set it becomes the portal's canonical url; the default
+            // <slug>.<suffix> host keeps routing too, so the portal stays
+            // reachable while DNS propagates or if the custom domain lapses.
+            { type: 'text',   name: 'custom_domain', max: 253 },
             { type: 'select', name: 'status',     maxSelect: 1, values: ['provisioning', 'running', 'failed', 'removed'] },
             { type: 'text',   name: 'portal_name', max: 120 },
             { type: 'text',   name: 'admin_user',  max: 60 },
