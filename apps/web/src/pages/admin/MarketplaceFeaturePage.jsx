@@ -483,9 +483,13 @@ function LearningsDialog({ partner, onClose }) {
                     </DialogTitle>
                 </DialogHeader>
 
+                <p className="text-xs text-muted-foreground">
+                    Lessons are proposed automatically every night from this partner&apos;s round-table
+                    conversations. Nothing changes agent behavior until you approve it here.
+                </p>
                 <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={onRun} disabled={running}>
-                        {running ? 'Reading conversations…' : 'Run learning pass'}
+                    <Button size="sm" variant="outline" onClick={onRun} disabled={running}>
+                        {running ? 'Reading conversations…' : 'Run now'}
                     </Button>
                     {note && <span className="text-xs text-muted-foreground">{note}</span>}
                 </div>
@@ -494,7 +498,8 @@ function LearningsDialog({ partner, onClose }) {
                     {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
                     {!loading && items.length === 0 && (
                         <p className="text-sm text-muted-foreground py-4">
-                            No lessons yet. Run a learning pass over this partner&apos;s round-table conversations.
+                            No lessons yet. The nightly pass will propose some once this partner&apos;s team has
+                            round-table conversations — or run one now.
                         </p>
                     )}
                     {proposed.map(item => (

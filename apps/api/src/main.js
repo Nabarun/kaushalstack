@@ -11,6 +11,7 @@ import { globalRateLimit } from './middleware/global-rate-limit.js';
 import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
 import { startGrowthScheduler } from './cron/growth-scheduler.js';
+import { startSelfLearningScheduler } from './cron/self-learning-scheduler.js';
 
 const app = express();
 
@@ -66,6 +67,7 @@ const port = process.env.PORT || 3001;
 app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
 	startGrowthScheduler();
+	startSelfLearningScheduler();
 });
 
 export default app;
