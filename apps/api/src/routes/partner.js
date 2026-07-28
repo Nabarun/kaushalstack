@@ -520,6 +520,33 @@ router.post('/partner/:id/learn-from-docs', async (req, res) => {
     }
 });
 
+// Direct note creation — used by portals whose own distillers (e.g. an
+// activity-learning pass over portal-local data) propose notes, and for
+// one-time migration of pre-existing notes. status defaults to proposed;
+// accepted is allowed so migrations don't force a re-approval of things
+// the owner already approved.
+router.post('/partner/:id/field-notes', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    const agent = String(req.body?.agent || '').trim().slice(0, 120);
+    const note = String(req.body?.note || '').trim().slice(0, 300);
+    if (!agent || !note) return res.status(400).json({ error: 'agent and note are required' });
+    const status = req.body?.status === 'accepted' ? 'accepted' : 'proposed';
+    try {
+        const rec = await pb.collection('partner_field_notes').create({
+            partner_id: req.params.id, agent, note,
+            why: String(req.body?.why || '').trim().slice(0, 300),
+            source: String(req.body?.source || 'portal').trim().slice(0, 200),
+            status,
+            decided: status === 'accepted' ? new Date().toISOString() : '',
+        });
+        res.json({ ok: true, note: rec });
+    } catch (err) {
+        logger.error(`field-note create failed: ${err.message}`);
+        res.status(500).json({ error: 'could not create note' });
+    }
+});
+
 router.get('/partner/:id/field-notes', async (req, res) => {
     const ctx = await requireMember(req, res);
     if (!ctx) return;
