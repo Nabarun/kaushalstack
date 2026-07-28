@@ -19,6 +19,7 @@ import pb from '../utils/pocketbaseClient.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { ensurePartnerCollections } from '../partner/collections.js';
 import { recordUsage, computeCostUSD } from '../partner/usage.js';
+import { extractDocText } from '../partner/doctext.js';
 import { chatComplete } from '../providers/index.js';
 import { ensureCache, search, cacheSize } from '../embeddings/cache.js';
 
@@ -434,6 +435,120 @@ router.post('/partner/:id/usage', async (req, res) => {
         },
     });
     res.json({ ok: true, cost_usd: Number(cost.toFixed(6)) });
+});
+
+// ── Doc-learning: distill owner-approvable field notes from documents ──────
+// The partner's agent roster (partners.team) tells the distiller who can
+// learn what. Proposals land as status=proposed; nothing reaches an agent
+// until the owner accepts it. Docs come as direct uploads (name+b64) and/or
+// stored partner_assets ids (kind=doc); asset files are fetched from
+// PocketBase and marked ingested on success.
+router.post('/partner/:id/learn-from-docs', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'learning not configured' });
+    const partnerId = req.params.id;
+    const meter = { user_id: ctx.userId, partner_id: partnerId, agent: 'Doc Learning', context: 'doc-learning' };
+    try {
+        const partner = await pb.collection('partners').getOne(partnerId);
+        const roster = (Array.isArray(partner.team) ? partner.team : [])
+            .map((t) => ({ name: String(t.agent_name || t.name || '').trim(), role: String(t.role || t.category || '').trim() }))
+            .filter((t) => t.name);
+        if (!roster.length) return res.status(400).json({ error: 'this partner has no agent team yet — set partners.team first' });
+
+        const docs = [];
+        for (const f of (Array.isArray(req.body?.files) ? req.body.files : []).slice(0, 8)) {
+            try { docs.push(extractDocText(f?.name, Buffer.from(String(f?.b64 || ''), 'base64'))); }
+            catch (e) { return res.status(400).json({ error: `"${String(f?.name || '?').slice(0, 60)}": ${e.message}` }); }
+        }
+        const assetIds = (Array.isArray(req.body?.asset_ids) ? req.body.asset_ids : []).slice(0, 8);
+        const ingested = [];
+        for (const aid of assetIds) {
+            try {
+                const asset = await pb.collection('partner_assets').getOne(String(aid));
+                if (asset.partner_id !== partnerId || asset.kind !== 'doc' || !asset.file) continue;
+                const url = pb.files.getURL(asset, asset.file);
+                const bytes = Buffer.from(await (await fetch(url)).arrayBuffer());
+                docs.push(extractDocText(asset.file, bytes));
+                ingested.push(asset.id);
+            } catch (e) {
+                logger.warn(`doc-learning: asset ${aid} skipped: ${e.message}`);
+                try { await pb.collection('partner_assets').update(String(aid), { status: 'failed' }); } catch { /* best effort */ }
+            }
+        }
+        if (!docs.length) return res.status(400).json({ error: 'provide files (name+b64) and/or doc asset_ids' });
+
+        const rosterLine = roster.map((r) => `${r.name}${r.role ? ` (${r.role})` : ''}`).join(', ');
+        const material = docs.map((d) => `=== DOCUMENT: ${d.name} ===\n${d.text}`).join('\n\n').slice(0, 30000);
+        const raw = await chatComplete('openai', {
+            key: OPENAI_API_KEY,
+            model: RESEARCH_MODEL,
+            systemPrompt: `You maintain the private AI specialist team of the business "${partner.name}". `
+                + 'From the documents below, extract 0 to 10 DURABLE field notes the team should remember — business facts, '
+                + 'vocabulary and phrasing the owner uses, offers/pricing, audience and client context. '
+                + `Each note teaches exactly ONE agent, whichever the fact serves best: ${rosterLine}. `
+                + 'Rules: only what the documents clearly state — never infer or embellish; prefer lasting facts over one-off logistics; '
+                + 'write notes as imperatives an agent can follow. note <= 220 chars; why <= 200 chars naming the source document. '
+                + 'If nothing durable is present, return an empty list. '
+                + 'Respond with ONLY valid JSON: {"notes": [{"agent": string, "note": string, "why": string}]}',
+            userPrompt: material,
+            jsonMode: true,
+            meter,
+        });
+        let parsed; try { parsed = JSON.parse(raw.replace(/^```json?\s*|```\s*$/g, '')); } catch { parsed = {}; }
+        const names = docs.map((d) => d.name).join(', ').slice(0, 180);
+        const validAgents = new Set(roster.map((r) => r.name));
+        const proposed = [];
+        for (const n of (Array.isArray(parsed.notes) ? parsed.notes : []).slice(0, 10)) {
+            const agent = String(n.agent || '').trim();
+            const note = String(n.note || '').trim().slice(0, 300);
+            if (!validAgents.has(agent) || !note) continue;
+            const rec = await pb.collection('partner_field_notes').create({
+                partner_id: partnerId, agent, note,
+                why: String(n.why || '').trim().slice(0, 300),
+                source: `doc: ${names}`, status: 'proposed',
+            });
+            proposed.push({ id: rec.id, agent, note, why: rec.why });
+        }
+        for (const aid of ingested) {
+            try { await pb.collection('partner_assets').update(aid, { status: 'ingested' }); } catch { /* best effort */ }
+        }
+        res.json({ ok: true, notes: proposed, docs: docs.map((d) => d.name) });
+    } catch (err) {
+        logger.error(`doc-learning failed: ${err.message}`);
+        res.status(502).json({ error: 'could not distill learnings from the documents' });
+    }
+});
+
+router.get('/partner/:id/field-notes', async (req, res) => {
+    const ctx = await requireMember(req, res);
+    if (!ctx) return;
+    try {
+        const rows = await pb.collection('partner_field_notes').getFullList({
+            filter: `partner_id = "${esc(req.params.id)}"`, sort: '-created',
+        });
+        res.json({
+            proposed: rows.filter((r) => r.status === 'proposed'),
+            accepted: rows.filter((r) => r.status === 'accepted'),
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'could not list field notes' });
+    }
+});
+
+router.post('/partner/:id/field-notes/:noteId', async (req, res) => {
+    const ctx = await requireMember(req, res, ['owner', 'editor']);
+    if (!ctx) return;
+    const status = req.body?.status === 'accepted' ? 'accepted' : req.body?.status === 'discarded' ? 'discarded' : null;
+    if (!status) return res.status(400).json({ error: 'status must be accepted or discarded' });
+    try {
+        const note = await pb.collection('partner_field_notes').getOne(String(req.params.noteId));
+        if (note.partner_id !== req.params.id) return res.status(404).json({ error: 'note not found' });
+        await pb.collection('partner_field_notes').update(note.id, { status, decided: new Date().toISOString() });
+        res.json({ ok: true, status });
+    } catch (err) {
+        res.status(404).json({ error: 'note not found' });
+    }
 });
 
 router.get('/partner/:id/usage', async (req, res) => {

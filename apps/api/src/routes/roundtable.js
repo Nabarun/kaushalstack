@@ -369,6 +369,34 @@ router.post('/roundtable', async (req, res) => {
     // another user's partner.
     const partnerId = partnerIdInput ? await verifiedPartnerId(partnerIdInput, userId) : '';
 
+    // Owner-approved field notes (multi-tenant self-learning): prepend each
+    // agent's accepted notes to its persona so learning follows the partner,
+    // not the calling portal. Best-effort — a metadata read must never sink
+    // the round table itself.
+    if (partnerId) {
+        try {
+            const notes = await pb.collection('partner_field_notes').getFullList({
+                filter: `partner_id = "${partnerId.replace(/"/g, '')}" && status = "accepted"`,
+                sort: 'created',
+            });
+            if (notes.length) {
+                const byAgent = new Map();
+                for (const n of notes) {
+                    if (!byAgent.has(n.agent)) byAgent.set(n.agent, []);
+                    byAgent.get(n.agent).push(n.note);
+                }
+                for (const member of team) {
+                    const mine = byAgent.get(member.agent_name) || byAgent.get(member.name);
+                    if (!mine?.length) continue;
+                    const block = 'FIELD NOTES from the owner (follow these):\n' + mine.slice(-12).map((t) => `- ${t}`).join('\n');
+                    member.description = `${block}\n\n${member.description || ''}`;
+                }
+            }
+        } catch (err) {
+            logger.warn(`field-note injection skipped: ${err.message}`);
+        }
+    }
+
     // Hard credit cap: a partner with credit_cap_usd set gets a 402 once its
     // lifetime spend reaches the cap — enforced here at the source so client
     // portals can't leak spend past their advertised budget.

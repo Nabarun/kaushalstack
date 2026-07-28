@@ -54,6 +54,24 @@ const COLLECTIONS = [
         ],
     },
     {
+        // Owner-approved knowledge for a partner's agent team. Distilled from
+        // uploaded documents (or activity) as status=proposed; the partner
+        // owner accepts/discards each note. Accepted notes are prepended to
+        // the matching agent's persona on every round-table call carrying
+        // this partner_id — the multi-tenant "self-learning" loop.
+        name: 'partner_field_notes',
+        fields: [
+            { type: 'text',   name: 'partner_id', required: true },
+            { type: 'text',   name: 'agent',      required: true, max: 120 },
+            { type: 'text',   name: 'note',       required: true, max: 300 },
+            { type: 'text',   name: 'why',        max: 300 },
+            { type: 'text',   name: 'source',     max: 200 },
+            { type: 'select', name: 'status',     maxSelect: 1, values: ['proposed', 'accepted', 'discarded'] },
+            { type: 'text',   name: 'decided',    max: 40 },
+            { type: 'autodate', name: 'created', onCreate: true },
+        ],
+    },
+    {
         // One row per LLM call, written from the single choke point in
         // providers/index.js. partner_id/user_id/agent are best-effort
         // attribution (untagged calls land with context='untagged' so total
