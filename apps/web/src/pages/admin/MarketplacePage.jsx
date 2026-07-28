@@ -67,6 +67,17 @@ export const FEATURES = [
         href: '/build',
     },
     {
+        id: 'self-learning',
+        title: 'Self-learning agents',
+        tagline: 'Agents that learn each client, conversation by conversation',
+        description:
+            'Mines the partner\u2019s round-table transcripts for durable, client-specific lessons \u2014 preferences, corrections, constraints. You approve each lesson, and it\u2019s written into the agent\u2019s dossier so every future conversation actually uses it.',
+        icon: Bot,
+        category: 'Intelligence',
+        status: 'beta',
+        href: '/admin/marketplace/self-learning',
+    },
+    {
         id: 'podcast-embed',
         title: 'Podcast embedding',
         tagline: 'Drop a podcast into any workspace',

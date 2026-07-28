@@ -127,6 +127,31 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    // Self-learning agents
+    listLearnings(partnerId) {
+        return fetch(`${API_BASE}/admin/marketplace/self-learning/${partnerId}`, { headers: headers() }).then(handle);
+    },
+    runLearningPass(partnerId) {
+        return fetch(`${API_BASE}/admin/marketplace/self-learning/${partnerId}/run`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
+    },
+    addLearning(partnerId, agentName, lesson) {
+        return fetch(`${API_BASE}/admin/marketplace/self-learning/${partnerId}/lessons`, {
+            method: 'POST', headers: headers(), body: JSON.stringify({ agent_name: agentName, lesson }),
+        }).then(handle);
+    },
+    applyLearning(id) {
+        return fetch(`${API_BASE}/admin/marketplace/self-learning/lessons/${id}/apply`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
+    },
+    dismissLearning(id) {
+        return fetch(`${API_BASE}/admin/marketplace/self-learning/lessons/${id}/dismiss`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
+    },
+
     setEnvironmentDomain(partnerId, customDomain) {
         return fetch(`${API_BASE}/admin/partners/${partnerId}/environment/domain`, {
             method: 'POST', headers: headers(), body: JSON.stringify({ custom_domain: customDomain }),

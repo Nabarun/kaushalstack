@@ -12,6 +12,12 @@ import { requireAdmin } from './auth.js';
 const router = Router();
 
 export const MONTHLY_PRICE_INR = 1000;
+// Per-feature overrides; anything not listed costs the default. Priced here
+// (server-side) so the subscribe route, not the UI, is the authority.
+export const FEATURE_PRICES_INR = {
+    'self-learning': 2000,
+};
+export const featurePrice = (featureId) => FEATURE_PRICES_INR[featureId] || MONTHLY_PRICE_INR;
 const PERIOD_DAYS = 30;
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
@@ -56,6 +62,7 @@ router.get('/admin/marketplace/subscriptions', requireAdmin, async (req, res) =>
             items: subs.map(s => toRow(s, byId[s.partner_id])),
             partners: partners.map(p => ({ id: p.id, name: p.name, status: p.status || 'active' })),
             price_inr: MONTHLY_PRICE_INR,
+            feature_prices_inr: FEATURE_PRICES_INR,
         });
     } catch (err) {
         logger.error('admin marketplace list failed:', err.message);
@@ -96,7 +103,7 @@ router.post('/admin/marketplace/subscriptions', requireAdmin, async (req, res) =
                 partner_id: partnerId,
                 feature_id: featureId,
                 status: 'active',
-                price_inr: MONTHLY_PRICE_INR,
+                price_inr: featurePrice(featureId),
                 paid_until: addDays(now, PERIOD_DAYS),
                 last_paid_at: now.toISOString(),
                 added_by: req.adminUserId || '',

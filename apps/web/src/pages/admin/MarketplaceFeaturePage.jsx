@@ -420,6 +420,122 @@ function EnvironmentDialog({ partner, domainSuffix, onClose, onCreated }) {
     );
 }
 
+// Lessons inbox for one partner: run a learning pass, then approve or dismiss
+// what it proposed. Approving is the moment the agent actually "learns" — the
+// lesson is written into its dossier, which round-table prompts are built from.
+function LearningsDialog({ partner, onClose }) {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [running, setRunning] = useState(false);
+    const [busyId, setBusyId] = useState('');
+    const [note, setNote] = useState('');
+
+    useEffect(() => {
+        if (!partner) return;
+        setLoading(true); setNote('');
+        adminApi.listLearnings(partner.partner_id)
+            .then(r => setItems(r.items || []))
+            .catch(err => toast.error(err.message))
+            .finally(() => setLoading(false));
+    }, [partner]);
+
+    if (!partner) return null;
+
+    async function onRun() {
+        setRunning(true); setNote('');
+        try {
+            const r = await adminApi.runLearningPass(partner.partner_id);
+            if (r.items?.length) setItems(prev => [...r.items, ...prev]);
+            setNote(r.note || (r.proposed === 0
+                ? `Read ${r.chats_read || 0} conversation(s) — nothing new worth learning.`
+                : `Proposed ${r.proposed} lesson(s) from ${r.chats_read} conversation(s).`));
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setRunning(false);
+        }
+    }
+
+    async function act(item, action) {
+        setBusyId(item.id);
+        try {
+            const r = action === 'apply'
+                ? await adminApi.applyLearning(item.id)
+                : await adminApi.dismissLearning(item.id);
+            setItems(prev => prev.map(i => (i.id === item.id ? r.item : i)));
+            if (action === 'apply') toast.success(`${item.agent_name} learned it — future conversations will use this`);
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setBusyId('');
+        }
+    }
+
+    const proposed = items.filter(i => i.status === 'proposed');
+    const rest = items.filter(i => i.status !== 'proposed');
+
+    return (
+        <Dialog open={!!partner} onOpenChange={open => { if (!open) onClose(); }}>
+            <DialogContent className="bg-card border text-foreground max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" /> Lessons — {partner.partner_name}
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={onRun} disabled={running}>
+                        {running ? 'Reading conversations…' : 'Run learning pass'}
+                    </Button>
+                    {note && <span className="text-xs text-muted-foreground">{note}</span>}
+                </div>
+
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+                    {!loading && items.length === 0 && (
+                        <p className="text-sm text-muted-foreground py-4">
+                            No lessons yet. Run a learning pass over this partner&apos;s round-table conversations.
+                        </p>
+                    )}
+                    {proposed.map(item => (
+                        <div key={item.id} className="rounded-lg border p-3">
+                            <div className="text-xs font-medium mb-1">{item.agent_name}
+                                <span className="ml-2 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">proposed</span>
+                                {item.source === 'manual' && <span className="ml-1 text-[10px] text-muted-foreground">manual</span>}
+                            </div>
+                            <p className="text-sm">{item.lesson}</p>
+                            <div className="flex gap-2 mt-2">
+                                <Button size="sm" onClick={() => act(item, 'apply')} disabled={busyId === item.id}>
+                                    {busyId === item.id ? '…' : 'Approve — agent learns this'}
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => act(item, 'dismiss')} disabled={busyId === item.id}>
+                                    Dismiss
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                    {rest.map(item => (
+                        <div key={item.id} className="rounded-lg border p-3 opacity-70">
+                            <div className="text-xs font-medium mb-1">{item.agent_name}
+                                <span className={`ml-2 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                                    item.status === 'applied'
+                                        ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                                        : 'bg-muted text-muted-foreground'
+                                }`}>{item.status}</span>
+                            </div>
+                            <p className="text-sm">{item.lesson}</p>
+                        </div>
+                    ))}
+                </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 export default function MarketplaceFeaturePage() {
     const { featureId } = useParams();
     const feature = FEATURES.find(f => f.id === featureId);
@@ -438,6 +554,8 @@ export default function MarketplaceFeaturePage() {
     const [portalMeta, setPortalMeta] = useState({ ip: '', suffix: 'srv1562298.hstgr.cloud' });
 
     const isStudio = featureId === 'studio';
+    const isSelfLearning = featureId === 'self-learning';
+    const [learnFor, setLearnFor] = useState(null);
 
     useEffect(() => {
         setLoading(true);
@@ -445,7 +563,8 @@ export default function MarketplaceFeaturePage() {
             .then(r => {
                 setSubs((r.items || []).filter(s => s.feature_id === featureId));
                 setPartners(r.partners || []);
-                if (r.price_inr) setPriceInr(r.price_inr);
+                const perFeature = (r.feature_prices_inr || {})[featureId];
+                setPriceInr(perFeature || r.price_inr || 1000);
             })
             .catch(err => toast.error(`Failed to load subscriptions: ${err.message}`))
             .finally(() => setLoading(false));
@@ -705,6 +824,11 @@ export default function MarketplaceFeaturePage() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                        {isSelfLearning && !cancelled && (
+                                            <Button size="sm" variant="outline" onClick={() => setLearnFor(sub)}>
+                                                <Sparkles className="w-3.5 h-3.5 mr-1" /> Lessons
+                                            </Button>
+                                        )}
                                         {isStudio && !cancelled && !envByPartner[sub.partner_id] && (
                                             <Button
                                                 size="sm"
@@ -751,6 +875,8 @@ export default function MarketplaceFeaturePage() {
             />
 
             <ResetPasswordDialog env={resetFor} onClose={() => setResetFor(null)} />
+
+            <LearningsDialog partner={learnFor} onClose={() => setLearnFor(null)} />
 
             <DomainDialog
                 env={domainFor}
