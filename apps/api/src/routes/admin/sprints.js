@@ -31,12 +31,13 @@ suites/<project>/. The rules:
   posts results to the admin Test dashboard (/admin/tests), which is where the
   green/red state on your sprint card comes from.
 
-As of 26 Jul 2026 every team has ONE happy-path test passing (11 tests across 9
-suites, all green). The agreed next step for every team is negative-path
-coverage — the failure modes named in your mandated P0 work item. Writing those
-first happy tests already surfaced three confirmed bugs (ReFunction's
-unauthenticated patient endpoints, TallyVisualizer's credit-note revenue
-inflation, J4E's stale Prisma client), so treat the negative suite as bug-finding
+As of 26 Jul 2026 every team except Royal Interiors (which joined the board
+later that day) has ONE happy-path test passing — 11 tests across 9 suites, all
+green. The agreed next step is negative-path coverage — the failure modes named
+in your mandated P0 work item — and for Royal Interiors, its first suite.
+Writing the first happy tests already surfaced three confirmed bugs
+(ReFunction's unauthenticated patient endpoints, TallyVisualizer's credit-note
+revenue inflation, J4E's stale Prisma client), so treat this as bug-finding
 work, not paperwork.`;
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
@@ -418,7 +419,7 @@ router.post('/admin/sprints/chat', requireAdmin, async (req, res) => {
         const systemPrompt = [
             single
                 ? `You are the "${bundles[0].team.name}" dev-agent team on the KaushalStack sprint board, in a chat with your CEO.`
-                : `You are the nine dev-agent teams on the KaushalStack sprint board, gathered for a stand-up with your CEO.`,
+                : `You are the ${bundles.length} dev-agent teams on the KaushalStack sprint board, gathered for a stand-up with your CEO.`,
             `Answer the CEO's question concretely using ONLY the team context below — real work items, priorities, test status, briefings. Never invent features or status that are not in the context; if you don't know, say what you'd need to find out.`,
             single
                 ? `Have the right agent(s) answer, each turn prefixed like "**${bundles[0].team.teamNorm[0]?.agent_name || 'Lead'} (${bundles[0].team.teamNorm[0]?.role || 'Tech Lead'}):**". Use only agents listed in the context. Keep it under ~250 words total.`
@@ -490,6 +491,7 @@ const SUITE_TO_TEAM = {
     vajrahasta: 'vajrahasta',
     enrollengineer: 'enrollengineer',
     refunction: 'refunction',
+    royalinteriors: 'royalinteriors',
     kaushalstack: 'kaushalstack-platform',
 };
 
