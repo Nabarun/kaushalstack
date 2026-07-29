@@ -11,6 +11,7 @@ import AddSkillForm from '@/components/AddSkillForm.jsx';
 import DemoVideoCard from '@/components/DemoVideoCard.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import { avatarUrl } from '@/lib/avatar';
+import pb from '@/lib/pocketbaseClient';
 
 // Phase-aligned prompt suggestions. Each entry carries the phase it belongs
 // to so the suggestion cards are scannable at a glance. When a phase tile is
@@ -201,7 +202,10 @@ async function recommendTeam(query, phase = null, size = 6) {
   try {
     const res = await fetch('/api/recommend', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(pb.authStore.token ? { Authorization: `Bearer ${pb.authStore.token}` } : {}),
+      },
       body: JSON.stringify({ query, phase, size }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
@@ -332,8 +336,12 @@ const HomePage = () => {
     // PocketBase direct read — `created` is the autodate field on the skills
     // collection. Fields list trims payload to what AgentCard actually renders.
     // perPage=20 powers the "Just added" shelf below (slices to 5).
+    // Skills are members-only: guests skip the shelves entirely (the CTA
+    // below invites them to sign in), members read with their own token.
+    if (!isAuthenticated) return;
+    const authHeaders = pb.authStore.token ? { Authorization: `Bearer ${pb.authStore.token}` } : {};
     const recentFields = 'id,name,description,category,phase,agent_name,associated_tech_skills,difficulty_level,likes_count,comments_count,created';
-    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=20&fields=${recentFields}`)
+    fetch(`/pb/api/collections/skills/records?sort=-created&perPage=20&fields=${recentFields}`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.items) setRecentSkills(d.items); })
       .catch(err => console.error('Failed to fetch recent skills:', err));
@@ -343,7 +351,7 @@ const HomePage = () => {
     // a phase-tile-selected view always has enough to fill the panel.
     const phases = ['ideation', 'execution', 'marketing'];
     Promise.all(phases.map(p =>
-      fetch(`/pb/api/collections/skills/records?sort=-created&perPage=6&filter=${encodeURIComponent(`phase='${p}'`)}&fields=${recentFields}`)
+      fetch(`/pb/api/collections/skills/records?sort=-created&perPage=6&filter=${encodeURIComponent(`phase='${p}'`)}&fields=${recentFields}`, { headers: authHeaders })
         .then(r => r.ok ? r.json() : { items: [] })
         .then(d => [p, d?.items || []])
         .catch(() => [p, []])
@@ -352,7 +360,7 @@ const HomePage = () => {
       for (const [p, items] of results) next[p] = items;
       setRecentByPhase(next);
     });
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     inputRef.current?.focus({ preventScroll: true });
@@ -367,6 +375,13 @@ const HomePage = () => {
   const handleSubmit = async (goal, phaseOverride) => {
     const text = (goal || input).trim();
     if (!text || chatLoading) return;
+
+    // Skills and the round table are members-only — send guests to sign in
+    // instead of letting a gated request fail behind the scenes.
+    if (!isAuthenticated) {
+      navigate('/signin');
+      return;
+    }
 
     // When a suggestion card is clicked, it knows its own phase — use that
     // (and update the tile selection so the UI reflects it).

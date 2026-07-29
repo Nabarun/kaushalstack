@@ -12,6 +12,7 @@ import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
 import { startGrowthScheduler } from './cron/growth-scheduler.js';
 import { startSelfLearningScheduler } from './cron/self-learning-scheduler.js';
+import { ensureSkillsAccessRules } from './services/access-rules.js';
 
 const app = express();
 
@@ -68,6 +69,7 @@ app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
 	startGrowthScheduler();
 	startSelfLearningScheduler();
+	ensureSkillsAccessRules().catch(() => {});
 });
 
 export default app;

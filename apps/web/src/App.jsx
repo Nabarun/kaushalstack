@@ -78,7 +78,14 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="/skills" element={<SkillsPage />} />
+              <Route
+                path="/skills"
+                element={
+                  <ProtectedRoute>
+                    <SkillsPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />

@@ -322,7 +322,18 @@ function trimPriorTurns(turns) {
 // thin Maya/Ananya/Hostinger "perspectives".
 const PIPELINE_SYSTEM_IDS = new Set(['uepji0o2teuf29b', '0v9syxxawznp95v', 'hostingerdeploy']);
 
-router.post('/roundtable', async (req, res) => {
+
+// Guests cannot interact with the round table — every endpoint below requires
+// a signed-in user (PB JWT) or an API token. The free tier was already
+// per-user; this closes the anonymous gap.
+async function requireUser(req, res, next) {
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'Sign in to use the round table' });
+    req.authedUserId = userId;
+    next();
+}
+
+router.post('/roundtable', requireUser, async (req, res) => {
     const { query, team: rawTeam, chat_id: chatIdInput, prior_turns: priorTurnsInput, kind: kindInput, uploaded_spec: uploadedSpecInput, phase: rawPhase, partner_id: rawPartnerId } = req.body || {};
     const phase = typeof rawPhase === 'string' && VALID_PHASES.has(rawPhase) ? rawPhase : null;
     const partnerIdInput = typeof rawPartnerId === 'string' && rawPartnerId.trim() ? rawPartnerId.trim() : '';
@@ -657,7 +668,7 @@ function findAgentLatestResponse(chat, agentName) {
     return r?.text ? { text: r.text, query: chat.query } : null;
 }
 
-router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) => {
+router.post('/roundtable/chats/:id/agent-threads/:agentName', requireUser, async (req, res) => {
     const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
@@ -786,7 +797,7 @@ router.post('/roundtable/chats/:id/agent-threads/:agentName', async (req, res) =
     });
 });
 
-router.get('/roundtable/usage', async (req, res) => {
+router.get('/roundtable/usage', requireUser, async (req, res) => {
     const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
@@ -801,7 +812,7 @@ router.get('/roundtable/usage', async (req, res) => {
     res.json({ has_user_key: false, uses, limit: FREE_LIMIT, remaining: Math.max(0, FREE_LIMIT - uses) });
 });
 
-router.get('/roundtable/chats', async (req, res) => {
+router.get('/roundtable/chats', requireUser, async (req, res) => {
     const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
@@ -917,7 +928,7 @@ function trimSpecResult(r) {
     };
 }
 
-router.post('/roundtable/chats/:id/tool-results', async (req, res) => {
+router.post('/roundtable/chats/:id/tool-results', requireUser, async (req, res) => {
     const userId = await getUserIdFromAuth(req);
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 

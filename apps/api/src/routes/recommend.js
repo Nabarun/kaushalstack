@@ -2,6 +2,7 @@ import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { ensureCache, search, cacheSize, getSkillById } from '../embeddings/cache.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
@@ -223,7 +224,15 @@ const VALID_PHASES = new Set(['ideation', 'execution', 'marketing']);
 const MIN_TEAM_SIZE = 6;
 const MAX_TEAM_SIZE = 10;
 
-router.post('/recommend', async (req, res) => {
+
+// Team recommendation reads the skills library — signed-in (or API-token) only.
+async function requireUser(req, res, next) {
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'Sign in to get a team recommendation' });
+    next();
+}
+
+router.post('/recommend', requireUser, async (req, res) => {
     const { query, phase: rawPhase, size: rawSize } = req.body || {};
     if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: 'query is required' });
@@ -281,7 +290,7 @@ router.post('/recommend', async (req, res) => {
 // actual technical surface area of the build, not the user's raw prompt.
 const TECH_TEAM_MIN = 4;
 const TECH_TEAM_MAX = 8;
-router.post('/recommend/tech', async (req, res) => {
+router.post('/recommend/tech', requireUser, async (req, res) => {
     const { query, size: rawSize } = req.body || {};
     if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: 'query is required' });
@@ -339,7 +348,7 @@ const PIPELINE_ONLY_AGENTS = new Set(['Maya', 'Ananya', 'Hostinger', 'Tara', 'Ka
 let catalogCache = { at: 0, items: [] };
 const CATALOG_TTL_MS = 10 * 60 * 1000;
 
-router.get('/agents/catalog', async (req, res) => {
+router.get('/agents/catalog', requireUser, async (req, res) => {
     try {
         if (Date.now() - catalogCache.at > CATALOG_TTL_MS || catalogCache.items.length === 0) {
             const items = await pb.collection('skills').getFullList({
