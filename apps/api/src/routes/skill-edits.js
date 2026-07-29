@@ -125,6 +125,9 @@ router.post('/skills/:id/edits', async (req, res) => {
 
     const skill = await pb.collection('skills').getOne(req.params.id).catch(() => null);
     if (!skill) return res.status(404).json({ error: 'skill not found' });
+    // Private (partner-scoped) agents are managed by their partner, never via
+    // the community edit queue — and a 404 here would leak that the id exists.
+    if (skill.private === true) return res.status(404).json({ error: 'skill not found' });
 
     const proposed = pickEditable(req.body || {});
     if (Object.keys(proposed).length === 0) {
@@ -150,6 +153,10 @@ router.post('/skills/:id/edits', async (req, res) => {
 
 // GET /edits — list pending edits (for the review queue)
 router.get('/edits', async (req, res) => {
+    // The review queue hydrates full skill content via the superuser client,
+    // which bypasses collection rules — so it must gate itself.
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const status = req.query.status || 'pending';
     try {
         const list = await pb.collection('skill_edits').getList(1, 100, {
@@ -159,7 +166,11 @@ router.get('/edits', async (req, res) => {
 
         // Hydrate with current skill data so the UI can diff
         const items = await Promise.all(list.items.map(async edit => {
-            const skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+            let skill = await pb.collection('skills').getOne(edit.skill_id).catch(() => null);
+            // Belt and braces: even if an edit row targets a private agent
+            // (e.g. created before private-skill edits were blocked), its
+            // content never leaves through the review queue.
+            if (skill?.private === true) skill = null;
             return { ...edit, current_skill: skill ? pickEditable({ ...skill, id: skill.id }) : null, skill_meta: skill ? { id: skill.id, agent_name: skill.agent_name, version: skill.version } : null };
         }));
         res.json({ edits: items, total: list.totalItems });

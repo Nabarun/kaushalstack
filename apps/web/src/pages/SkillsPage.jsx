@@ -96,6 +96,30 @@ const SkillsPage = () => {
 
   const hasMore = skills.length < totalItems;
 
+  // Skills are members-only. Say so plainly instead of redirecting — the data
+  // itself is locked server-side by the collection rules either way.
+  if (!isAuthenticated) {
+    return (
+      <>
+        <Helmet><title>Browse Skills - kaushalstack</title></Helmet>
+        <div className="min-h-screen py-24 flex items-center justify-center px-4">
+          <div className="max-w-md w-full text-center rounded-2xl border bg-card p-10">
+            <Search className="w-8 h-8 mx-auto mb-4 text-primary" />
+            <h1 className="text-2xl font-bold mb-2">Skills are for members</h1>
+            <p className="text-sm text-muted-foreground mb-6">
+              In order to access the skills library, log in to the framework.
+              Your free account also unlocks the agent round table.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <Button asChild><a href="/signin">Sign in</a></Button>
+              <Button asChild variant="outline"><a href="/signup">Create account</a></Button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Helmet>

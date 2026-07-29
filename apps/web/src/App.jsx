@@ -78,14 +78,10 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/skills"
-                element={
-                  <ProtectedRoute>
-                    <SkillsPage />
-                  </ProtectedRoute>
-                }
-              />
+              {/* SkillsPage gates itself with an explicit sign-in message —
+                  friendlier than a silent redirect, and the data is locked
+                  server-side by the collection rules regardless. */}
+              <Route path="/skills" element={<SkillsPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
