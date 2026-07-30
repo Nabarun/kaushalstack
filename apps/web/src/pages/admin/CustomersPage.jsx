@@ -242,6 +242,81 @@ function TokensDialog({ partner, onClose, onGranted }) {
     );
 }
 
+// Every private (partner-scoped) agent and who it works for. Attribution
+// precedence lives server-side; `via` says how the link was resolved so an
+// unassigned agent is visible instead of silently guessed.
+function PrivateAgentsPanel() {
+    const [data, setData] = useState(null);
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        adminApi.listPrivateSkills()
+            .then(setData)
+            .catch(() => setData({ items: [], totals: { total: 0, assigned: 0, unassigned: 0 } }));
+    }, []);
+
+    if (!data || data.totals.total === 0) return null;
+    const { items, totals } = data;
+
+    return (
+        <Card className="mt-6">
+            <CardContent className="p-4">
+                <button type="button" className="w-full flex items-center gap-3 text-left" onClick={() => setOpen(v => !v)}>
+                    {open ? <ChevronDown className="w-4 h-4 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 flex-shrink-0" />}
+                    <span className="font-semibold">Private agents</span>
+                    <span className="text-xs text-muted-foreground">
+                        {totals.total} agents · {totals.assigned} attributed
+                        {totals.unassigned > 0 ? ` · ${totals.unassigned} unassigned` : ''}
+                    </span>
+                </button>
+
+                {open && (
+                    <div className="mt-4 rounded-xl border overflow-hidden overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead className="bg-muted/50">
+                                <tr>
+                                    <th className="text-left px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Agent</th>
+                                    <th className="text-left px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Skill</th>
+                                    <th className="text-left px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Working for</th>
+                                    <th className="text-right px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Since</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {items.map(i => (
+                                    <tr key={i.id} className="hover:bg-muted/30 transition-colors">
+                                        <td className="px-4 py-2.5 font-medium whitespace-nowrap">{i.agent_name}</td>
+                                        <td className="px-4 py-2.5 text-muted-foreground">{i.skill_name}</td>
+                                        <td className="px-4 py-2.5 whitespace-nowrap">
+                                            {i.partner ? (
+                                                <span
+                                                    title={i.via === 'business'
+                                                        ? `Linked through business "${i.business_name}"`
+                                                        : i.via === 'team'
+                                                            ? "Linked by matching the partner's team roster"
+                                                            : 'Directly attributed (partner_id)'}
+                                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
+                                                >
+                                                    {i.partner.name}
+                                                    <span className="text-[10px] uppercase tracking-wide opacity-70">{i.via}</span>
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                                    unassigned
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-right text-muted-foreground whitespace-nowrap">{fmtRelative(i.created)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
+
 function FacetBadge({ icon: Icon, label, title }) {
     return (
         <span
@@ -587,6 +662,8 @@ export default function CustomersPage() {
                     ))}
                 </div>
             )}
+
+            <PrivateAgentsPanel />
 
             <TokensDialog
                 partner={tokensFor}

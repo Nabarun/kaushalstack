@@ -127,6 +127,10 @@ export const adminApi = {
             method: 'POST', headers: headers(), body: JSON.stringify(data),
         }).then(handle);
     },
+    listPrivateSkills() {
+        return fetch(`${API_BASE}/admin/private-skills`, { headers: headers() }).then(handle);
+    },
+
     // Self-learning agents
     listLearnings(partnerId) {
         return fetch(`${API_BASE}/admin/marketplace/self-learning/${partnerId}`, { headers: headers() }).then(handle);

@@ -26,11 +26,17 @@ export async function ensureSkillsAccessRules() {
         const col = await pb.collections.getOne('skills');
 
         const have = new Set((col.fields || []).map(f => f.name));
-        if (!have.has('private')) {
+        const missing = [];
+        if (!have.has('private')) missing.push({ type: 'bool', name: 'private' });
+        // Explicit partner attribution for private agents. Older private
+        // skills predate it and are resolved heuristically (business_id, or
+        // agent_name matching a partner's team roster) — new seeds set it.
+        if (!have.has('partner_id')) missing.push({ type: 'text', name: 'partner_id', max: 40 });
+        if (missing.length) {
             await pb.collections.update(col.id, {
-                fields: [...col.fields, { type: 'bool', name: 'private' }],
+                fields: [...col.fields, ...missing],
             });
-            logger.info('access-rules: added missing skills.private field');
+            logger.info(`access-rules: added missing skills fields [${missing.map(f => f.name).join(', ')}]`);
         }
 
         if (col.listRule !== SKILLS_RULE || col.viewRule !== SKILLS_RULE) {
