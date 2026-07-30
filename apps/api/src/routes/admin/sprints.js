@@ -38,7 +38,14 @@ in your mandated P0 work item — and for Royal Interiors, its first suite.
 Writing the first happy tests already surfaced three confirmed bugs
 (ReFunction's unauthenticated patient endpoints, TallyVisualizer's credit-note
 revenue inflation, J4E's stale Prisma client), so treat this as bug-finding
-work, not paperwork.`;
+work, not paperwork.
+
+BroachStudio joined the board 31 Jul with most of its sprint already DONE and
+verified: dual-pass extraction with V1-V8 self-checking validation (20/20 on
+the first real drawing, two genuine drawing errors caught), the spec sheet
+with constructed involute views + source exhibit, the preliminary broach tool
+drawing generator, and 24 green tests in suites/broachstudio. Its open work is
+negative-flow coverage and Rohan's quote workflow.`;
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 
@@ -492,6 +499,7 @@ const SUITE_TO_TEAM = {
     enrollengineer: 'enrollengineer',
     refunction: 'refunction',
     royalinteriors: 'royalinteriors',
+    broachstudio: 'broachstudio',
     kaushalstack: 'kaushalstack-platform',
 };
 
