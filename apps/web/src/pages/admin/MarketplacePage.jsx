@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
     Sparkles, Users, Search, Globe, Mic2, MessageSquare, Headphones,
     Wand2, Bot, Store, ExternalLink, IndianRupee, CheckCircle2, AlertCircle,
+    Sofa, Cog,
 } from 'lucide-react';
 
 const STATUS_STYLES = {
@@ -76,6 +77,28 @@ export const FEATURES = [
         category: 'Intelligence',
         status: 'beta',
         href: '/admin/marketplace/self-learning',
+    },
+    {
+        id: 'interior-visualizer',
+        title: 'Interior Visualizer',
+        tagline: 'Client-ready 2D and 3D views of any room',
+        description:
+            'Turn a floor plan or site photo into presentable design options. 2D services: moodboards, colour palettes, and furniture-layout plans. 3D services: photoreal renders and walkthrough stills of the proposed design, ready for client sign-off.',
+        icon: Sofa,
+        category: 'Design',
+        status: 'coming-soon',
+        href: '/admin/marketplace/interior-visualizer',
+    },
+    {
+        id: 'broach-services',
+        title: 'Broach Services',
+        tagline: 'Drawing photo → validated spec → tool drawing',
+        description:
+            'Upload a photo of a spline drawing: dual-pass AI extraction reads the table, DIN 5480 cross-checks validate every number (and catch genuine drawing errors), and the pipeline outputs a spec sheet with constructed involute views plus a preliminary broach tool drawing for quotation.',
+        icon: Cog,
+        category: 'Engineering',
+        status: 'live',
+        href: '/admin/marketplace/broach-services',
     },
     {
         id: 'podcast-embed',

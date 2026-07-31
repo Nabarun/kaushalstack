@@ -45,7 +45,15 @@ verified: dual-pass extraction with V1-V8 self-checking validation (20/20 on
 the first real drawing, two genuine drawing errors caught), the spec sheet
 with constructed involute views + source exhibit, the preliminary broach tool
 drawing generator, and 24 green tests in suites/broachstudio. Its open work is
-negative-flow coverage and Rohan's quote workflow.`;
+negative-flow coverage and Rohan's quote workflow.
+
+The admin portal has an AI Usage tab (/admin/usage, 31 Jul): every LLM call is
+metered by provider (OpenAI, Anthropic, Google, xAI) and by partner, with
+lifetime spend tracked against each partner's credit cap. Quote it when asked
+what a team or feature costs to run. The marketplace also lists two new
+capabilities: Interior Visualizer (2D moodboards/layout plans + 3D renders,
+coming soon) and Broach Services (drawing photo to validated spec to broach
+tool drawing, live — BroachStudio's pipeline sold as a service).`;
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 

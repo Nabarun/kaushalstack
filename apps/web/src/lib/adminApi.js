@@ -184,6 +184,9 @@ export const adminApi = {
             method: 'DELETE', headers: headers(),
         }).then(handle);
     },
+    usageByProvider(range = 'mtd') {
+        return fetch(`${API_BASE}/admin/usage-by-provider?range=${range}`, { headers: headers() }).then(handle);
+    },
     listFeatureSubscriptions() {
         return fetch(`${API_BASE}/admin/marketplace/subscriptions`, { headers: headers() }).then(handle);
     },
