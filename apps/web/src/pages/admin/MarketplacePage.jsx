@@ -37,9 +37,9 @@ export const FEATURES = [
     {
         id: 'multi-team',
         title: 'Multi-team',
-        tagline: 'A dedicated AI team per partner',
+        tagline: 'More than one agent team under a single partner',
         description:
-            'Each partner gets a curated bench of AI specialists (Sameer, Zoya, Maya, Tara…) with role-based access via partner_members.',
+            'For partners that outgrow a single bench: run several specialist teams — each with its own roster and mission — under one partner account, with role-based access via partner_members. One dedicated team is standard; this is for the second team onward.',
         icon: Users,
         category: 'Workspace',
         status: 'live',
