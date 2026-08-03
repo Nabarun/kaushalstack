@@ -15,9 +15,11 @@ import { spawn } from 'node:child_process';
 import multer from 'multer';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
-import { safeResolve, fileManifest, readSessionResult } from '../builder/workspace.js';
+import { safeResolve, fileManifest, readSessionResult, saveSessionResult } from '../builder/workspace.js';
 import { recordUsage, checkPartnerCredit } from '../partner/usage.js';
 import { frameAncestors } from '../partner/environment.js';
+import { verifiedUserIdFromAuth } from '../utils/auth.js';
+import { verifiedPartnerId, solePartnerIdForUser } from '../partner/membership.js';
 
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENAI_KEY   = process.env.OPENAI_API_KEY;
@@ -40,6 +42,31 @@ async function sessionMeterInfo(sessionId) {
     } catch {
         return { partner_id: '', user_id: '' };
     }
+}
+
+// Fallback + healing for sessions whose sidecar carries no tenant identity
+// (anonymous runs, sessions predating attribution): use the caller's own
+// auth — the same-origin studio page sends the signed-in user's token. A
+// client-claimed partner_id is verified against membership before being
+// trusted; with no claim, a sole membership is unambiguous. Whatever gets
+// resolved is written back to the sidecar so every later call on this
+// session — including the unauthenticated portal video poll — inherits it.
+async function resolveMeterInfo(sessionId, req) {
+    const stored = await sessionMeterInfo(sessionId);
+    if (stored.partner_id) return stored;
+    const userId = await verifiedUserIdFromAuth(req).catch(() => null);
+    if (!userId) return stored;
+    const claimed = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
+    const partnerId = claimed
+        ? await verifiedPartnerId(claimed, userId)
+        : await solePartnerIdForUser(userId);
+    if (!partnerId && stored.user_id === userId) return stored; // nothing new to persist
+    const info = { partner_id: partnerId, user_id: userId };
+    try {
+        const r = (await readSessionResult(sessionId)) || { session_id: sessionId };
+        await saveSessionResult(sessionId, { ...r, ...info });
+    } catch { /* healing is best-effort — metering still uses the resolved identity */ }
+    return info;
 }
 
 // Partner-uploaded media, in-memory then written straight to the session
@@ -663,6 +690,20 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
     });
   }
+  // Tenant attribution: when this page runs same-origin for a signed-in
+  // kaushalstack user, forward their PocketBase token so generation spend is
+  // metered against them (and their partner) instead of platform overhead.
+  // Portal embeds have no token in this origin's storage — harmless no-op.
+  function ksAuthHeaders() {
+    try {
+      var t = JSON.parse(localStorage.getItem('pocketbase_auth') || '{}').token;
+      return t ? { 'Authorization': 'Bearer ' + t } : {};
+    } catch (e) { return {}; }
+  }
+  document.body.addEventListener('htmx:configRequest', function (e) {
+    var h = ksAuthHeaders();
+    if (h.Authorization) e.detail.headers['Authorization'] = h.Authorization;
+  });
   // A thumbnail is either an <img> (data-type="image") or a <video>
   // (data-type="video") — selecting either shows/hides the matching element
   // in the card so the gradient + text zones (siblings of both, in
@@ -786,7 +827,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
     if (!prompt) { status.innerHTML = '<span style="color:#b91c1c">Describe the video you want first.</span>'; return; }
     btn.disabled = true; btn.textContent = 'Starting…';
     status.textContent = '';
-    fetch('generate-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: prompt }) })
+    fetch('generate-video', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, ksAuthHeaders()), body: JSON.stringify({ prompt: prompt }) })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Could not start video generation.'); return d; }); })
       .then(function (d) {
         btn.textContent = 'Generating…';
@@ -840,7 +881,7 @@ router.get(/^\/build\/([a-f0-9]{16})\/studio\/$/, async (req, res) => {
   function pollVideoGen(operationName, startedAt) {
     var btn = document.getElementById('genVideoBtn');
     var status = document.getElementById('gen-vid-status');
-    fetch('generate-video-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operationName: operationName }) })
+    fetch('generate-video-status', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, ksAuthHeaders()), body: JSON.stringify({ operationName: operationName }) })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'Video status check failed.'); return d; }); })
       .then(function (d) {
         if (!d.done) {
@@ -2097,7 +2138,7 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-image$/, async (req, res
     if (!prompt) return sendFragment(res, errFragment('Describe the image you want first.'));
     if (!GEMINI_KEY) return sendFragment(res, errFragment('GEMINI_API_KEY is not configured on the server.'));
     try {
-        const meterInfo = await sessionMeterInfo(id);
+        const meterInfo = await resolveMeterInfo(id, req);
         if (meterInfo.partner_id) {
             const credit = await checkPartnerCredit(meterInfo.partner_id);
             if (credit.blocked) return sendFragment(res, errFragment('Token budget exhausted — image generation is paused for this workspace.'));
@@ -2152,7 +2193,7 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video$/, async (req, res
     if (!prompt) return res.status(400).json({ error: 'Describe the video you want first.' });
     if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
     try {
-        const meterInfo = await sessionMeterInfo(id);
+        const meterInfo = await resolveMeterInfo(id, req);
         if (meterInfo.partner_id) {
             const credit = await checkPartnerCredit(meterInfo.partner_id);
             if (credit.blocked) return res.status(402).json({ error: 'Token budget exhausted — video generation is paused for this workspace.' });
@@ -2213,7 +2254,7 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/generate-video-status$/, async (r
         // assuming the 8s default (falls back to 8s if ffprobe can't read it).
         let seconds = 8;
         try { seconds = await probeDurationSeconds(abs); } catch { /* keep the default */ }
-        const meterInfo = await sessionMeterInfo(id);
+        const meterInfo = await resolveMeterInfo(id, req);
         recordUsage({
             provider: 'google', model: GEMINI_VIDEO_MODEL,
             meter: { ...meterInfo, agent: 'studio', context: 'studio-generate-video' },

@@ -26,3 +26,25 @@ export async function isPartnerMember(partnerId, userId) {
 export async function verifiedPartnerId(partnerId, userId) {
     return (await isPartnerMember(partnerId, userId)) ? partnerId : '';
 }
+
+// Derive a tenant when the caller supplied none: if the user belongs to
+// exactly ONE partner (as member or owner), that partner is unambiguous and
+// safe to attribute spend to. Multi-partner users — the platform operator,
+// agency accounts — return '' so their spend is never guessed onto a
+// customer; they must claim a partner_id explicitly.
+export async function solePartnerIdForUser(userId) {
+    if (!userId) return '';
+    try {
+        const [m, owned] = await Promise.all([
+            pb.collection('partner_members').getList(1, 2, { filter: `user_id = "${esc(userId)}"` }),
+            pb.collection('partners').getList(1, 2, { filter: `owner_user_id = "${esc(userId)}"`, fields: 'id' }),
+        ]);
+        const ids = new Set([
+            ...m.items.map(r => r.partner_id).filter(Boolean),
+            ...owned.items.map(r => r.id),
+        ]);
+        return ids.size === 1 ? [...ids][0] : '';
+    } catch {
+        return '';
+    }
+}

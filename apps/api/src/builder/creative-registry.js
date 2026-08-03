@@ -12,8 +12,8 @@ import { runBuildAgent, ANANYA_SYSTEM_PROMPT } from './agent-loop.js';
 import { CONSULT_AGENT_TOOL, GENERATE_IMAGE_TOOL } from './tools.js';
 import { runAnthropicAgent } from './anthropic-agent-loop.js';
 import { getUserBYOK } from '../routes/user-keys.js';
-import { getUserIdFromAuth } from '../utils/auth.js';
-import { verifiedPartnerId } from '../partner/membership.js';
+import { verifiedUserIdFromAuth } from '../utils/auth.js';
+import { verifiedPartnerId, solePartnerIdForUser } from '../partner/membership.js';
 import { checkPartnerCredit } from '../partner/usage.js';
 import { renderPlatformScreenshots } from './render-screenshots.js';
 
@@ -596,7 +596,9 @@ export function getCreativeAgent(agentId) {
 // Resolve user id from the auth header passed in by upstream routes. Uses
 // the shared helper, which accepts both PB JWTs and ksk_ personal tokens.
 async function userIdFromAuthHeader(authHeader) {
-    return await getUserIdFromAuth({ headers: { authorization: authHeader } });
+    // Verified variant: this id decides whose partner gets billed and whose
+    // credit cap gates the run — a decoded-but-unverified JWT is not enough.
+    return await verifiedUserIdFromAuth({ headers: { authorization: authHeader } });
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -851,7 +853,12 @@ export async function runCreativeAgent({
         // immediately and surface the session id (useful for download/preview).
         if (onEvent) onEvent({ kind: 'session_start', sessionId, provider, model, agent: config.agentName });
 
-        const meterPartnerId = (partnerId && userId) ? await verifiedPartnerId(partnerId, userId) : '';
+        // Claimed partner_id is membership-verified; with no claim, a user
+        // who belongs to exactly one partner is attributed to it (multi-
+        // partner users stay unattributed rather than guessed).
+        const meterPartnerId = userId
+            ? (partnerId ? await verifiedPartnerId(partnerId, userId) : await solePartnerIdForUser(userId))
+            : '';
 
         // Same hard credit cap as /roundtable and /spec — creative runs are
         // the most expensive metered spend of all (multi-turn agent loops).

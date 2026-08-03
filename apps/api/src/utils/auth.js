@@ -95,6 +95,45 @@ export async function getUserIdFromAuth(req) {
     return decodeJwtUserId(token);
 }
 
+// Signature-verified variant of getUserIdFromAuth: resolves a user id ONLY
+// when the credential actually verifies — ksk_ tokens against their stored
+// hash (as always), and PocketBase JWTs against PocketBase itself via
+// auth-refresh, because decodeJwtUserId alone trusts the payload without
+// checking the signature. Use this wherever the resolved id has billing or
+// authz consequences and no other guard exists on the route. Verified JWTs
+// are cached briefly (same TTL as api tokens) so polling endpoints don't
+// hammer PB.
+const JWT_VERIFY_CACHE = new Map(); // sha256(token) → { userId, cachedAt }
+
+export async function verifiedUserIdFromAuth(req) {
+    const header = req?.headers?.authorization;
+    if (!header?.startsWith('Bearer ')) return null;
+    const token = header.slice(7).trim();
+    if (!token) return null;
+    if (token.startsWith(API_TOKEN_PREFIX)) return await lookupApiToken(token);
+
+    const hash = hashApiToken(token);
+    const hit = JWT_VERIFY_CACHE.get(hash);
+    if (hit && Date.now() - hit.cachedAt < CACHE_TTL_MS) return hit.userId;
+    try {
+        const base = (process.env.POCKETBASE_URL || 'http://localhost:8090').replace(/\/$/, '');
+        const r = await fetch(`${base}/api/collections/users/auth-refresh`, {
+            method: 'POST',
+            headers: { Authorization: token },
+        });
+        if (!r.ok) return null;
+        const data = await r.json();
+        const userId = data?.record?.id || null;
+        if (userId) {
+            if (JWT_VERIFY_CACHE.size > 1000) JWT_VERIFY_CACHE.clear(); // crude bound; refills on demand
+            JWT_VERIFY_CACHE.set(hash, { userId, cachedAt: Date.now() });
+        }
+        return userId;
+    } catch {
+        return null;
+    }
+}
+
 // Sync variant kept for hot paths that only need the JWT case. Use sparingly.
 export function getUserIdFromJwtHeader(authHeader) {
     if (!authHeader?.startsWith('Bearer ')) return null;
