@@ -4,6 +4,7 @@ import pb from '../utils/pocketbaseClient.js';
 import { ensureCache, search, cacheSize, getSkillById } from '../embeddings/cache.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
 import { recordUsage } from '../partner/usage.js';
+import { verifiedPartnerId } from '../partner/membership.js';
 
 const router = Router();
 
@@ -264,7 +265,13 @@ router.post('/recommend', requireUser, async (req, res) => {
             return res.json({ skills: [] });
         }
 
-        const vector       = await embedQuery(cleaned, { user_id: (await getUserIdFromAuth(req)) || '', agent: 'recommend', context: 'recommend' });
+        const uid          = (await getUserIdFromAuth(req)) || '';
+        const claimedPid   = typeof req.body?.partner_id === 'string' ? req.body.partner_id.trim() : '';
+        const vector       = await embedQuery(cleaned, {
+            user_id: uid,
+            partner_id: claimedPid && uid ? await verifiedPartnerId(claimedPid, uid) : '',
+            agent: 'recommend', context: 'recommend',
+        });
         const rawTopSkills = search(vector, 500, phase);
         // Two filters in series:
         //   1. PIPELINE_SYSTEM_IDS — Maya/Ananya/Hostinger never deliberate

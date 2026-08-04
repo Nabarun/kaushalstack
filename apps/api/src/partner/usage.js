@@ -21,7 +21,11 @@ const PRICE_PER_MTOK = {
     'o3-mini':            [1.10, 4.40],
     'claude-haiku-4-5':   [1.00, 5.00],
     'claude-sonnet-4-6':  [3.00, 15.00],
-    'claude-opus-4-8':    [15.00, 75.00],
+    // Opus 4.5+ list pricing is $5/$25 (the old [15,75] was Opus-4.1-era and
+    // overbilled 3×); 4.7 was missing entirely and fell to DEFAULT_PRICE.
+    'claude-opus-4-7':    [5.00, 25.00],
+    'claude-opus-4-8':    [5.00, 25.00],
+    'claude-fable-5':     [10.00, 50.00],
     'gemini-2.0-flash':   [0.10, 0.40],
     'gemini-2.5-flash':   [0.30, 2.50],
     // Image output is token-billed (~1290 tokens ≈ $0.039/image at $30/M).
