@@ -23,10 +23,16 @@ const PRICE_PER_MTOK = {
     'claude-sonnet-4-6':  [3.00, 15.00],
     'claude-opus-4-8':    [15.00, 75.00],
     'gemini-2.0-flash':   [0.10, 0.40],
+    'gemini-2.5-flash':   [0.30, 2.50],
+    // Image output is token-billed (~1290 tokens ≈ $0.039/image at $30/M).
+    'gemini-2.5-flash-image': [0.30, 30.00],
     'gemini-2.5-pro':     [1.25, 10.00],
     // Nano Banana image output is billed as image tokens (~1120 per 1K
     // image → ≈$0.067 each at $60/M output).
     'gemini-3.1-flash-image': [0.30, 60.00],
+    // gpt-image-*: text/image input + image-output tokens (gpt-image-1
+    // published rates; newer tiers assumed same until priced separately).
+    'gpt-image':          [5.00, 40.00],
 };
 const DEFAULT_PRICE = [1.00, 4.00];
 
