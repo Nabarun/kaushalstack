@@ -5,11 +5,14 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import logger from '../utils/logger.js';
+import { recordUsage } from '../partner/usage.js';
 
 const router = Router();
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const TTS_MODEL  = 'tts-1-hd';
+// TTS bills per character, not per token ($30/M chars for tts-1-hd).
+const TTS_USD_PER_CHAR = 30 / 1_000_000;
 const VALID_VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
 const MAX_INPUT_CHARS = 4000;
 
@@ -69,6 +72,14 @@ router.post('/tts', async (req, res) => {
             return res.status(502).json({ error: `OpenAI TTS returned ${r.status}` });
         }
         const buf = Buffer.from(await r.arrayBuffer());
+        // Cost-only row (zero tokens): speech is char-billed. Cache hits are
+        // free and never reach this point.
+        recordUsage({
+            provider: 'openai', model: TTS_MODEL,
+            usage: { input_tokens: 0, output_tokens: 0 },
+            costUSD: text.length * TTS_USD_PER_CHAR,
+            meter: { agent: 'speech', context: 'speech' },
+        });
         cacheSet(key, buf);
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Length', buf.length);

@@ -14,7 +14,7 @@ const VALID_TTS_VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shi
 // description (its playbook, distilled from real tutorials) becomes the
 // system prompt of a one-shot LLM call. This is how Ananya asks Hostinger
 // "how do I deploy this site" while building.
-async function consultAgent(agentName, question) {
+async function consultAgent(agentName, question, meter = null) {
     const q = String(question || '').trim();
     if (!q) return { error: 'question is required' };
     await ensureCache();
@@ -49,6 +49,18 @@ async function consultAgent(agentName, question) {
         return { error: `consult failed: openai ${r.status}` };
     }
     const data = await r.json();
+    if (meter) {
+        try {
+            recordUsage({
+                provider: 'openai', model: 'gpt-4o-mini',
+                usage: {
+                    input_tokens:  data.usage?.prompt_tokens ?? 0,
+                    output_tokens: data.usage?.completion_tokens ?? 0,
+                },
+                meter,
+            });
+        } catch { /* metering must never break the tool */ }
+    }
     const answer = data.choices?.[0]?.message?.content || '';
     return { agent: skill.agent_name, skill: skill.name, answer };
 }
@@ -113,7 +125,7 @@ async function searchAndSaveImages(sessionId, query, count = 3) {
 // session workspace under assets/. Returns the local path so the agent can
 // drop it into an <audio src="..."> tag. Used by Tara for Reels/Stories/X-video
 // posts where audio is part of the deliverable.
-async function synthesizeVoice(sessionId, script, filename, voice = 'nova', speed = 1.0) {
+async function synthesizeVoice(sessionId, script, filename, voice = 'nova', speed = 1.0, meter = null) {
     if (!OPENAI_KEY) {
         return { error: 'OPENAI_API_KEY not configured on server; voice synthesis unavailable.' };
     }
@@ -140,6 +152,17 @@ async function synthesizeVoice(sessionId, script, filename, voice = 'nova', spee
         return { error: `OpenAI TTS returned ${r.status}: ${body}` };
     }
     const buf = Buffer.from(await r.arrayBuffer());
+    if (meter) {
+        try {
+            // TTS bills per character ($30/M for tts-1-hd) — cost-only row.
+            recordUsage({
+                provider: 'openai', model: 'tts-1-hd',
+                usage: { input_tokens: 0, output_tokens: 0 },
+                costUSD: (text.length * 30) / 1_000_000,
+                meter,
+            });
+        } catch { /* metering must never break the tool */ }
+    }
     const abs = await safeResolve(sessionId, relPath);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, buf);
@@ -354,7 +377,8 @@ export async function executeTool(sessionId, name, args, extra = {}) {
             return JSON.stringify(r);
         }
         if (name === 'synthesize_voice') {
-            const r = await synthesizeVoice(sessionId, args.script, args.filename, args.voice, args.speed);
+            const meter = extra.meter ? { ...extra.meter, context: `${extra.meter.context || 'creative'}-voiceover` } : null;
+            const r = await synthesizeVoice(sessionId, args.script, args.filename, args.voice, args.speed, meter);
             return JSON.stringify(r);
         }
         if (name === 'generate_image') {
@@ -363,7 +387,8 @@ export async function executeTool(sessionId, name, args, extra = {}) {
             return JSON.stringify(r);
         }
         if (name === 'consult_agent') {
-            const r = await consultAgent(args.agent_name, args.question);
+            const meter = extra.meter ? { ...extra.meter, context: `${extra.meter.context || 'creative'}-consult` } : null;
+            const r = await consultAgent(args.agent_name, args.question, meter);
             return JSON.stringify(r);
         }
         return JSON.stringify({ error: `unknown tool: ${name}` });

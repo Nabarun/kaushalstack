@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { recordUsage } from '../partner/usage.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -109,6 +110,14 @@ Be lenient — keep anything with even modest tech relevance. Only drop pure ent
 
         if (!r.ok) throw new Error(`openai ${r.status}`);
         const data   = await r.json();
+        recordUsage({
+            provider: 'openai', model: 'gpt-4o-mini',
+            usage: {
+                input_tokens:  data.usage?.prompt_tokens ?? 0,
+                output_tokens: data.usage?.completion_tokens ?? 0,
+            },
+            meter: { agent: 'trending', context: 'trending' },
+        });
         const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
         const keep   = new Set(Array.isArray(parsed.keep) ? parsed.keep : []);
         if (keep.size === 0) return items; // model refused; don't drop everything

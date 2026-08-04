@@ -2317,6 +2317,14 @@ router.post(/^\/build\/([a-f0-9]{16})\/studio\/recommend-text$/, async (req, res
         });
         if (!r.ok) return sendFragment(res, errFragment(`Copy model returned ${r.status}.`));
         const data = await r.json();
+        recordUsage({
+            provider: 'openai', model: 'gpt-4o-mini',
+            usage: {
+                input_tokens:  data.usage?.prompt_tokens ?? 0,
+                output_tokens: data.usage?.completion_tokens ?? 0,
+            },
+            meter: { ...(await resolveMeterInfo(id, req)), agent: 'studio', context: 'studio-recommend-text' },
+        });
         let variants = [];
         try { variants = JSON.parse(data.choices?.[0]?.message?.content || '{}').variants || []; } catch { /* fall through */ }
         variants = variants

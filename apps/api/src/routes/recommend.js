@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { ensureCache, search, cacheSize, getSkillById } from '../embeddings/cache.js';
 import { getUserIdFromAuth } from '../utils/auth.js';
+import { recordUsage } from '../partner/usage.js';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ const STOPWORDS = new Set([
     'like','just','also','than','then','when','where','which','please','want',
 ]);
 
-async function embedQuery(text) {
+async function embedQuery(text, meter = null) {
     const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
@@ -27,6 +28,11 @@ async function embedQuery(text) {
     });
     if (!res.ok) throw new Error(`OpenAI embed failed: ${res.status}`);
     const data = await res.json();
+    recordUsage({
+        provider: 'openai', model: EMBED_MODEL,
+        usage: { input_tokens: data.usage?.prompt_tokens ?? 0, output_tokens: 0 },
+        meter: meter || { agent: 'recommend', context: 'recommend' },
+    });
     return data.data[0].embedding;
 }
 
@@ -258,7 +264,7 @@ router.post('/recommend', requireUser, async (req, res) => {
             return res.json({ skills: [] });
         }
 
-        const vector       = await embedQuery(cleaned);
+        const vector       = await embedQuery(cleaned, { user_id: (await getUserIdFromAuth(req)) || '', agent: 'recommend', context: 'recommend' });
         const rawTopSkills = search(vector, 500, phase);
         // Two filters in series:
         //   1. PIPELINE_SYSTEM_IDS — Maya/Ananya/Hostinger never deliberate
@@ -309,7 +315,7 @@ router.post('/recommend/tech', requireUser, async (req, res) => {
         await ensureCache();
         if (cacheSize() === 0) return res.json({ skills: [] });
 
-        const vector = await embedQuery(cleaned);
+        const vector = await embedQuery(cleaned, { user_id: (await getUserIdFromAuth(req)) || '', agent: 'recommend', context: 'recommend-tech' });
         const rawTopSkills = search(vector, 500, null);
         // Tech category only, drop the system pipeline IDs explicitly even
         // though Maya/Hostinger live outside Tech — Ananya does too in the

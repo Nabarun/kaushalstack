@@ -33,6 +33,8 @@ const PRICE_PER_MTOK = {
     // gpt-image-*: text/image input + image-output tokens (gpt-image-1
     // published rates; newer tiers assumed same until priced separately).
     'gpt-image':          [5.00, 40.00],
+    'text-embedding-3-small': [0.02, 0.02],
+    'text-embedding-3-large': [0.13, 0.13],
 };
 const DEFAULT_PRICE = [1.00, 4.00];
 

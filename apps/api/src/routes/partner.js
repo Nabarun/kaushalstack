@@ -128,14 +128,22 @@ async function fetchLinkText(url) {
     }
 }
 
-async function embedText(text) {
+async function embedText(text, meter = null) {
     const r = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
         body: JSON.stringify({ model: 'text-embedding-3-small', input: text.slice(0, 8000) }),
     });
     if (!r.ok) throw new Error(`embed failed: ${r.status}`);
-    return (await r.json()).data[0].embedding;
+    const data = await r.json();
+    if (meter) {
+        recordUsage({
+            provider: 'openai', model: 'text-embedding-3-small',
+            usage: { input_tokens: data.usage?.prompt_tokens ?? 0, output_tokens: 0 },
+            meter,
+        });
+    }
+    return data.data[0].embedding;
 }
 
 function parseJsonReply(raw) {
@@ -190,7 +198,7 @@ router.post('/partner/:id/research-team', async (req, res) => {
         // ── 3. Candidate search ───────────────────────────────────────────
         await ensureCache();
         if (cacheSize() === 0) return res.status(500).json({ error: 'agent catalog not ready' });
-        const vector = await embedText(`${profile.search_query} ${(profile.needs || []).join(' ')}`);
+        const vector = await embedText(`${profile.search_query} ${(profile.needs || []).join(' ')}`, meter);
         const candidates = search(vector, 500, null)
             .filter(s => !PIPELINE_IDS.has(s.id) && s.category !== 'Tech')
             .slice(0, 15);

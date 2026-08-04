@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
+import { recordUsage } from '../partner/usage.js';
 
 const router = Router();
 
@@ -23,6 +24,11 @@ async function embedBatch(texts) {
     });
     if (!res.ok) throw new Error(`OpenAI error: ${res.status} ${await res.text()}`);
     const data = await res.json();
+    recordUsage({
+        provider: 'openai', model: EMBED_MODEL,
+        usage: { input_tokens: data.usage?.prompt_tokens ?? 0, output_tokens: 0 },
+        meter: { agent: 'embed-cron', context: 'embeddings' },
+    });
     return data.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
 }
 
