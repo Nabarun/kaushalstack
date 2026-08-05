@@ -85,6 +85,12 @@ const POWERED_APPS = [
     url: 'https://interiorroyal.in/',
     domain: 'interiorroyal.in',
   },
+  {
+    name: 'Visista Stylez',
+    description: 'Ethnic-wear boutique in Bangalore — online store with orders, support, and analytics.',
+    url: 'https://visistastylez.com/',
+    domain: 'visistastylez.com',
+  },
 ];
 
 const PHASE_TILES = [
