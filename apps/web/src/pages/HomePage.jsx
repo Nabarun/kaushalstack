@@ -79,6 +79,12 @@ const POWERED_APPS = [
     url: 'https://consciousconnections.in/',
     domain: 'consciousconnections.in',
   },
+  {
+    name: 'Royal Interiors & Décor',
+    description: 'Pune interior design studio — site, AI room visualizer, and a self-learning design team.',
+    url: 'https://interiorroyal.in/',
+    domain: 'interiorroyal.in',
+  },
 ];
 
 const PHASE_TILES = [
