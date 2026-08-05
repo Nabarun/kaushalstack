@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
     Sparkles, Users, Search, Globe, Mic2, MessageSquare, Headphones,
     Wand2, Bot, Store, ExternalLink, IndianRupee, CheckCircle2, AlertCircle,
-    Sofa, Cog,
+    Sofa, Cog, AudioLines,
 } from 'lucide-react';
 
 const STATUS_STYLES = {
@@ -88,6 +88,17 @@ export const FEATURES = [
         category: 'Design',
         status: 'coming-soon',
         href: '/admin/marketplace/interior-visualizer',
+    },
+    {
+        id: 'meeting-summarizer',
+        title: 'Meeting Summarizer',
+        tagline: 'Meeting audio → structured minutes in minutes',
+        description:
+            'Upload a meeting recording and get clean minutes of meeting: full transcription (English, Hindi and regional languages via Sarvam AI), key decisions, and action items ready to share. Running live at varanan.in.',
+        icon: AudioLines,
+        category: 'Productivity',
+        status: 'live',
+        href: '/admin/marketplace/meeting-summarizer',
     },
     {
         id: 'broach-services',
