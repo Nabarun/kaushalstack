@@ -184,6 +184,35 @@ export const adminApi = {
             method: 'DELETE', headers: headers(),
         }).then(handle);
     },
+    // CRM
+    crmAll() {
+        return fetch(`${API_BASE}/admin/crm`, { headers: headers() }).then(handle);
+    },
+    crmCreate(entity, data) {
+        return fetch(`${API_BASE}/admin/crm/${entity}`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    crmUpdate(entity, id, data) {
+        return fetch(`${API_BASE}/admin/crm/${entity}/${id}`, {
+            method: 'PATCH', headers: headers(), body: JSON.stringify(data),
+        }).then(handle);
+    },
+    crmDelete(entity, id) {
+        return fetch(`${API_BASE}/admin/crm/${entity}/${id}`, {
+            method: 'DELETE', headers: headers(),
+        }).then(handle);
+    },
+    crmSyncPartners() {
+        return fetch(`${API_BASE}/admin/crm/accounts/sync-partners`, {
+            method: 'POST', headers: headers(),
+        }).then(handle);
+    },
+    crmConvertLead(id, opts = {}) {
+        return fetch(`${API_BASE}/admin/crm/leads/${id}/convert`, {
+            method: 'POST', headers: headers(), body: JSON.stringify(opts),
+        }).then(handle);
+    },
     usageByProvider(range = 'mtd') {
         return fetch(`${API_BASE}/admin/usage-by-provider?range=${range}`, { headers: headers() }).then(handle);
     },

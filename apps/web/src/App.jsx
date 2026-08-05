@@ -43,6 +43,8 @@ import FoldersPage from '@/pages/admin/FoldersPage.jsx';
 import SprintPage from '@/pages/admin/SprintPage.jsx';
 import TestsPage from '@/pages/admin/TestsPage.jsx';
 import UsagePage from '@/pages/admin/UsagePage.jsx';
+import CrmPage from '@/pages/admin/CrmPage.jsx';
+import PublicMarketplacePage from '@/pages/PublicMarketplacePage.jsx';
 
 function SiteChrome({ children }) {
   const { pathname } = useLocation();
@@ -83,6 +85,7 @@ function App() {
                   friendlier than a silent redirect, and the data is locked
                   server-side by the collection rules regardless. */}
               <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/marketplace" element={<PublicMarketplacePage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />
@@ -171,6 +174,7 @@ function App() {
                 <Route path="sprint" element={<SprintPage />} />
                 <Route path="tests" element={<TestsPage />} />
                 <Route path="usage" element={<UsagePage />} />
+                <Route path="crm" element={<CrmPage />} />
                 <Route path="marketplace" element={<MarketplacePage />} />
                 <Route path="marketplace/:featureId" element={<MarketplaceFeaturePage />} />
                 <Route path="folders" element={<FoldersPage />} />

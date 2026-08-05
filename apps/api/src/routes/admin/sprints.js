@@ -53,7 +53,13 @@ lifetime spend tracked against each partner's credit cap. Quote it when asked
 what a team or feature costs to run. The marketplace also lists two new
 capabilities: Interior Visualizer (2D moodboards/layout plans + 3D renders,
 coming soon) and Broach Services (drawing photo to validated spec to broach
-tool drawing, live — BroachStudio's pipeline sold as a service).`;
+tool drawing, live — BroachStudio's pipeline sold as a service).
+
+The admin portal also has a CRM tab (/admin/crm, 5 Aug): accounts (linked to
+partners, showing their live tool subscriptions), opportunities (a pipeline of
+deals selling marketplace tools — a won deal can subscribe the partner
+directly), contacts, and leads (tracked with the tools they're interested
+in). Quote it when asked about pipeline or sales state.`;
 
 const esc = (s) => String(s || '').replace(/"/g, '\\"');
 
