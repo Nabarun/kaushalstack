@@ -21,11 +21,19 @@ const PRICE_PER_MTOK = {
     'o3-mini':            [1.10, 4.40],
     'claude-haiku-4-5':   [1.00, 5.00],
     'claude-sonnet-4-6':  [3.00, 15.00],
+    // List price $3/$15 (intro $2/$10 runs through 2026-08-31 — we bill at
+    // list so spend is never under-reported).
+    'claude-sonnet-5':    [3.00, 15.00],
     // Opus 4.5+ list pricing is $5/$25 (the old [15,75] was Opus-4.1-era and
     // overbilled 3×); 4.7 was missing entirely and fell to DEFAULT_PRICE.
+    'claude-opus-4-6':    [5.00, 25.00],
     'claude-opus-4-7':    [5.00, 25.00],
     'claude-opus-4-8':    [5.00, 25.00],
+    'claude-opus-5':      [5.00, 25.00],
     'claude-fable-5':     [10.00, 50.00],
+    // Retired Oct 2025 but historical usage_events rows still reprice through
+    // this table on the dashboard.
+    'claude-3-5-sonnet':  [3.00, 15.00],
     'gemini-2.0-flash':   [0.10, 0.40],
     'gemini-2.5-flash':   [0.30, 2.50],
     // Image output is token-billed (~1290 tokens ≈ $0.039/image at $30/M).
@@ -59,7 +67,11 @@ export function estimateTokens(chars) {
 export function computeCostUSD(model, inputTokens, outputTokens, cachedTokens = 0) {
     const [inP, outP] = priceFor(model);
     const freshIn = Math.max(0, inputTokens - cachedTokens);
-    const usd = (freshIn * inP + cachedTokens * inP * 0.5 + outputTokens * outP) / 1_000_000;
+    // Cache-read discount differs by provider: Anthropic bills cache reads at
+    // ~10% of input, OpenAI at 50%. (Anthropic cache WRITES bill at 1.25× —
+    // not modelled separately; they land in fresh input, a slight underbill.)
+    const cachedRate = String(model || '').toLowerCase().startsWith('claude') ? 0.1 : 0.5;
+    const usd = (freshIn * inP + cachedTokens * inP * cachedRate + outputTokens * outP) / 1_000_000;
     return Number(usd.toFixed(6));
 }
 

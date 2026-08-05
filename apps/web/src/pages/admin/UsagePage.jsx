@@ -4,18 +4,21 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
-import { Activity, RefreshCw, Wallet, ArrowUpRight, Cpu } from 'lucide-react';
+import { Activity, RefreshCw, Wallet, ArrowUpRight, Cpu, Layers } from 'lucide-react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 // Provider ids come from the api's provider registry; anything new shows up
-// with its raw id until given a label here.
+// with its raw id until given a label here. `fill` mirrors the dot colour for
+// the daily-spend chart (tailwind 500-series hex).
 const PROVIDER_META = {
-    openai:    { label: 'OpenAI',             dot: 'bg-emerald-500' },
-    anthropic: { label: 'Anthropic · Claude', dot: 'bg-orange-500' },
-    google:    { label: 'Google · Gemini',    dot: 'bg-blue-500' },
-    xai:       { label: 'xAI · Grok',         dot: 'bg-purple-500' },
+    openai:    { label: 'OpenAI',             dot: 'bg-emerald-500', fill: '#10b981' },
+    anthropic: { label: 'Anthropic · Claude', dot: 'bg-orange-500',  fill: '#f97316' },
+    google:    { label: 'Google · Gemini',    dot: 'bg-blue-500',    fill: '#3b82f6' },
+    xai:       { label: 'xAI · Grok',         dot: 'bg-purple-500',  fill: '#a855f7' },
 };
 const provLabel = (id) => PROVIDER_META[id]?.label || id;
 const provDot   = (id) => PROVIDER_META[id]?.dot || 'bg-muted-foreground/60';
+const provFill  = (id) => PROVIDER_META[id]?.fill || '#94a3b8';
 
 const RANGES = [
     ['today', 'Today'],
@@ -79,6 +82,12 @@ export default function UsagePage() {
         [data],
     );
     const hasUntagged = (data?.untagged?.calls || 0) > 0;
+    // Flatten the daily series into recharts rows: {date, openai: usd, ...}.
+    const daily = useMemo(() => (data?.daily || []).map(d => ({ date: d.date.slice(5), ...d.providers })), [data]);
+    const dailyProviders = useMemo(
+        () => [...new Set((data?.daily || []).flatMap(d => Object.keys(d.providers)))],
+        [data],
+    );
     const activePartners = useMemo(
         () => (data?.partners || []).filter(p => p.calls > 0 || p.credit_cap_usd > 0 || p.lifetime_cost_usd > 0),
         [data],
@@ -161,6 +170,37 @@ export default function UsagePage() {
                         {data.totals.calls} calls · {fmtTok(data.totals.input_tokens)} input / {fmtTok(data.totals.output_tokens)} output tokens
                         {data.totals.estimated_calls > 0 && <> · {data.totals.estimated_calls} estimated</>}
                     </div>
+
+                    {/* ── daily spend trend ──────────────────────────────── */}
+                    {daily.length > 1 && (
+                        <Card>
+                            <CardContent className="p-4">
+                                <h2 className="font-semibold mb-3">Daily spend</h2>
+                                <ResponsiveContainer width="100%" height={220}>
+                                    <BarChart data={daily} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.08} />
+                                        <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                                        <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={52} tickFormatter={fmtUSD} />
+                                        <Tooltip
+                                            formatter={(v, name) => [fmtUSD(v), provLabel(name)]}
+                                            contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                                            cursor={{ fill: 'currentColor', fillOpacity: 0.04 }}
+                                        />
+                                        {dailyProviders.map(id => (
+                                            <Bar key={id} dataKey={id} stackId="spend" fill={provFill(id)} radius={[2, 2, 0, 0]} maxBarSize={28} />
+                                        ))}
+                                    </BarChart>
+                                </ResponsiveContainer>
+                                <div className="flex flex-wrap gap-3 mt-2">
+                                    {dailyProviders.map(id => (
+                                        <span key={id} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                            <span className={`w-2 h-2 rounded-full ${provDot(id)}`} /> {provLabel(id)}
+                                        </span>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* ── partner × provider matrix ──────────────────────── */}
                     <Card>
@@ -289,6 +329,47 @@ export default function UsagePage() {
                                     Per-model $/MTok prices live server-side in <code className="bg-muted rounded px-1">partner/usage.js</code> — that table is what
                                     turns tokens into the costs above, so it is the place to tune when comparing providers for the pricing model.
                                     Rows marked <span className="text-amber-600 dark:text-amber-400">~</span> include estimated token counts (provider didn&rsquo;t report usage; ~chars/4).
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
+                    {/* ── by feature (context) ───────────────────────────── */}
+                    {(data.contexts || []).length > 0 && (
+                        <Card>
+                            <CardContent className="p-4">
+                                <h2 className="font-semibold mb-3 flex items-center gap-2"><Layers className="w-4 h-4" /> Spend by feature</h2>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b">
+                                                <th className="py-2 pr-3 font-medium">Feature</th>
+                                                <th className="py-2 px-3 font-medium text-right">Calls</th>
+                                                <th className="py-2 px-3 font-medium text-right">Input</th>
+                                                <th className="py-2 px-3 font-medium text-right">Output</th>
+                                                <th className="py-2 px-3 font-medium text-right">Cached</th>
+                                                <th className="py-2 pl-3 font-medium text-right">Cost</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {data.contexts.map(c => (
+                                                <tr key={c.context} className="border-b last:border-0">
+                                                    <td className="py-2 pr-3 font-mono text-xs">
+                                                        {c.context}
+                                                        {c.estimated_calls > 0 && <span className="ml-1.5 text-amber-600 dark:text-amber-400" title={`${c.estimated_calls} estimated calls`}>~</span>}
+                                                    </td>
+                                                    <td className="py-2 px-3 text-right">{c.calls}</td>
+                                                    <td className="py-2 px-3 text-right">{fmtTok(c.input_tokens)}</td>
+                                                    <td className="py-2 px-3 text-right">{fmtTok(c.output_tokens)}</td>
+                                                    <td className="py-2 px-3 text-right">{fmtTok(c.cached_tokens)}</td>
+                                                    <td className="py-2 pl-3 text-right font-medium">{fmtUSD(c.cost_usd)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-3">
+                                    Contexts are the <code className="bg-muted rounded px-1">meter.context</code> tags attached where each feature calls the
+                                    LLM choke point — roundtables, specs, sprint chat, growth reports and so on, across all partners.
                                 </p>
                             </CardContent>
                         </Card>

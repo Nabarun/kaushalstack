@@ -47,7 +47,7 @@ export async function listChatModels(key) {
         .slice(0, 20);
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode, onUsage }) {
     const modelId = model || DEFAULT_CHAT_MODEL;
     const url = `${BASE_URL}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(key)}`;
 
@@ -75,6 +75,18 @@ export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonM
         throw err;
     }
     const data = await r.json();
+    // Exact token usage from Gemini's usageMetadata. Thinking tokens
+    // (thoughtsTokenCount) are billed as output, so fold them in.
+    if (typeof onUsage === 'function' && data.usageMetadata) {
+        try {
+            const u = data.usageMetadata;
+            onUsage({
+                input_tokens:        u.promptTokenCount || 0,
+                output_tokens:       (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0),
+                cached_input_tokens: u.cachedContentTokenCount || 0,
+            });
+        } catch { /* metering must never throw into the request path */ }
+    }
     const parts = data.candidates?.[0]?.content?.parts || [];
     return parts.map(p => p.text || '').join('');
 }

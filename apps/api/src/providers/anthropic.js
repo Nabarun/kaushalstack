@@ -8,7 +8,8 @@
 
 const BASE_URL = 'https://api.anthropic.com/v1';
 const ANTHROPIC_VERSION = '2023-06-01';
-const DEFAULT_CHAT_MODEL = 'claude-3-5-sonnet-latest';
+// claude-3-5-sonnet-latest was retired by Anthropic in Oct 2025 and now 404s.
+const DEFAULT_CHAT_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
 
 export const meta = {
@@ -53,7 +54,7 @@ export async function listChatModels(key) {
         .slice(0, 20);
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, cachedPrefix, jsonMode, onUsage }) {
     // No native JSON mode — append an instruction to the user prompt when needed.
     // The roundtable prompt already asks for JSON, so this is mostly belt-and-suspenders.
     const finalUser = jsonMode
@@ -117,6 +118,23 @@ export async function chatComplete({ key, model, systemPrompt, userPrompt, cache
         throw err;
     }
     const data = await r.json();
+    // Exact token usage for the metering layer. Anthropic's usage.input_tokens
+    // is only the UNCACHED remainder — total prompt = input_tokens +
+    // cache_read_input_tokens + cache_creation_input_tokens. The metering
+    // layer expects total input (OpenAI semantics), cached reported separately.
+    if (typeof onUsage === 'function' && data.usage) {
+        try {
+            const u = data.usage;
+            onUsage({
+                input_tokens:
+                    (u.input_tokens || 0) +
+                    (u.cache_read_input_tokens || 0) +
+                    (u.cache_creation_input_tokens || 0),
+                output_tokens:       u.output_tokens || 0,
+                cached_input_tokens: u.cache_read_input_tokens || 0,
+            });
+        } catch { /* metering must never throw into the request path */ }
+    }
     // content is an array of {type, text} blocks. Concatenate text blocks.
     const text = (data.content || [])
         .filter(b => b.type === 'text')

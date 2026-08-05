@@ -7,7 +7,8 @@ import { TOOL_DEFINITIONS, executeTool } from './tools.js';
 import { recordUsage } from '../partner/usage.js';
 
 const ANTHROPIC_VERSION = '2023-06-01';
-const DEFAULT_MODEL = 'claude-3-5-sonnet-latest';
+// claude-3-5-sonnet-latest was retired by Anthropic in Oct 2025 and now 404s.
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TURNS = 20;
 // Generous output budget per turn. Tool-use responses include the full
 // `contents` argument of write_file as model output, so a single HTML screen
@@ -148,7 +149,13 @@ export async function runAnthropicAgent({
             recordUsage({
                 provider: 'anthropic', model,
                 usage: {
-                    input_tokens:        (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+                    // Total input = uncached + cache writes + cache reads; the
+                    // metering layer subtracts cached back out at the cheap
+                    // rate. Excluding cache reads here made freshIn go
+                    // negative (clamped to 0) on warm-cache turns → underbill.
+                    input_tokens:        (usage.input_tokens || 0)
+                                       + (usage.cache_creation_input_tokens || 0)
+                                       + (usage.cache_read_input_tokens || 0),
                     output_tokens:       usage.output_tokens || 0,
                     cached_input_tokens: usage.cache_read_input_tokens || 0,
                 },

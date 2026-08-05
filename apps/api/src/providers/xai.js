@@ -46,7 +46,7 @@ export async function listChatModels(key) {
         .map(m => ({ id: m.id, created: m.created || 0, owned_by: m.owned_by || 'xai' }));
 }
 
-export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode }) {
+export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonMode, onUsage }) {
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push({ role: 'user', content: userPrompt });
@@ -73,5 +73,15 @@ export async function chatComplete({ key, model, systemPrompt, userPrompt, jsonM
         throw err;
     }
     const data = await r.json();
+    // xAI's chat API is OpenAI-shaped, usage included — report exact tokens.
+    if (typeof onUsage === 'function' && data.usage) {
+        try {
+            onUsage({
+                input_tokens:        data.usage.prompt_tokens || 0,
+                output_tokens:       data.usage.completion_tokens || 0,
+                cached_input_tokens: data.usage.prompt_tokens_details?.cached_tokens || 0,
+            });
+        } catch { /* metering must never throw into the request path */ }
+    }
     return data.choices?.[0]?.message?.content || '';
 }

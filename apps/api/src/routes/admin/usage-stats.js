@@ -58,6 +58,8 @@ router.get('/admin/usage-by-provider', requireAdmin, async (req, res) => {
         const byPartnerProvider = {};       // partner_id -> { total, providers: {} }
         const lifetimeByPartner = {};       // partner_id -> usd (all time, cap basis)
         const untagged = { ...zero(), providers: {}, contexts: {} };
+        const byContext = {};               // context -> bucket (ALL events, tagged or not)
+        const byDay = {};                   // YYYY-MM-DD -> { total_usd, providers: {prov: usd} }
 
         for (const e of events) {
             const pid = e.partner_id || '';
@@ -67,6 +69,19 @@ router.get('/admin/usage-by-provider', requireAdmin, async (req, res) => {
 
             const provider = e.provider || 'unknown';
             add(totals, e);
+
+            // Which feature burns the money — across every event, not just untagged.
+            const ectx = e.context || 'untagged';
+            if (!byContext[ectx]) byContext[ectx] = zero();
+            add(byContext[ectx], e);
+
+            // Daily spend series for the trend chart.
+            const day = String(e.created || '').slice(0, 10);
+            if (day) {
+                if (!byDay[day]) byDay[day] = { total_usd: 0, providers: {} };
+                byDay[day].total_usd += e.cost_usd || 0;
+                byDay[day].providers[provider] = (byDay[day].providers[provider] || 0) + (e.cost_usd || 0);
+            }
 
             if (!byProvider[provider]) byProvider[provider] = { ...zero(), models: {} };
             add(byProvider[provider], e);
@@ -124,11 +139,29 @@ router.get('/admin/usage-by-provider', requireAdmin, async (req, res) => {
             .sort((a, z) => z.cost_usd - a.cost_usd)
             .slice(0, 10);
 
+        const contextsOut = Object.entries(byContext)
+            .map(([context, b]) => ({ context, ...round(b) }))
+            .sort((a, z) => z.cost_usd - a.cost_usd);
+
+        // Chart series capped at the most recent 90 days so range=all stays light.
+        const dailyOut = Object.entries(byDay)
+            .sort(([a], [z]) => a.localeCompare(z))
+            .slice(-90)
+            .map(([date, d]) => ({
+                date,
+                total_usd: Number(d.total_usd.toFixed(4)),
+                providers: Object.fromEntries(
+                    Object.entries(d.providers).map(([p, usd]) => [p, Number(usd.toFixed(4))]),
+                ),
+            }));
+
         res.json({
             range,
             totals: round(totals),
             providers: providersOut,
             partners: partnersOut,
+            contexts: contextsOut,
+            daily: dailyOut,
             untagged: {
                 ...round(uTotals),
                 providers: untaggedProviders,

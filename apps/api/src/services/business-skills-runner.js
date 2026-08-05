@@ -82,6 +82,7 @@ async function runOneSkill(skill, business, recentScan, llmConfig) {
                 userPrompt:   user,
                 cachedPrefix: system,
                 jsonMode:     false,
+                meter: { context: 'business-skills' },
             }),
             PER_SKILL_TIMEOUT_MS,
             `attached skill "${skill.name}"`,
