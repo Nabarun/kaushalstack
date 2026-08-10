@@ -2,6 +2,7 @@ import { Router } from 'express';
 import logger from '../utils/logger.js';
 import pb from '../utils/pocketbaseClient.js';
 import { recordUsage } from '../partner/usage.js';
+import { getUserIdFromAuth } from '../utils/auth.js';
 
 const router = Router();
 
@@ -13,7 +14,9 @@ function skillText(s) {
     return `${s.name || ''} ${s.category || ''} ${s.associated_tech_skills || ''} ${s.description || ''}`.slice(0, 2000);
 }
 
-async function embedBatch(texts) {
+// `meter` attributes cost to the caller — the cron for skills, or the calling
+// app's user id for the generic /embed endpoint below.
+async function embedBatch(texts, meter = { agent: 'embed-cron', context: 'embeddings' }) {
     const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
@@ -27,7 +30,7 @@ async function embedBatch(texts) {
     recordUsage({
         provider: 'openai', model: EMBED_MODEL,
         usage: { input_tokens: data.usage?.prompt_tokens ?? 0, output_tokens: 0 },
-        meter: { agent: 'embed-cron', context: 'embeddings' },
+        meter,
     });
     return data.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
 }
@@ -77,6 +80,41 @@ router.post('/embed/run', async (req, res) => {
         }
         logger.info(`Embed run done: ${ok} embedded, ${fail} failed`);
     })();
+});
+
+// POST /embed — the shared embedding SERVICE for platform apps (e.g. Relay).
+//
+// Stateless: it turns text into vectors and stores NOTHING, so no calling app's
+// data ever rests here — the strongest form of tenancy isolation, because the
+// service can't leak what it never keeps. Each app owns its own (tenant-scoped)
+// vector store and runs its own search; this endpoint is only the shared model
+// access + one cost ledger.
+//
+// Auth is per-caller via a `ksk_` PAT (or member JWT); usage is metered under
+// the caller's id. Distinct from /embed/run, which embeds the skills catalogue.
+const MAX_TEXTS = 128;
+const MAX_LEN   = 8000;
+
+router.post('/embed', async (req, res) => {
+    const userId = await getUserIdFromAuth(req);
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const texts = req.body?.texts;
+    if (!Array.isArray(texts) || texts.length === 0) {
+        return res.status(400).json({ error: 'texts must be a non-empty array' });
+    }
+    if (texts.length > MAX_TEXTS) {
+        return res.status(400).json({ error: `max ${MAX_TEXTS} texts per request` });
+    }
+
+    const clean = texts.map(t => String(t ?? '').slice(0, MAX_LEN));
+    try {
+        const vectors = await embedBatch(clean, { agent: userId, context: 'embed-api' });
+        res.json({ model: EMBED_MODEL, dims: vectors[0]?.length ?? 0, vectors });
+    } catch (err) {
+        logger.error('embed endpoint failed:', err.message);
+        res.status(502).json({ error: 'embedding provider error' });
+    }
 });
 
 export default router;
