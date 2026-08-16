@@ -26,30 +26,29 @@ const Header = () => {
   const navLinks = [
     { name: 'Home', path: '/' },
     { name: 'About', path: '/about' },
-    { name: 'Skills', path: '/skills' },
-    { name: 'Marketplace', path: '/marketplace' },
-    { name: 'Blog', path: '/blog' },
+    { name: 'Our Services', path: '/marketplace' },
+    { name: 'Our Products', path: '/products' },
     { name: 'Contact', path: '/contact' }
   ];
   const isActive = (path) => location.pathname === path;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 print:hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-[#fffdf9]/95 backdrop-blur-xl print:hidden">
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+        <div className="flex h-[72px] items-center justify-between">
           <Link to="/" className="flex items-center">
             <Logo size={30} tagline />
           </Link>
 
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-7" aria-label="Primary navigation">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
                 to={link.path}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`relative py-2 text-sm font-semibold transition-colors duration-200 after:absolute after:inset-x-0 after:-bottom-[9px] after:h-0.5 after:origin-left after:transition-transform after:duration-200 ${
                   isActive(link.path)
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-muted'
+                    ? 'text-slate-950 after:scale-x-100 after:bg-primary'
+                    : 'text-slate-500 after:scale-x-0 hover:text-slate-950'
                 }`}
               >
                 {link.name}
@@ -58,7 +57,7 @@ const Header = () => {
 
           </nav>
 
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2.5">
             {isAuthenticated ? (
               <>
                 <Link to="/review">
@@ -74,30 +73,30 @@ const Header = () => {
                 </Link>
                 <NotificationBell />
                 <Link to="/profile">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="border-slate-200 bg-white font-semibold">
                     {currentUser?.username || 'Profile'}
                   </Button>
                 </Link>
-                <Button onClick={logout} variant="outline" size="sm">
+                  <Button onClick={logout} variant="outline" size="sm" className="border-slate-200 bg-white font-semibold">
                   Sign Out
                 </Button>
               </>
             ) : (
               <>
                 <Link to="/signin">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="border-slate-200 bg-white font-semibold hover:bg-slate-50">
                     Sign In
                   </Button>
                 </Link>
                 <Link to="/signup">
-                  <Button size="sm">Sign Up</Button>
+                  <Button size="sm" className="bg-[#ff7a18] px-4 font-bold shadow-sm hover:bg-[#e96b10]">Sign Up</Button>
                 </Link>
               </>
             )}
           </div>
 
           <button
-            className="md:hidden p-2"
+            className="md:hidden rounded-lg p-2 text-slate-700 hover:bg-slate-100"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -106,17 +105,17 @@ const Header = () => {
         </div>
 
         {mobileMenuOpen && (
-          <div className="md:hidden py-4 border-t">
+          <div className="md:hidden border-t border-slate-200 py-4">
             <nav className="flex flex-col gap-2">
               {navLinks.map((link) => (
                 <Link
                   key={link.path}
                   to={link.path}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
                     isActive(link.path)
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-foreground hover:bg-muted'
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                   }`}
                 >
                   {link.name}

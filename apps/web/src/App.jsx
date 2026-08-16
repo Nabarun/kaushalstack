@@ -45,6 +45,7 @@ import TestsPage from '@/pages/admin/TestsPage.jsx';
 import UsagePage from '@/pages/admin/UsagePage.jsx';
 import CrmPage from '@/pages/admin/CrmPage.jsx';
 import PublicMarketplacePage from '@/pages/PublicMarketplacePage.jsx';
+import ProductsPage from '@/pages/ProductsPage.jsx';
 
 function SiteChrome({ children }) {
   const { pathname } = useLocation();
@@ -86,6 +87,7 @@ function App() {
                   server-side by the collection rules regardless. */}
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/marketplace" element={<PublicMarketplacePage />} />
+              <Route path="/products" element={<ProductsPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/members" element={<MembersPage />} />
               <Route path="/contributors" element={<MembersPage />} />

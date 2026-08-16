@@ -11,50 +11,45 @@ const Footer = () => {
   const { pathname } = useLocation();
   if (FULL_BLEED_ROUTES.has(pathname)) return null;
   return (
-    <footer className="bg-secondary text-secondary-foreground mt-24 print:hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <footer className="mt-24 bg-[#111520] text-white print:hidden">
+      <div className="max-w-7xl mx-auto px-5 py-14 sm:px-8 lg:px-10">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div>
-            <span className="text-xl font-bold">kaushalstack</span>
-            <p className="mt-4 text-sm text-secondary-foreground/80 leading-relaxed max-w-prose">
-              Building a free, open-source community where everyone can showcase their skills and learn from each other. Join us in creating the future of collaborative learning.
+            <span className="text-xl font-bold tracking-tight">Kaushal<span className="text-orange-400">Stack</span></span>
+            <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
+              AI teams, focused products, and practical workflows for businesses ready to move faster.
             </p>
-            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-accent/10 rounded-full text-xs font-medium">
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-300">
               <Heart className="w-3 h-3" />
               <span>Open Source</span>
             </div>
           </div>
 
           <div className="md:justify-self-end">
-            <span className="font-semibold text-sm">Community</span>
+            <span className="font-semibold text-sm">Explore</span>
             <ul className="mt-4 space-y-2">
               <li>
-                <Link to="/skills" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
-                  Browse Skills
+                <Link to="/marketplace" className="text-sm text-slate-400 hover:text-white transition-colors">
+                  Our Services
                 </Link>
               </li>
               <li>
-                <Link to="/leaderboard" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
-                  Leaderboard
+                <Link to="/products" className="text-sm text-slate-400 hover:text-white transition-colors">
+                  Our Products
                 </Link>
               </li>
               <li>
-                <Link to="/members" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
-                  Members
-                </Link>
-              </li>
-              <li>
-                <Link to="/about" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
+                <Link to="/about" className="text-sm text-slate-400 hover:text-white transition-colors">
                   About Us
                 </Link>
               </li>
               <li>
-                <Link to="/contact" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors">
+                <Link to="/contact" className="text-sm text-slate-400 hover:text-white transition-colors">
                   Contact Us
                 </Link>
               </li>
               <li>
-                <Link to="/about#demo" className="text-sm text-secondary-foreground/80 hover:text-secondary-foreground transition-colors inline-flex items-center gap-1">
+                <Link to="/about#demo" className="inline-flex items-center gap-1 text-sm text-slate-400 transition-colors hover:text-white">
                   ▶ Watch demo
                 </Link>
               </li>
@@ -62,9 +57,9 @@ const Footer = () => {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-secondary-foreground/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-secondary-foreground/60">
+        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-8 text-sm text-slate-500 sm:flex-row">
           <p>© 2026 kaushalstack.com. Built with passion for the community.</p>
-          <Link to="/privacy" className="hover:text-secondary-foreground transition-colors">
+          <Link to="/privacy" className="transition-colors hover:text-white">
             Privacy Policy
           </Link>
         </div>

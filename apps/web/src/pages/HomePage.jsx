@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
+import { ArrowRight, Sparkles, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
-import CapabilityVisualizer from '@/components/CapabilityVisualizer.jsx';
+import WorkflowVisualizer from '@/components/WorkflowVisualizer.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
@@ -521,22 +521,12 @@ const HomePage = () => {
                 transition={{ duration: 0.4 }}
                 className="grid lg:grid-cols-[1.1fr_1fr] gap-8 lg:gap-12 items-start mb-2"
               >
-                {/* LEFT: A live Three.js map makes the product promise tangible
-                    before a visitor starts the team-builder conversation. */}
+                {/* LEFT: An original context → workspace → AI team animation.
+                    It takes the storytelling cue from the supplied reference,
+                    without reproducing its screenshots or visual assets. */}
                 <div className="order-2 lg:order-1">
-                  <div className="relative aspect-square max-h-[440px] overflow-hidden rounded-[2rem] border border-slate-800 bg-[#10131d] shadow-2xl">
-                    <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_16%_18%,rgba(255,125,25,.27),transparent_29%),radial-gradient(circle_at_78%_63%,rgba(83,93,255,.24),transparent_28%),linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] [background-size:auto,auto,44px_44px,44px_44px]" />
-                    <CapabilityVisualizer className="absolute inset-0 h-full w-full" />
-                    <div className="absolute left-5 top-5 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-white backdrop-blur-sm">
-                      <span className="block font-semibold text-orange-200">Your stack, connected</span>
-                      <span className="text-slate-400">teams · tools · momentum</span>
-                    </div>
-                    <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300 backdrop-blur-sm">
-                      <span>Turn a goal into a team</span>
-                      <Sparkles className="h-4 w-4 text-orange-300" />
-                    </div>
-                  </div>
-                  <p className="text-center text-xs text-muted-foreground mt-3">A connected workspace for every stage of the work.</p>
+                  <WorkflowVisualizer className="aspect-square max-h-[440px] border border-slate-200 shadow-2xl" />
+                  <p className="text-center text-xs text-muted-foreground mt-3">Connect your context. Build the workflow. Let the right team move it forward.</p>
                 </div>
 
                 {/* RIGHT: Headline + input + compact trending */}
@@ -1045,43 +1035,6 @@ const HomePage = () => {
             </div>
           </section>
         )}
-
-        {/* ── Stats ── tucked below the Recently-added shelf since "what's new"
-            matters more to first-time visitors than headcount. Labels switch
-            to shorter copy on mobile so the 3-col grid doesn't truncate. */}
-        <section className="py-12 bg-muted/20 border-b">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6">
-            <div className="grid grid-cols-3 gap-3 sm:gap-8 text-center">
-              <div>
-                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <Users className="w-5 h-5 text-primary" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.users}</div>
-                <p className="text-xs sm:text-sm text-muted-foreground">Members</p>
-              </div>
-              <div>
-                <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <Code className="w-5 h-5 text-accent" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.skills}</div>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  <span className="sm:hidden">Skills</span>
-                  <span className="hidden sm:inline">Skills Shared</span>
-                </p>
-              </div>
-              <div>
-                <div className="w-10 h-10 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <Trophy className="w-5 h-5 text-secondary" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold mb-1">{stats.leaderboard}</div>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  <span className="sm:hidden">Leaderboard</span>
-                  <span className="hidden sm:inline">Leaderboard Entries</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* ── AI Growth Partners ── */}
         <section className="py-20 bg-muted/20 border-t">

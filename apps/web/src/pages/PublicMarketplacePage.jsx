@@ -1,16 +1,14 @@
 import React from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
-import { ArrowRight, AudioLines, BrainCircuit, Check, ChevronRight, Globe2, Layers3, MessageSquareText, Mic2, Palette, Search, Sparkles, UsersRound, Wrench } from 'lucide-react';
+import { ArrowRight, AudioLines, BrainCircuit, Check, ChevronRight, Globe2, MessageSquareText, Mic2, Search, Sparkles, UsersRound, Wrench } from 'lucide-react';
 import CapabilityVisualizer from '@/components/CapabilityVisualizer.jsx';
 
 const CAPABILITIES = [
-  { name: 'Studio', eyebrow: 'Content', icon: Palette, tone: 'orange', description: 'Design, remix and publish social cards that stay on-brand across every channel.', detail: 'Image cards, captions, gradients and platform-ready exports.' },
   { name: 'AI teams', eyebrow: 'Workspace', icon: UsersRound, tone: 'violet', description: 'A focused bench of specialists that can debate, plan and move work forward together.', detail: 'Structured round tables from idea to usable spec.' },
   { name: 'Deep research', eyebrow: 'Intelligence', icon: Search, tone: 'cyan', description: 'Turn your approved links and documents into a living foundation for sharper decisions.', detail: 'Source-grounded research and recommended specialist teams.' },
   { name: 'Website', eyebrow: 'Build', icon: Globe2, tone: 'blue', description: 'Move from a visual direction to a production-ready site in one coherent workflow.', detail: 'Design, build and deployment support in one place.' },
   { name: 'Self-learning agents', eyebrow: 'Intelligence', icon: BrainCircuit, tone: 'green', description: 'Agents that retain approved preferences, corrections and constraints to get more useful over time.', detail: 'Human-reviewed learning keeps the context precise.' },
-  { name: 'Interior visualizer', eyebrow: 'Design', icon: Layers3, tone: 'pink', description: 'Make a spatial idea easy to approve with moodboards, plans and photoreal room views.', detail: '2D concepts and 3D presentation-ready visuals.' },
   { name: 'Meeting intelligence', eyebrow: 'Productivity', icon: MessageSquareText, tone: 'teal', description: 'Turn recorded conversations into clear notes, decisions and assigned next steps.', detail: 'Transcription and structured minutes across Indian languages.' },
   { name: 'Engineering validation', eyebrow: 'Engineering', icon: Wrench, tone: 'amber', description: 'Turn technical drawings into checked specifications and clear manufacturing-ready outputs.', detail: 'AI extraction with standards-based cross-checks.' },
   { name: 'Voice', eyebrow: 'Voice', icon: AudioLines, tone: 'rose', description: 'Give ideas and agents a natural voice for product demos, accessibility and richer content.', detail: 'Text-to-speech built into your content workflow.' },
@@ -26,7 +24,7 @@ export default function PublicMarketplacePage() {
   return (
     <div className="ks-marketplace overflow-hidden bg-[#fffdf9] text-slate-950">
       <Helmet>
-        <title>AI capabilities for ambitious teams — KaushalStack</title>
+        <title>Our Services — KaushalStack</title>
         <meta name="description" content="KaushalStack brings AI teams, content studio, research, websites, visualisation and workflow tools into one adaptable business stack." />
       </Helmet>
 
