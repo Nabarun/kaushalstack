@@ -22,13 +22,13 @@ export default function WorkflowVisualizer({ className = '' }) {
         </div>
 
         <div className="absolute left-[16%] right-[16%] top-[23%] border-t border-dashed border-slate-300" />
-        <div className="absolute left-[31%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-orange-400 ks-flow-dot" />
-        <div className="absolute left-[65%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-indigo-400 ks-flow-dot ks-flow-dot-delay" />
+        <div className="absolute left-[31%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-blue-500 ks-flow-dot" />
+        <div className="absolute left-[65%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-cyan-400 ks-flow-dot ks-flow-dot-delay" />
 
         <div className="absolute left-5 top-[34%] w-[29%] space-y-2">
           {SOURCES.map(({ label, Icon }, index) => (
             <div key={label} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-2 shadow-sm" style={{ animationDelay: `${index * 180}ms` }}>
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-orange-50 text-orange-500"><Icon className="h-3 w-3" /></span>
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-50 text-blue-500"><Icon className="h-3 w-3" /></span>
               <span className="truncate text-[9px] font-semibold text-slate-600">{label}</span>
             </div>
           ))}
@@ -48,15 +48,15 @@ export default function WorkflowVisualizer({ className = '' }) {
         <div className="absolute right-4 top-[34%] w-[22%] space-y-2">
           {['Strategist', 'Creator', 'Analyst'].map((role, index) => (
             <div key={role} className={`ks-agent-chip flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-sm ${index === 1 ? 'ks-agent-chip-delay' : ''}`}>
-              <span className={`flex h-4 w-4 items-center justify-center rounded-full ${index === 0 ? 'bg-orange-100 text-orange-600' : index === 1 ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}><Bot className="h-2.5 w-2.5" /></span>
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full ${index === 0 ? 'bg-blue-100 text-blue-600' : index === 1 ? 'bg-indigo-100 text-indigo-600' : 'bg-cyan-100 text-cyan-600'}`}><Bot className="h-2.5 w-2.5" /></span>
               <span className="truncate text-[8px] font-semibold text-slate-600">{role}</span>
             </div>
           ))}
         </div>
 
-        <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between rounded-xl border border-orange-100 bg-gradient-to-r from-orange-50 to-white px-3 py-2">
+        <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-white px-3 py-2">
           <span className="text-[10px] font-semibold text-slate-600">Shared context becomes useful work.</span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-orange-500 text-white"><Sparkles className="h-3 w-3" /></span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 text-white"><Sparkles className="h-3 w-3" /></span>
         </div>
       </div>
     </div>

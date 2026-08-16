@@ -23,16 +23,16 @@ const PRODUCTS = [
 
 export default function ProductsPage() {
   return (
-    <div className="bg-[#fffdf9] text-slate-950">
+    <div className="bg-white text-slate-950">
       <Helmet>
         <title>Our Products — KaushalStack</title>
         <meta name="description" content="Explore KaushalStack products for marketing creation and interior visualisation." />
       </Helmet>
 
-      <section className="relative overflow-hidden bg-[#111520] px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
-        <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-orange-500/20 blur-3xl" />
+      <section className="relative overflow-hidden bg-[#071b3a] px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
+        <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-blue-400/25 blur-3xl" />
         <div className="relative mx-auto max-w-7xl">
-          <p className="text-xs font-bold tracking-[.18em] text-orange-200 uppercase">Our products</p>
+          <p className="text-xs font-bold tracking-[.18em] text-blue-200 uppercase">Our products</p>
           <h1 className="mt-4 max-w-3xl text-5xl font-semibold leading-[.96] tracking-[-.06em] sm:text-6xl">Focused tools for the work that needs to look—and feel—finished.</h1>
           <p className="mt-7 max-w-2xl text-lg leading-relaxed text-slate-300">Each product gives a real workflow its own thoughtfully-designed space, while still connecting to the wider KaushalStack team.</p>
         </div>
@@ -56,18 +56,18 @@ export default function ProductsPage() {
                 <div className="absolute inset-x-5 bottom-5 rounded-xl border border-white/25 bg-slate-950/55 px-3 py-2 text-xs font-semibold text-white backdrop-blur">{product.name}</div>
               </div>
               <div className="flex flex-col p-7 sm:p-10 lg:p-12">
-                <p className="text-xs font-bold tracking-[.16em] text-orange-600 uppercase">{product.eyebrow}</p>
+                <p className="text-xs font-bold tracking-[.16em] text-blue-600 uppercase">{product.eyebrow}</p>
                 <h2 className="mt-4 text-4xl font-semibold tracking-[-.05em]">{product.name}</h2>
                 <p className="mt-5 max-w-md text-lg leading-relaxed text-slate-600">{product.description}</p>
-                <ul className="mt-8 space-y-3 text-sm text-slate-600">{product.points.map(point => <li key={point} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-orange-500" />{point}</li>)}</ul>
-                <Link to="/contact" className="mt-10 inline-flex w-fit items-center gap-2 text-sm font-bold text-slate-950 transition hover:text-orange-600">Talk to us about {product.name} <ArrowRight className="h-4 w-4" /></Link>
+                <ul className="mt-8 space-y-3 text-sm text-slate-600">{product.points.map(point => <li key={point} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />{point}</li>)}</ul>
+                <Link to="/contact" className="mt-10 inline-flex w-fit items-center gap-2 text-sm font-bold text-slate-950 transition hover:text-blue-600">Talk to us about {product.name} <ArrowRight className="h-4 w-4" /></Link>
               </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="px-5 pb-20 sm:px-8 lg:px-10 lg:pb-28"><div className="mx-auto flex max-w-7xl flex-col gap-7 rounded-3xl bg-orange-50 p-8 sm:p-12 lg:flex-row lg:items-center lg:justify-between"><div><p className="flex items-center gap-2 text-sm font-bold text-orange-700"><Sparkles className="h-4 w-4" /> Built to work with your team</p><h2 className="mt-3 text-3xl font-semibold tracking-[-.045em]">Need a product around another workflow?</h2></div><Link to="/contact" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#ff7a18] px-5 text-sm font-bold text-white hover:bg-[#e96b10]">Start a conversation <ArrowRight className="h-4 w-4" /></Link></div></section>
+      <section className="px-5 pb-20 sm:px-8 lg:px-10 lg:pb-28"><div className="mx-auto flex max-w-7xl flex-col gap-7 rounded-3xl bg-blue-50 p-8 sm:p-12 lg:flex-row lg:items-center lg:justify-between"><div><p className="flex items-center gap-2 text-sm font-bold text-blue-700"><Sparkles className="h-4 w-4" /> Built to work with your team</p><h2 className="mt-3 text-3xl font-semibold tracking-[-.045em]">Need a product around another workflow?</h2></div><Link to="/contact" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">Start a conversation <ArrowRight className="h-4 w-4" /></Link></div></section>
     </div>
   );
 }

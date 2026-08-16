@@ -15,7 +15,7 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto px-5 py-14 sm:px-8 lg:px-10">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div>
-            <span className="text-xl font-bold tracking-tight">Kaushal<span className="text-orange-400">Stack</span></span>
+            <span className="text-xl font-bold tracking-tight">Kaushal<span className="text-blue-400">Stack</span></span>
             <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
               AI teams, focused products, and practical workflows for businesses ready to move faster.
             </p>

@@ -496,7 +496,7 @@ const HomePage = () => {
   return (
     <>
       <Helmet>
-        <title>kaushalstack - What do you want to build?</title>
+        <title>KaushalStack — AI Agent Team Builder</title>
         <meta name="description" content="Describe your project and kaushalstack assembles the right team of AI agent skills for you." />
       </Helmet>
 
@@ -529,20 +529,13 @@ const HomePage = () => {
                   <p className="text-center text-xs text-muted-foreground mt-3">Connect your context. Build the workflow. Let the right team move it forward.</p>
                 </div>
 
-                {/* RIGHT: Headline + input + compact trending */}
+                {/* RIGHT: Prompt-first team builder */}
                 <div className="order-1 lg:order-2 space-y-5 lg:pt-1">
                   <div className="text-center mb-6 lg:text-left lg:mb-0">
                     <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
                       <Sparkles className="w-4 h-4 text-primary" />
                       <span className="text-sm font-medium">AI Agent Team Builder</span>
                     </div>
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl xl:text-5xl font-bold leading-tight mb-3" style={{ letterSpacing: '-0.02em' }}>
-                      What do you want{' '}
-                      <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to build?</span>
-                    </h1>
-                    <p className="text-base text-muted-foreground lg:max-w-md">
-                      Describe your project and we'll assemble the right team of AI agent skills for you.
-                    </p>
                   </div>
                   {/* Split-hero prompt input. Tap targets: textarea is min-h-12 (48px)
                       and the send button is 44×44, both above iOS's 44pt minimum. */}

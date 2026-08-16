@@ -47,7 +47,7 @@ const Header = () => {
                 to={link.path}
                 className={`relative py-2 text-sm font-semibold transition-colors duration-200 after:absolute after:inset-x-0 after:-bottom-[9px] after:h-0.5 after:origin-left after:transition-transform after:duration-200 ${
                   isActive(link.path)
-                    ? 'text-slate-950 after:scale-x-100 after:bg-primary'
+                    ? 'text-slate-950 after:scale-x-100 after:bg-blue-600'
                     : 'text-slate-500 after:scale-x-0 hover:text-slate-950'
                 }`}
               >
@@ -89,7 +89,7 @@ const Header = () => {
                   </Button>
                 </Link>
                 <Link to="/signup">
-                  <Button size="sm" className="bg-[#ff7a18] px-4 font-bold shadow-sm hover:bg-[#e96b10]">Sign Up</Button>
+                  <Button size="sm" className="bg-blue-600 px-4 font-bold shadow-sm hover:bg-blue-700">Sign Up</Button>
                 </Link>
               </>
             )}
@@ -114,7 +114,7 @@ const Header = () => {
                   onClick={() => setMobileMenuOpen(false)}
                   className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
                     isActive(link.path)
-                      ? 'bg-orange-50 text-orange-700'
+                      ? 'bg-blue-50 text-blue-700'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                   }`}
                 >
