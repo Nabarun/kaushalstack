@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Sparkles, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
+import { ArrowRight, Sparkles, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
 import WorkflowVisualizer from '@/components/WorkflowVisualizer.jsx';
