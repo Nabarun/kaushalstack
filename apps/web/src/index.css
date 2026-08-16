@@ -126,11 +126,8 @@
 .ks-marketplace .ks-icon-amber { background: #fff5dc; color: #be7808; }
 .ks-marketplace .ks-icon-rose { background: #ffeaec; color: #c44c62; }
 
-@keyframes ks-flow-travel {
-  0%, 18% { transform: translateX(0); opacity: 0; }
-  28% { opacity: 1; }
-  78% { opacity: 1; }
-  100% { transform: translateX(155px); opacity: 0; }
+@keyframes ks-dash-flow {
+  to { stroke-dashoffset: -15; }
 }
 
 @keyframes ks-agent-arrival {
@@ -138,11 +135,12 @@
   50% { transform: translateX(-6px); opacity: 1; }
 }
 
-.ks-flow-dot { animation: ks-flow-travel 3.8s ease-in-out infinite; }
-.ks-flow-dot-delay { animation-delay: 1.25s; }
+.ks-flow-path { animation: ks-dash-flow 1.65s linear infinite; }
+.ks-flow-path-source { opacity: .9; }
+.ks-flow-path-core { animation-duration: 1.35s; }
 .ks-agent-chip { animation: ks-agent-arrival 3.4s ease-out infinite; }
 .ks-agent-chip-delay { animation-delay: .45s; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ks-flow-dot, .ks-agent-chip { animation: none; }
+  .ks-flow-path, .ks-agent-chip { animation: none; }
 }

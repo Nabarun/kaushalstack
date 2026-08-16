@@ -511,96 +511,19 @@ const HomePage = () => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.1),transparent_50%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,hsl(var(--accent)/0.08),transparent_50%)] pointer-events-none" />
 
-          <div className={`relative flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto'}`}>
+          <div className={`relative flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-7xl mx-auto' : 'max-w-4xl mx-auto'}`}>
 
-            {/* ── SPLIT HERO (logged-out, empty) ── video + compact prompt ── */}
+            {/* ── Full-width customer-context animation (logged-out, empty) ── */}
             {showSplitHero && (
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
-                className="grid lg:grid-cols-[1.1fr_1fr] gap-8 lg:gap-12 items-start mb-2"
+                className="mb-2"
               >
-                {/* LEFT: An original context → workspace → AI team animation.
-                    It takes the storytelling cue from the supplied reference,
-                    without reproducing its screenshots or visual assets. */}
-                <div className="order-2 lg:order-1">
-                  <WorkflowVisualizer className="aspect-square max-h-[440px] border border-slate-200 shadow-2xl" />
+                <div>
+                  <WorkflowVisualizer className="border border-slate-200 shadow-2xl" />
                   <p className="text-center text-xs text-muted-foreground mt-3">One customer context. One dedicated team. Every future conversation in the right hands.</p>
-                </div>
-
-                {/* RIGHT: Prompt-first team builder */}
-                <div className="order-1 lg:order-2 space-y-5 lg:pt-1">
-                  <div className="text-center mb-6 lg:text-left lg:mb-0">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-5">
-                      <Sparkles className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium">AI Agent Team Builder</span>
-                    </div>
-                  </div>
-                  {/* Split-hero prompt input. Tap targets: textarea is min-h-12 (48px)
-                      and the send button is 44×44, both above iOS's 44pt minimum. */}
-                  <div className="bg-card rounded-2xl border shadow-md px-4 py-3 focus-within:border-primary transition-colors">
-                    {attachedSpec && (
-                      <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-md bg-primary/8 border border-primary/20 text-xs">
-                        <Paperclip className="w-3.5 h-3.5 text-primary shrink-0" />
-                        <span className="text-primary font-medium truncate flex-1">{attachedSpec.filename}</span>
-                        <span className="text-muted-foreground hidden sm:inline">attached · submit to review</span>
-                        <button onClick={() => setAttachedSpec(null)} title="Remove" className="text-muted-foreground hover:text-foreground shrink-0">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex items-end gap-2">
-                      <textarea
-                        ref={inputRef}
-                        rows={2}
-                        value={input}
-                        onChange={e => {
-                          setInput(e.target.value);
-                          e.target.style.height = '48px';
-                          e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-                        }}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                        placeholder={promptPlaceholder}
-                        className="flex-1 resize-none bg-transparent text-base outline-none leading-relaxed placeholder:text-muted-foreground"
-                        style={{ height: '48px', minHeight: '48px', maxHeight: '160px' }}
-                      />
-                      <button
-                        onClick={() => handleSubmit()}
-                        disabled={!input.trim() || chatLoading}
-                        className="w-11 h-11 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
-                      >
-                        <Send className="w-5 h-5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading || chatLoading}
-                        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
-                        title="Upload a spec (.md, .txt, .pdf, .docx) — we'll recommend a team from it"
-                      >
-                        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-                        {uploading ? 'Reading spec…' : 'Upload a spec'}
-                      </button>
-                      <TableSeatsSelector value={teamSize} onChange={setTeamSize} />
-                    </div>
-                    {uploadError && <div className="text-xs text-red-500 mt-1.5">{uploadError}</div>}
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".md,.markdown,.txt,.json,.csv,.yaml,.yml,.pdf,.docx"
-                    className="hidden"
-                    onChange={e => uploadSpec(e.target.files?.[0])}
-                  />
-
-                  <div className="text-center lg:text-left pt-1">
-                    <Link to="/signup" className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                      New here? <span className="text-primary font-semibold">Create a free account →</span>
-                    </Link>
-                  </div>
                 </div>
               </motion.div>
             )}
