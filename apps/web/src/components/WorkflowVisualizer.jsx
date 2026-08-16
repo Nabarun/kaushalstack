@@ -1,62 +1,61 @@
 import React from 'react';
-import { Bot, Database, MessageCircleMore, Sparkles, Workflow } from 'lucide-react';
+import { AtSign, Bot, BriefcaseBusiness, Globe2, Image, MessageCircleMore, MessagesSquare, Sparkles, UsersRound } from 'lucide-react';
 
 const SOURCES = [
-  { label: 'CRM', Icon: Database },
-  { label: 'AI context', Icon: Sparkles },
-  { label: 'Conversations', Icon: MessageCircleMore },
+  { label: 'Assets', Icon: Image, top: '25%' },
+  { label: 'Digital presence', Icon: Globe2, top: '38%' },
+  { label: 'Social handles', Icon: AtSign, top: '51%' },
+  { label: 'Client conversations', Icon: MessagesSquare, top: '64%' },
 ];
 
-/**
- * An original, CSS-only workflow animation. It uses the same storytelling
- * rhythm as the supplied reference (context → app → agents), without copying
- * its artwork, screenshots, or visual assets.
- */
+const FUTURE_WORK = ['Marketing', 'Research', 'Sales', 'Services', 'Support'];
+
+/** Original CSS workflow visual: customer signals build one dedicated team. */
 export default function WorkflowVisualizer({ className = '' }) {
   return (
-    <div className={`ks-workflow relative overflow-hidden rounded-[2rem] bg-[#fbfaf7] text-slate-950 ${className}`} aria-label="Animated AI workflow illustration">
-      <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(15,23,42,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.035)_1px,transparent_1px)] [background-size:28px_28px]" />
+    <div className={`ks-workflow relative overflow-hidden rounded-[2rem] bg-[#fbfdff] text-slate-950 ${className}`} aria-label="Customer context flows into KaushalStack and creates a dedicated AI roundtable">
+      <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(37,99,235,.045)_1px,transparent_1px),linear-gradient(90deg,rgba(37,99,235,.045)_1px,transparent_1px)] [background-size:28px_28px]" />
       <div className="relative h-full min-h-[330px] p-5 sm:p-6">
-        <div className="grid grid-cols-3 gap-2 text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">
-          <span>Your context</span><span className="text-center">Your workspace</span><span className="text-right">AI team</span>
+        <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">
+          <span>Customer context</span><span>Dedicated AI team</span>
         </div>
 
-        <div className="absolute left-[16%] right-[16%] top-[23%] border-t border-dashed border-slate-300" />
-        <div className="absolute left-[31%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-blue-500 ks-flow-dot" />
-        <div className="absolute left-[65%] top-[20.5%] h-1.5 w-1.5 rounded-full bg-cyan-400 ks-flow-dot ks-flow-dot-delay" />
+        {/* Curved dotted paths deliberately originate at each customer source. */}
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {[31, 43, 55, 67].map((y, index) => <path key={y} d={`M 12 ${y} C 29 ${y}, 31 ${48 + index * 2}, 47 ${50 + index * 2}`} fill="none" stroke="#93c5fd" strokeWidth="0.35" strokeDasharray="1.2 1.3" />)}
+          <path d="M 57 55 C 66 55, 70 50, 76 48" fill="none" stroke="#2563eb" strokeWidth="0.5" strokeDasharray="1.4 1.2" />
+          <path d="M 76 62 C 76 69, 73 74, 68 79" fill="none" stroke="#2563eb" strokeWidth="0.5" strokeDasharray="1.4 1.2" />
+        </svg>
 
-        <div className="absolute left-5 top-[34%] w-[29%] space-y-2">
-          {SOURCES.map(({ label, Icon }, index) => (
-            <div key={label} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-2 shadow-sm" style={{ animationDelay: `${index * 180}ms` }}>
-              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-50 text-blue-500"><Icon className="h-3 w-3" /></span>
-              <span className="truncate text-[9px] font-semibold text-slate-600">{label}</span>
+        <div className="absolute left-4 top-0 h-full w-[30%]">
+          {SOURCES.map(({ label, Icon, top }, index) => (
+            <div key={label} className="absolute left-0 flex w-full items-center gap-2 rounded-lg border border-blue-100 bg-white/95 px-2.5 py-2 shadow-sm" style={{ top, animationDelay: `${index * 160}ms` }}>
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600"><Icon className="h-3 w-3" /></span>
+              <span className="truncate text-[8px] font-bold text-slate-600">{label}</span>
             </div>
           ))}
         </div>
 
-        <div className="absolute left-1/2 top-[31%] w-[38%] -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-[0_15px_35px_rgba(15,23,42,.12)]">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-            <span className="flex items-center gap-1 text-[9px] font-bold"><Workflow className="h-3 w-3 text-indigo-500" /> Growth workspace</span>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-1.5">
-            {['Plan', 'Create', 'Review'].map((label, index) => <div key={label} className={`rounded-md px-1.5 py-2 text-center text-[8px] font-semibold ${index === 1 ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-500'}`}>{label}</div>)}
-          </div>
-          <div className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-[8px] text-slate-500"><span className="font-semibold text-slate-700">Campaign idea</span><br />Ready for specialist review</div>
+        <div className="absolute left-[49%] top-[43%] w-[25%] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-blue-200 bg-white p-2.5 shadow-[0_15px_35px_rgba(37,99,235,.14)]">
+          <div className="flex items-center gap-1.5 text-[9px] font-extrabold text-slate-900"><span className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-600 text-white"><Sparkles className="h-3 w-3" /></span> KaushalStack</div>
+          <p className="mt-2 text-[8px] leading-relaxed text-slate-500">Maps your context and assembles the right customer team.</p>
+          <div className="mt-2 flex items-center gap-1 text-[8px] font-semibold text-blue-600"><BriefcaseBusiness className="h-3 w-3" /> Customer workspace</div>
         </div>
 
-        <div className="absolute right-4 top-[34%] w-[22%] space-y-2">
-          {['Strategist', 'Creator', 'Analyst'].map((role, index) => (
-            <div key={role} className={`ks-agent-chip flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-sm ${index === 1 ? 'ks-agent-chip-delay' : ''}`}>
-              <span className={`flex h-4 w-4 items-center justify-center rounded-full ${index === 0 ? 'bg-blue-100 text-blue-600' : index === 1 ? 'bg-indigo-100 text-indigo-600' : 'bg-cyan-100 text-cyan-600'}`}><Bot className="h-2.5 w-2.5" /></span>
-              <span className="truncate text-[8px] font-semibold text-slate-600">{role}</span>
-            </div>
-          ))}
+        <div className="absolute right-3 top-[31%] w-[26%]">
+          <div className="relative mx-auto flex aspect-square w-full items-center justify-center rounded-full border border-blue-200 bg-blue-50/70">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-center text-[7px] font-extrabold leading-tight text-white shadow-md">Customer<br />roundtable</div>
+            {['Marketing', 'Research', 'Sales', 'Support'].map((role, index) => {
+              const positions = ['-left-2 top-1/2 -translate-y-1/2', 'left-1/2 -top-2 -translate-x-1/2', '-right-2 top-1/2 -translate-y-1/2', 'bottom-0 left-1/2 translate-y-1/2 -translate-x-1/2'];
+              return <span key={role} className={`ks-agent-chip absolute ${positions[index]} flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-sky-100 text-blue-700 shadow-sm`} title={role}><Bot className="h-3 w-3" /></span>;
+            })}
+          </div>
+          <p className="mt-3 text-center text-[8px] font-bold text-slate-600"><UsersRound className="mr-1 inline h-3 w-3 text-blue-600" />One team for this customer</p>
         </div>
 
-        <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-white px-3 py-2">
-          <span className="text-[10px] font-semibold text-slate-600">Shared context becomes useful work.</span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 text-white"><Sparkles className="h-3 w-3" /></span>
+        <div className="absolute bottom-4 left-[32%] right-4 rounded-xl border border-blue-100 bg-white/95 p-2.5 shadow-sm">
+          <div className="flex items-center gap-1.5 text-[8px] font-bold text-slate-600"><MessageCircleMore className="h-3 w-3 text-blue-600" /> Future conversations route to this roundtable</div>
+          <div className="mt-2 flex flex-wrap gap-1">{FUTURE_WORK.map(item => <span key={item} className="rounded-full bg-blue-50 px-1.5 py-1 text-[7px] font-bold text-blue-700">{item}</span>)}</div>
         </div>
       </div>
     </div>

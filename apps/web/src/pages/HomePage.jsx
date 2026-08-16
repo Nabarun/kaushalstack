@@ -526,7 +526,7 @@ const HomePage = () => {
                     without reproducing its screenshots or visual assets. */}
                 <div className="order-2 lg:order-1">
                   <WorkflowVisualizer className="aspect-square max-h-[440px] border border-slate-200 shadow-2xl" />
-                  <p className="text-center text-xs text-muted-foreground mt-3">Connect your context. Build the workflow. Let the right team move it forward.</p>
+                  <p className="text-center text-xs text-muted-foreground mt-3">One customer context. One dedicated team. Every future conversation in the right hands.</p>
                 </div>
 
                 {/* RIGHT: Prompt-first team builder */}
