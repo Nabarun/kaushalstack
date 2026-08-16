@@ -112,3 +112,16 @@
     text-wrap: balance;
   }
 }
+
+/* Public marketplace — intentionally isolated from the community product UI.
+   The tonal icon family makes a dense capability catalog easier to scan without
+   relying on decorative imagery. */
+.ks-marketplace .ks-icon-orange { background: #fff0e5; color: #eb6513; }
+.ks-marketplace .ks-icon-violet { background: #f0edff; color: #7757d9; }
+.ks-marketplace .ks-icon-cyan { background: #e5f7fa; color: #138aa8; }
+.ks-marketplace .ks-icon-blue { background: #e9f1ff; color: #3975d6; }
+.ks-marketplace .ks-icon-green { background: #e8f8ed; color: #248c55; }
+.ks-marketplace .ks-icon-pink { background: #ffebf4; color: #d54c82; }
+.ks-marketplace .ks-icon-teal { background: #e3f8f4; color: #15836f; }
+.ks-marketplace .ks-icon-amber { background: #fff5dc; color: #be7808; }
+.ks-marketplace .ks-icon-rose { background: #ffeaec; color: #c44c62; }

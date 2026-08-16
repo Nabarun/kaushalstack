@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Sparkles, Users, Trophy, Code, TrendingUp, Send, RotateCcw, Heart, MessageCircle, Swords, Play, X, Lightbulb, Megaphone, Paperclip, Loader2 } from 'lucide-react';
 import SkillDetailModal from '@/components/SkillDetailModal.jsx';
 import AddSkillForm from '@/components/AddSkillForm.jsx';
-import DemoVideoCard from '@/components/DemoVideoCard.jsx';
+import CapabilityVisualizer from '@/components/CapabilityVisualizer.jsx';
 import { useAuth } from '@/contexts/AuthContext.jsx';
 import { avatarUrl } from '@/lib/avatar';
 import pb from '@/lib/pocketbaseClient';
@@ -521,12 +521,22 @@ const HomePage = () => {
                 transition={{ duration: 0.4 }}
                 className="grid lg:grid-cols-[1.1fr_1fr] gap-8 lg:gap-12 items-start mb-2"
               >
-                {/* LEFT: Demo video */}
+                {/* LEFT: A live Three.js map makes the product promise tangible
+                    before a visitor starts the team-builder conversation. */}
                 <div className="order-2 lg:order-1">
-                  <DemoVideoCard src="/demo-jun14.mp4" poster="/demo-jun14-poster.jpg" duration="2 min" />
-                  <p className="text-center text-xs text-muted-foreground mt-3">
-                    🎥 Latest walkthrough — Maya designs, Ananya builds, you download.
-                  </p>
+                  <div className="relative aspect-square max-h-[440px] overflow-hidden rounded-[2rem] border border-slate-800 bg-[#10131d] shadow-2xl">
+                    <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_16%_18%,rgba(255,125,25,.27),transparent_29%),radial-gradient(circle_at_78%_63%,rgba(83,93,255,.24),transparent_28%),linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] [background-size:auto,auto,44px_44px,44px_44px]" />
+                    <CapabilityVisualizer className="absolute inset-0 h-full w-full" />
+                    <div className="absolute left-5 top-5 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-white backdrop-blur-sm">
+                      <span className="block font-semibold text-orange-200">Your stack, connected</span>
+                      <span className="text-slate-400">teams · tools · momentum</span>
+                    </div>
+                    <div className="absolute bottom-5 left-5 right-5 flex items-center justify-between rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300 backdrop-blur-sm">
+                      <span>Turn a goal into a team</span>
+                      <Sparkles className="h-4 w-4 text-orange-300" />
+                    </div>
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground mt-3">A connected workspace for every stage of the work.</p>
                 </div>
 
                 {/* RIGHT: Headline + input + compact trending */}
