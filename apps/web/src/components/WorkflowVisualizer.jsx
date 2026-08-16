@@ -15,7 +15,7 @@ export default function WorkflowVisualizer({ className = '' }) {
   return (
     <div className={`ks-workflow relative isolate overflow-hidden rounded-[2rem] bg-[#fbfdff] text-slate-950 ${className}`} aria-label="Customer context flows into KaushalStack and creates a dedicated AI roundtable">
       <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(37,99,235,.045)_1px,transparent_1px),linear-gradient(90deg,rgba(37,99,235,.045)_1px,transparent_1px)] [background-size:28px_28px]" />
-      <div className="relative min-h-[420px] p-5 sm:min-h-[470px] sm:p-7">
+      <div className="relative min-h-[340px] p-5 sm:min-h-[390px] sm:p-7">
         <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-[.16em] text-slate-400">
           <span>Customer context</span><span>Dedicated AI team</span>
         </div>

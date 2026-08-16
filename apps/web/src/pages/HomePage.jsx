@@ -50,6 +50,12 @@ const DEFAULT_EXAMPLES = [
 // Apps that kaushalstack powers — i.e. real products built by/with the community.
 const POWERED_APPS = [
   {
+    name: 'Birbal Biryani',
+    description: "A biryani-first kitchen inspired by Birbal's quick wit and generous spirit. Serving Bengaluru since 2003 with handpicked spices, made-to-order dishes and 100% HALAL-certified meat.",
+    url: 'https://birbalbiryani.com/',
+    domain: 'birbalbiryani.com',
+  },
+  {
     name: 'ReFunction Rehab',
     description: 'Physiotherapy clinic in Bangalore — site, design, daily growth report.',
     url: 'https://refunctionrehab.in/',
@@ -497,7 +503,7 @@ const HomePage = () => {
     <>
       <Helmet>
         <title>KaushalStack — AI Agent Team Builder</title>
-        <meta name="description" content="Describe your project and kaushalstack assembles the right team of AI agent skills for you." />
+        <meta name="description" content="KaushalStack turns every customer’s context into a dedicated AI team for marketing, research, sales, services and support." />
       </Helmet>
 
       <div className="min-h-screen">
@@ -513,19 +519,36 @@ const HomePage = () => {
 
           <div className={`relative flex flex-col w-full px-4 sm:px-6 py-12 ${showSplitHero ? 'max-w-7xl mx-auto' : 'max-w-4xl mx-auto'}`}>
 
-            {/* ── Full-width customer-context animation (logged-out, empty) ── */}
+            {/* ── Customer-context hero (logged-out, empty) ── */}
             {showSplitHero && (
-              <motion.div
+              <motion.section
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
-                className="mb-2"
+                className="relative isolate mb-2 overflow-hidden rounded-[2rem] bg-[#071b3a] text-white shadow-[0_28px_75px_rgba(15,23,42,.20)]"
               >
-                <div>
-                  <WorkflowVisualizer className="border border-slate-200 shadow-2xl" />
-                  <p className="text-center text-xs text-muted-foreground mt-3">One customer context. One dedicated team. Every future conversation in the right hands.</p>
+                <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_13%_8%,rgba(59,130,246,.35),transparent_30%),radial-gradient(circle_at_90%_80%,rgba(34,211,238,.20),transparent_31%),linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] [background-size:auto,auto,56px_56px,56px_56px]" />
+                <div className="relative grid items-center gap-10 px-6 py-10 sm:px-10 sm:py-14 lg:min-h-[640px] lg:grid-cols-[.9fr_1.1fr] lg:px-14 lg:py-16">
+                  <div className="max-w-xl lg:text-left">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-3.5 py-2 text-xs font-semibold uppercase tracking-[.13em] text-blue-200 backdrop-blur">
+                      <Sparkles className="h-3.5 w-3.5" /> Customer AI operating system
+                    </div>
+                    <h1 className="mt-6 text-4xl font-semibold leading-[.98] tracking-[-.06em] sm:text-5xl lg:text-6xl">
+                      One customer. <span className="bg-gradient-to-r from-blue-200 via-sky-300 to-cyan-200 bg-clip-text text-transparent">One team that knows them.</span>
+                    </h1>
+                    <p className="mt-6 max-w-lg text-base leading-relaxed text-slate-300 sm:text-lg">
+                      Connect the signals you already have—assets, digital presence, social handles and conversations. KaushalStack turns them into a dedicated roundtable for every customer-facing decision.
+                    </p>
+                    <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-slate-300 sm:text-sm">
+                      {['Marketing', 'Research', 'Sales', 'Services', 'Support'].map(item => <span key={item} className="inline-flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-sky-300" />{item}</span>)}
+                    </div>
+                  </div>
+                  <div className="relative rounded-[1.6rem] border border-white/15 bg-white/[.055] p-2 shadow-[0_20px_60px_rgba(0,0,0,.24)] backdrop-blur-sm sm:p-3">
+                    <WorkflowVisualizer className="border border-slate-200 shadow-2xl" />
+                    <p className="absolute -bottom-7 left-0 right-0 text-center text-xs text-slate-300 lg:-bottom-8">One context. Every future conversation, in the right hands.</p>
+                  </div>
                 </div>
-              </motion.div>
+              </motion.section>
             )}
 
             {/* First-visit member welcome — soft banner above the centered prompt */}
