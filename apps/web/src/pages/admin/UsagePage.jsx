@@ -15,6 +15,7 @@ const PROVIDER_META = {
     anthropic: { label: 'Anthropic · Claude', dot: 'bg-orange-500',  fill: '#f97316' },
     google:    { label: 'Google · Gemini',    dot: 'bg-blue-500',    fill: '#3b82f6' },
     xai:       { label: 'xAI · Grok',         dot: 'bg-purple-500',  fill: '#a855f7' },
+    sarvam:    { label: 'Sarvam · Saaransh',  dot: 'bg-teal-500',    fill: '#14b8a6' },
 };
 const provLabel = (id) => PROVIDER_META[id]?.label || id;
 const provDot   = (id) => PROVIDER_META[id]?.dot || 'bg-muted-foreground/60';

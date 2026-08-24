@@ -14,6 +14,7 @@ import notificationsRouter from './notifications.js';
 import openaiModelsRouter from './openai-models.js';
 import buildRouter from './build.js';
 import studioRouter from './studio.js';
+import studioNextRouter from './studio-next.js';
 import sitebuilderRouter from './sitebuilder.js';
 import mockupRouter from './mockup.js';
 import creativeRouter from './creative.js';
@@ -25,6 +26,7 @@ import ttsRouter from './tts.js';
 import partnerRouter from './partner.js';
 import blogRouter from './blog.js';
 import socialConnectRouter from './social-connect.js';
+import ingestUsageRouter from './ingest-usage.js';
 
 const router = Router();
 
@@ -47,6 +49,9 @@ export default () => {
     router.use('/', notificationsRouter);
     router.use('/', openaiModelsRouter);
     router.use('/', buildRouter);
+    // studio-next before studio: it rewrites its not-yet-migrated endpoints
+    // onto the classic /build/:id/studio/* handlers, which must come after.
+    router.use('/', studioNextRouter);
     router.use('/', studioRouter);
     router.use('/', sitebuilderRouter);
     router.use('/', mockupRouter);
@@ -59,6 +64,7 @@ export default () => {
     router.use('/', partnerRouter);
     router.use('/', blogRouter);
     router.use('/', socialConnectRouter);
+    router.use('/', ingestUsageRouter);
 
     return router;
 };
