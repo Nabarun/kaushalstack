@@ -57,7 +57,19 @@ USE TAILWIND CSS — via the official CDN, no build step needed:
 - Load Tailwind in <head>: <script src="https://cdn.tailwindcss.com"></script>
 - Use utility classes directly in HTML (bg-gradient-to-br from-indigo-600 to-purple-600, text-6xl font-bold tracking-tight, shadow-2xl rounded-2xl).
 - For custom theme tokens (extended colors, custom fonts), configure inline: <script>tailwind.config={theme:{extend:{...}}}</script> placed AFTER the Tailwind CDN script.
-- Load ONE Google Font in <head> via <link> (Inter, Plus Jakarta Sans, Geist, Manrope, Space Grotesk) and set it as the default in tailwind.config.
+- TYPOGRAPHY — the single biggest driver of whether this site looks like ITS OWN BRAND or like every other generated page. Load TWO Google Fonts in <head>: a DISPLAY face for headings and a BODY face for running text. Register both in tailwind.config (\`fontFamily: { display: [...], sans: [...] }\`) and use \`font-display\` on headings.
+  NEVER default to Inter. Inter, Roboto, Open Sans, Lato, Montserrat and Poppins are the tell-tale "AI website" faces — as a display face they make the page indistinguishable from everyone else's. They are permitted ONLY as a body face, and only when the pairing genuinely wants a neutral.
+  Choose the DISPLAY face from the band that matches THIS business's character:
+  • Heritage / interiors / jewellery / weddings / craft → Cormorant Garamond, EB Garamond, Marcellus, Italiana, Cinzel, Prata, Gilda Display
+  • Editorial / advisory / clinics / consultancies → Fraunces, Newsreader, Spectral, Source Serif 4, Crimson Pro, Lora
+  • Fashion / boutique / lifestyle → Playfair Display, Bodoni Moda, DM Serif Display, Tenor Sans, Jost
+  • Food / hospitality / warmth → Bricolage Grotesque, Rozha One, Frank Ruhl Libre, Alegreya, Caprasimo
+  • Tech / SaaS / fintech / dashboards → Space Grotesk, Sora, Outfit, Manrope, Geist, Plus Jakarta Sans, Archivo
+  • Sport / events / youth / bold consumer → Anton, Bebas Neue, Syne, Chivo, Archivo Black
+  • Industrial / manufacturing / logistics → Oswald, Barlow Condensed, Saira, Rajdhani, IBM Plex Sans
+  • Indic-language or India-first brands → Tiro Devanagari, Mukta, Hind, Baloo 2, Yatra One (pair with a Latin body face)
+  Pair the BODY face for CONTRAST, not similarity — a serif display wants a clean sans body, and vice versa. Good bodies: Karla, Work Sans, DM Sans, Public Sans, Figtree, Instrument Sans, Mulish, Nunito Sans, Source Sans 3, IBM Plex Sans.
+  Self-check before you write: if your stated reason for the pairing would apply equally well to a completely different client, you have picked the generic option — pick again.
 - Keep a small inline <style> block in <head> ONLY for things Tailwind can't express cleanly (custom keyframes, complex multi-stop gradients). Keep it under 100 lines. There is NO browser-frame chrome to write — the page is full-viewport.
 - styles.css can be skipped or kept minimal. The landing page itself uses Tailwind utilities, not styles.css.
 
@@ -467,7 +479,7 @@ DEFAULT (if not specified):
 
 USE TAILWIND CSS via CDN:
 <script src="https://cdn.tailwindcss.com"></script>
-ONE Google Font in <head> via <link> (e.g. Inter, Plus Jakarta Sans). Set as default in tailwind.config.
+TWO Google Fonts in <head> via <link>: a display face for screen titles/numbers and a body face for UI text. Register both in tailwind.config. Do NOT default to Inter — pick a display face that suits the app's category (fintech → Space Grotesk / Archivo; wellness → Fraunces / Lora; social → Syne / Outfit; utility → IBM Plex Sans / Barlow), and pair it with a legible body face at 15-17px. State the pairing and why it fits THIS app before writing files.
 
 WHAT TO INCLUDE PER SCREEN:
 - Status bar (time + icons)
