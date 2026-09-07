@@ -19,7 +19,9 @@ import { sessionDir } from './workspace.js';
 
 const VPS_HOST     = process.env.DEPLOY_VPS_HOST     || '187.127.147.87';
 const VPS_USER     = process.env.DEPLOY_VPS_USER     || 'root';
-const VPS_PASSWORD = process.env.DEPLOY_VPS_PASSWORD || 'R@jeshshukl@123';
+// No fallback: the VPS password must come from the environment (DEPLOY_VPS_PASSWORD).
+const VPS_PASSWORD = process.env.DEPLOY_VPS_PASSWORD;
+if (!VPS_PASSWORD) console.error('[deployer] DEPLOY_VPS_PASSWORD is not set; deployments will fail until it is');
 const REMOTE_ROOT  = process.env.DEPLOY_REMOTE_ROOT  || '/var/www/kaushal-deploys';
 const HTTP_PORT    = process.env.DEPLOY_HTTP_PORT    || '8088';
 

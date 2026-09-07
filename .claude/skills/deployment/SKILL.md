@@ -33,7 +33,7 @@ Host nginx on VPS handles SSL termination and proxies public traffic → Docker 
 
 All VPS commands use this pattern:
 ```bash
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
+sshpass -p '<rotated — never in this file again>' ssh -o StrictHostKeyChecking=no \
   -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
   root@187.127.147.87 "<command>"
 ```
@@ -44,19 +44,17 @@ sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
 
 ```bash
 # Install Docker, nginx, certbot on the VPS
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "curl -fsSL https://get.docker.com | sh && apt-get install -y nginx certbot python3-certbot-nginx && mkdir -p /opt/kaushalstack"
 
 # Copy compose files to VPS
-sshpass -p 'R@jeshshukl@123' scp -o StrictHostKeyChecking=no \
+sshpass -p '<rotated — never in this file again>' scp -o StrictHostKeyChecking=no \
   -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
   docker-compose.yml docker-compose.prod.yml deploy/nginx-host.conf \
   root@187.127.147.87:/opt/kaushalstack/
 
 # Create .env on VPS
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
+sshpass -p '<rotated — never in this file again>' ssh -o StrictHostKeyChecking=no \
   -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
   root@187.127.147.87 'cat > /opt/kaushalstack/.env << EOF
 PB_SUPERUSER_EMAIL=admin@kaushalstack.com
@@ -74,25 +72,19 @@ PROXY_ENTRANCE_ID=
 EOF'
 
 # Set up host nginx config
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "cp /opt/kaushalstack/deploy/nginx-host.conf /etc/nginx/sites-available/kaushalstack && \
    ln -sf /etc/nginx/sites-available/kaushalstack /etc/nginx/sites-enabled/kaushalstack && \
    rm -f /etc/nginx/sites-enabled/default && \
    nginx -t && systemctl reload nginx"
 
 # Get SSL certificate (DNS must already point to 187.127.147.87)
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "certbot --nginx -d kaushalstack.com -d www.kaushalstack.com \
    --non-interactive --agree-tos -m sengupta.nabarun@gmail.com --redirect"
 
 # Open firewall
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "ufw allow OpenSSH && ufw allow 'Nginx Full' && ufw --force enable"
 ```
 
@@ -127,9 +119,7 @@ First update `docker-compose.prod.yml` to use the Hub images instead of building
 
 The prod compose already sets `restart: always`. On the VPS we pull and restart:
 ```bash
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "cd /opt/kaushalstack && \
    docker pull nabarun1/kaushalstack-web:latest && \
    docker pull nabarun1/kaushalstack-api:latest && \
@@ -139,17 +129,13 @@ sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
 
 ### Step 5 — Verify containers are running
 ```bash
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 ```
 
 ### Step 6 — Check API logs for errors
 ```bash
-sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
-  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
-  root@187.127.147.87 \
+ssh refunction-vps \
   "docker logs kaushalstack-api-1 --tail 20"
 ```
 
@@ -173,7 +159,7 @@ sshpass -p 'R@jeshshukl@123' ssh -o StrictHostKeyChecking=no \
 |------|-------|
 | VPS IP | `187.127.147.87` |
 | VPS user | `root` |
-| VPS password | `R@jeshshukl@123` |
+| VPS password | `<rotated — never in this file again>` |
 | App directory | `/opt/kaushalstack` |
 | PocketBase data | `/opt/kaushalstack/pb_data` (persisted volume) |
 | Docker Hub org | `nabarun1` |

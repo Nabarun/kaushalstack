@@ -2,8 +2,19 @@ import React from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Check, Layers3, Sparkles } from 'lucide-react';
+import DemoVideoCard from '@/components/DemoVideoCard';
 
 const PRODUCTS = [
+  {
+    name: 'Payroll',
+    eyebrow: 'Payroll & HR for multi-outlet businesses',
+    description: 'Monthly payroll for restaurants, retail chains, clinics and salons: day-rate and salaried staff across every branch, salary slips and HR letters, encrypted bank and identity data, outlet-manager access. Sign up, pay online, run payroll the same afternoon.',
+    points: ['₹2,000 a month or ₹20,000 a year, plus GST', 'Slips, appointment, experience and warning letters on your letterhead', 'ESI, PF, advances, month locking, audit trail, analytics'],
+    image: '/payroll-thumbnail.png',
+    tone: 'payroll',
+    href: 'https://payroll.kaushalstack.com',
+    cta: 'See plans and sign up',
+  },
   {
     name: 'Marketing Studio',
     eyebrow: 'Campaign creation workspace',
@@ -15,9 +26,21 @@ const PRODUCTS = [
   {
     name: 'Interior Visualizer',
     eyebrow: 'Design presentation toolkit',
-    description: 'Turn an early floor plan or site photo into options that are easy for clients to see, compare and approve.',
     points: ['Moodboards, palettes and layout thinking', 'Photoreal room renders and walkthrough stills', 'A clearer path to design sign-off'],
+    video: '/interior-visualizer-demo.mp4',
+    videoPoster: '/interior-visualizer-demo-poster.jpg',
+    videoDuration: '3 min',
     tone: 'interior',
+  },
+  {
+    name: 'KaushalStack E-commerce',
+    eyebrow: 'Storefront and order desk',
+    description: 'A complete shop for a business that already sells — catalogue, enquiries and orders in one place, with the owner in control of everything a customer sees.',
+    points: ['Owner-editable catalogue that publishes instantly', 'Orders tracked from enquiry through to delivery', 'A shop the owner runs without a developer'],
+    video: '/ecommerce-demo.mp4',
+    videoPoster: '/ecommerce-demo-poster.jpg',
+    videoDuration: '2 min',
+    tone: 'ecommerce',
   },
 ];
 
@@ -26,7 +49,7 @@ export default function ProductsPage() {
     <div className="bg-white text-slate-950">
       <Helmet>
         <title>Our Products — KaushalStack</title>
-        <meta name="description" content="Explore KaushalStack products for marketing creation and interior visualisation." />
+        <meta name="description" content="Explore KaushalStack products: payroll for multi-outlet businesses, marketing creation, interior visualisation and e-commerce." />
       </Helmet>
 
       <section className="relative overflow-hidden bg-[#071b3a] px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
@@ -43,8 +66,16 @@ export default function ProductsPage() {
           {PRODUCTS.map((product, index) => (
             <article key={product.name} className={`grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_15px_50px_rgba(15,23,42,.07)] lg:grid-cols-2 ${index % 2 ? 'lg:[&>*:first-child]:order-2' : ''}`}>
               <div className={`relative min-h-[300px] overflow-hidden ${product.tone === 'interior' ? 'bg-[#2a211d]' : 'bg-slate-100'}`}>
-                {product.image ? (
-                  <img src={product.image} alt="Marketing Studio workspace" className="h-full w-full object-cover object-center transition duration-700 hover:scale-[1.025]" />
+                {product.video ? (
+                  <DemoVideoCard
+                    src={product.video}
+                    poster={product.videoPoster}
+                    duration={product.videoDuration}
+                    aspect="h-full"
+                    className="rounded-none border-0 shadow-none"
+                  />
+                ) : product.image ? (
+                  <img src={product.image} alt={`${product.name} workspace`} className="h-full w-full object-cover object-top transition duration-700 hover:scale-[1.025]" />
                 ) : (
                   <>
                     <div className="absolute inset-0 opacity-80 [background-image:linear-gradient(120deg,rgba(255,184,108,.45),transparent_45%),radial-gradient(circle_at_74%_25%,rgba(250,235,200,.55),transparent_30%)]" />
@@ -53,14 +84,19 @@ export default function ProductsPage() {
                     <div className="absolute right-[17%] top-[22%] flex h-16 w-16 items-center justify-center rounded-full border border-white/30 bg-white/15 text-white backdrop-blur"><Layers3 className="h-6 w-6" /></div>
                   </>
                 )}
-                <div className="absolute inset-x-5 bottom-5 rounded-xl border border-white/25 bg-slate-950/55 px-3 py-2 text-xs font-semibold text-white backdrop-blur">{product.name}</div>
               </div>
               <div className="flex flex-col p-7 sm:p-10 lg:p-12">
                 <p className="text-xs font-bold tracking-[.16em] text-blue-600 uppercase">{product.eyebrow}</p>
                 <h2 className="mt-4 text-4xl font-semibold tracking-[-.05em]">{product.name}</h2>
-                <p className="mt-5 max-w-md text-lg leading-relaxed text-slate-600">{product.description}</p>
+                {product.description && (
+                  <p className="mt-5 max-w-md text-lg leading-relaxed text-slate-600">{product.description}</p>
+                )}
                 <ul className="mt-8 space-y-3 text-sm text-slate-600">{product.points.map(point => <li key={point} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />{point}</li>)}</ul>
-                <Link to="/contact" className="mt-10 inline-flex w-fit items-center gap-2 text-sm font-bold text-slate-950 transition hover:text-blue-600">Talk to us about {product.name} <ArrowRight className="h-4 w-4" /></Link>
+                {product.href ? (
+                  <a href={product.href} target="_blank" rel="noopener noreferrer" className="mt-10 inline-flex w-fit items-center gap-2 text-sm font-bold text-slate-950 transition hover:text-blue-600">{product.cta || `Open ${product.name}`} <ArrowRight className="h-4 w-4" /></a>
+                ) : (
+                  <Link to="/contact" className="mt-10 inline-flex w-fit items-center gap-2 text-sm font-bold text-slate-950 transition hover:text-blue-600">Talk to us about {product.name} <ArrowRight className="h-4 w-4" /></Link>
+                )}
               </div>
             </article>
           ))}
