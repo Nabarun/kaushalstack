@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { adminApi } from '@/lib/adminApi';
 import { fmt$, fmtN, fmtRelative } from '@/lib/adminFormat';
 import { mergeCustomers } from '@/lib/mergeCustomers';
-import { PartnerStatsPanel, RoundTableStatsPanel } from '@/components/admin/PlatformStats';
+import { RoundTableStatsPanel } from '@/components/admin/PlatformStats';
 import { TeamGrid } from '@/components/admin/TeamGrid';
 import { toast } from 'sonner';
 import {
@@ -580,7 +580,6 @@ export default function CustomersPage() {
         <>
             <Helmet><title>Customers · Admin</title></Helmet>
 
-            <PartnerStatsPanel />
             <RoundTableStatsPanel />
 
             <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">

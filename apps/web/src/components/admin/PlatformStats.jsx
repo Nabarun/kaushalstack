@@ -1,11 +1,13 @@
-// Platform-wide stat panels shown at the top of the Customers page.
-// Moved out of the old BusinessesPage when Businesses and Teams merged.
+// Platform-wide round-table stats shown at the top of the Customers page.
+// Moved out of the old BusinessesPage when Businesses and Teams merged; the
+// partner stats panel that sat beside it was retired — the AI Usage tab
+// covers partner spend, calls and tokens in more detail.
 
 import React, { useEffect, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
-import { fmt$, fmtN, fmtDate } from '@/lib/adminFormat';
+import { fmtN } from '@/lib/adminFormat';
 import { toast } from 'sonner';
-import { Users, DollarSign, Zap, Activity, MessageSquare, KeyRound, AlertTriangle, UserCheck } from 'lucide-react';
+import { MessageSquare, KeyRound, AlertTriangle, UserCheck } from 'lucide-react';
 
 const RANGES = [
     { key: 'today', label: 'Today' },
@@ -42,74 +44,6 @@ function RangeTabs({ range, setRange }) {
                     {r.label}
                 </button>
             ))}
-        </div>
-    );
-}
-
-export function PartnerStatsPanel() {
-    const [range, setRange] = useState('mtd');
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        setLoading(true);
-        adminApi.getPartnerStats(range)
-            .then(setStats)
-            .catch(err => toast.error('Stats failed: ' + err.message))
-            .finally(() => setLoading(false));
-    }, [range]);
-
-    const t = stats?.totals;
-
-    return (
-        <div className="mb-8 space-y-4">
-            <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Partner Overview</h2>
-                <RangeTabs range={range} setRange={setRange} />
-            </div>
-
-            {loading ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />)}
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <StatCard icon={Users}      label="Total partners" value={fmtN(t?.partners)} sub={`${fmtN(t?.active_partners)} active`} />
-                    <StatCard icon={DollarSign} label="Spend"          value={fmt$(t?.cost_usd)} sub={RANGES.find(r => r.key === range)?.label} />
-                    <StatCard icon={Zap}        label="LLM calls"      value={fmtN(t?.calls)}    sub="usage events" />
-                    <StatCard icon={Activity}   label="Tokens"         value={fmtN((t?.input_tokens || 0) + (t?.output_tokens || 0))} sub={`${fmtN(t?.input_tokens)} in · ${fmtN(t?.output_tokens)} out`} />
-                </div>
-            )}
-
-            {!loading && stats?.partners?.length > 0 && (
-                <div className="rounded-xl border overflow-hidden overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead className="bg-muted/50">
-                            <tr>
-                                <th className="text-left px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Partner</th>
-                                <th className="text-right px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Spend</th>
-                                <th className="text-right px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Calls</th>
-                                <th className="text-right px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Tokens</th>
-                                <th className="text-right px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-muted-foreground">Last active</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {stats.partners.map(p => (
-                                <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                                    <td className="px-4 py-2.5">
-                                        <span className={`inline-block w-2 h-2 rounded-full mr-2 ${p.calls > 0 ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
-                                        {p.name}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(p.cost_usd)}</td>
-                                    <td className="px-4 py-2.5 text-right tabular-nums">{fmtN(p.calls)}</td>
-                                    <td className="px-4 py-2.5 text-right tabular-nums">{fmtN(p.input_tokens + p.output_tokens)}</td>
-                                    <td className="px-4 py-2.5 text-right text-muted-foreground">{fmtDate(p.last_active)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
         </div>
     );
 }

@@ -87,9 +87,6 @@ export const adminApi = {
         }).then(handle);
     },
 
-    getPartnerStats(range = 'mtd') {
-        return fetch(`${API_BASE}/admin/partner-stats?range=${range}`, { headers: headers() }).then(handle);
-    },
     listPartners() {
         return fetch(`${API_BASE}/admin/partners`, { headers: headers() }).then(handle);
     },
