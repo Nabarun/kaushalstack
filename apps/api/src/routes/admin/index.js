@@ -13,6 +13,7 @@ import environmentsRouter from './environments.js';
 import roundtableStatsRouter from './roundtable-stats.js';
 import sprintsRouter from './sprints.js';
 import crmRouter from './crm.js';
+import growthMeasuresRouter from './growth-measures.js';
 import { ensureAdminCollections } from './collections.js';
 
 ensureAdminCollections().catch(() => {});
@@ -32,5 +33,6 @@ router.use(environmentsRouter);
 router.use(roundtableStatsRouter);
 router.use(sprintsRouter);
 router.use(crmRouter);
+router.use(growthMeasuresRouter);
 
 export default router;

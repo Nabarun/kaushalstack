@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '@/contexts/AdminAuthContext.jsx';
-import { Shield, Briefcase, GitPullRequest, LogOut, FileText, Store, FolderOpen, Rocket, FlaskConical, Activity, Handshake } from 'lucide-react';
+import { Shield, Briefcase, GitPullRequest, LogOut, FileText, Store, FolderOpen, Rocket, FlaskConical, Activity, Handshake, TrendingUp } from 'lucide-react';
 
 export default function AdminLayout() {
     const { adminUser, logout } = useAdminAuth();
@@ -39,6 +39,9 @@ export default function AdminLayout() {
                     </NavLink>
                     <NavLink to="/admin/crm" className={linkClass}>
                         <Handshake className="w-4 h-4" /> CRM
+                    </NavLink>
+                    <NavLink to="/admin/growth" className={linkClass}>
+                        <TrendingUp className="w-4 h-4" /> Growth
                     </NavLink>
                     <NavLink to="/admin/marketplace" className={linkClass}>
                         <Store className="w-4 h-4" /> Marketplace

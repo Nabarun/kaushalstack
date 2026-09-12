@@ -44,6 +44,7 @@ import SprintPage from '@/pages/admin/SprintPage.jsx';
 import TestsPage from '@/pages/admin/TestsPage.jsx';
 import UsagePage from '@/pages/admin/UsagePage.jsx';
 import CrmPage from '@/pages/admin/CrmPage.jsx';
+import GrowthPage from '@/pages/admin/GrowthPage.jsx';
 import PublicMarketplacePage from '@/pages/PublicMarketplacePage.jsx';
 import ProductsPage from '@/pages/ProductsPage.jsx';
 
@@ -177,6 +178,7 @@ function App() {
                 <Route path="tests" element={<TestsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="crm" element={<CrmPage />} />
+                <Route path="growth" element={<GrowthPage />} />
                 <Route path="marketplace" element={<MarketplacePage />} />
                 <Route path="marketplace/:featureId" element={<MarketplaceFeaturePage />} />
                 <Route path="folders" element={<FoldersPage />} />

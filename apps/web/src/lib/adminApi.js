@@ -182,6 +182,18 @@ export const adminApi = {
         }).then(handle);
     },
     // CRM
+    growthMeasures() {
+        return fetch(`${API_BASE}/admin/growth-measures`, { headers: headers() }).then(handle);
+    },
+    createGrowthMeasure(data) {
+        return fetch(`${API_BASE}/admin/growth-measures`, { method: 'POST', headers: headers(), body: JSON.stringify(data) }).then(handle);
+    },
+    updateGrowthMeasure(id, data) {
+        return fetch(`${API_BASE}/admin/growth-measures/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(data) }).then(handle);
+    },
+    deleteGrowthMeasure(id) {
+        return fetch(`${API_BASE}/admin/growth-measures/${id}`, { method: 'DELETE', headers: headers() }).then(handle);
+    },
     crmAll() {
         return fetch(`${API_BASE}/admin/crm`, { headers: headers() }).then(handle);
     },
