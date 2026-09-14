@@ -68,15 +68,23 @@ function BillingBadge({ w }) {
     return <Badge variant="outline" className={tone} title={b.message || ''}>{tier} · {b.cadence || ''} {status}</Badge>;
 }
 
-function RouteBadge({ state }) {
+function RouteBadge({ state, tls }) {
+    // Route = the Traefik file is on disk; TLS = the host actually serves a
+    // trusted certificate. A route with a bad certificate is what a customer
+    // sees as a browser security warning, so it outranks "route ok".
     const map = {
-        ok: ['Domain live', 'bg-emerald-500'],
+        ok: ['Route ok', 'bg-emerald-500'],
         stale: ['Route stale', 'bg-amber-500'],
         missing: ['Route missing', 'bg-red-500'],
         disabled: ['Routing off', 'bg-muted-foreground/40'],
     };
-    const [label, dot] = map[state] || ['Unknown', 'bg-muted-foreground/40'];
-    return <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title={`Traefik route file: ${state}`}><span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />{label}</span>;
+    let [label, dot] = map[state] || ['Unknown', 'bg-muted-foreground/40'];
+    let title = `Traefik route file: ${state}`;
+    if (state === 'ok' && tls === 'ok') { label = 'Domain live'; title += ' · certificate trusted'; }
+    else if (tls === 'expiring') { label = 'Certificate expiring'; dot = 'bg-amber-500'; title += ' · certificate expires in under 14 days — renewal may have failed'; }
+    else if (tls === 'invalid') { label = 'Certificate invalid'; dot = 'bg-red-500'; title += ' · host serves an untrusted certificate (ACME failed or pending)'; }
+    else if (tls === 'unreachable') { label = 'Host unreachable'; dot = 'bg-red-500'; title += ' · TLS probe could not connect'; }
+    return <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title={title}><span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />{label}</span>;
 }
 
 function Stat({ icon: Icon, label, value }) {
@@ -253,7 +261,7 @@ export default function DesignerPage({ product = 'designer' }) {
                                     <td className="px-4 py-3">
                                         <div className="font-medium">{w.name}</div>
                                         <div className="text-xs text-muted-foreground">{w.host}</div>
-                                        <RouteBadge state={w.route} />
+                                        <RouteBadge state={w.route} tls={w.tls} />
                                     </td>
                                     <td className="px-4 py-3">
                                         <div>{w.email}</div>
@@ -354,7 +362,7 @@ export default function DesignerPage({ product = 'designer' }) {
                                 <Stat icon={HardDrive} label="Messages mirrored" value={detail.stats.messages.toLocaleString('en-IN')} />
                                 <Stat icon={Clock} label="Last sync" value={ago(detail.stats.lastSync)} />
                                 </>)}
-                                <Stat icon={Globe} label="Domain route" value={detail.route} />
+                                <Stat icon={Globe} label="Domain route" value={`${detail.route}${detail.tls ? ` · cert ${detail.tls}` : ''}`} />
                                 <Stat icon={Archive} label="Last backup" value={detail.lastBackup ? fmtDate(detail.lastBackup) : 'never'} />
                             </div>
 
@@ -428,7 +436,7 @@ export default function DesignerPage({ product = 'designer' }) {
                                 {detail.status === 'active' && <Button size="sm" variant="outline" onClick={() => setLockOpen(true)}><Lock className="w-3.5 h-3.5 mr-1" /> Lock access</Button>}
                                 {detail.status === 'suspended' && <Button size="sm" disabled={busy === 'unlock'} onClick={() => act(detail.slug, 'unlock', '', `${detail.slug} unlocked`)}><Unlock className="w-3.5 h-3.5 mr-1" /> Unlock</Button>}
                                 {(detail.status === 'pending' || detail.status === 'verified') && <Button size="sm" variant="outline" disabled={busy === 'verification-link'} onClick={() => act(detail.slug, 'verification-link', '', 'New verification link issued')}>New verification link</Button>}
-                                {detail.route !== 'ok' && <Button size="sm" variant="outline" disabled={busy === 'publish-route'} onClick={() => act(detail.slug, 'publish-route', '', 'Route re-published')}>Re-publish domain</Button>}
+                                {(detail.route !== 'ok' || detail.tls === 'invalid' || detail.tls === 'expiring') && <Button size="sm" variant="outline" disabled={busy === 'publish-route'} onClick={() => act(detail.slug, 'publish-route', '', 'Route re-published')}>Re-publish domain</Button>}
                                 {P.key === 'designer' && <Button size="sm" variant="outline" disabled={busy === 'integrate-varanan'} onClick={() => act(detail.slug, 'integrate-varanan', '', 'Varanan re-synced')}>Re-sync Varanan</Button>}
                                 {P.key === 'designer' && <Button size="sm" variant="outline" disabled={busy === 'export'} onClick={async () => { setBusy('export'); try { const n = await designerApi.download(detail.slug); toast.success(`Downloading ${n}`); } catch (e) { toast.error(e.message); } finally { setBusy(''); } }}><Download className="w-3.5 h-3.5 mr-1" /> Export data</Button>}
                                 {P.key === 'designer' && <Button size="sm" variant="destructive" className="ml-auto" onClick={() => setDeleteOpen(true)}><Trash2 className="w-3.5 h-3.5 mr-1" /> Delete</Button>}
