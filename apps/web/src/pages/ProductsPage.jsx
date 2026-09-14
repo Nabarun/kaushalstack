@@ -4,8 +4,18 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Check, Layers3, Sparkles } from 'lucide-react';
 import DemoVideoCard from '@/components/DemoVideoCard';
 
+// Products are grouped into categories on the page; order here is display order.
+const CATEGORIES = [
+  { key: 'operations', label: 'Operations', blurb: 'Run the business day to day.' },
+  { key: 'marketing', label: 'Marketing', blurb: 'Make and ship the campaign.' },
+  { key: 'design', label: 'Design', blurb: 'Show the work before it is built.' },
+  { key: 'commerce', label: 'Commerce', blurb: 'Sell online without a developer.' },
+  { key: 'connections', label: 'Connections', blurb: 'Turn the relationships you already have into a searchable network.' },
+];
+
 const PRODUCTS = [
   {
+    category: 'operations',
     name: 'Payroll',
     eyebrow: 'Payroll & HR for multi-outlet businesses',
     description: 'Monthly payroll for restaurants, retail chains, clinics and salons: day-rate and salaried staff across every branch, salary slips and HR letters, encrypted bank and identity data, outlet-manager access. Sign up, pay online, run payroll the same afternoon.',
@@ -16,14 +26,17 @@ const PRODUCTS = [
     cta: 'See plans and sign up',
   },
   {
+    category: 'marketing',
     name: 'Marketing Studio',
     eyebrow: 'Campaign creation workspace',
     description: 'A hands-on studio for shaping the visual, message and platform-ready versions of a campaign in one focused workflow.',
     points: ['Media and brand kit in one workspace', 'Design, copy variants and export handoff', 'Built for practical campaign momentum'],
     image: '/marketing-studio-thumbnail.png',
     tone: 'marketing',
+    cta: 'See plans and sign up',
   },
   {
+    category: 'design',
     name: 'Interior Visualizer',
     eyebrow: 'Design presentation toolkit',
     points: ['Moodboards, palettes and layout thinking', 'Photoreal room renders and walkthrough stills', 'A clearer path to design sign-off'],
@@ -31,8 +44,10 @@ const PRODUCTS = [
     videoPoster: '/interior-visualizer-demo-poster.jpg',
     videoDuration: '3 min',
     tone: 'interior',
+    cta: 'See plans and sign up',
   },
   {
+    category: 'commerce',
     name: 'KaushalStack E-commerce',
     eyebrow: 'Storefront and order desk',
     description: 'A complete shop for a business that already sells — catalogue, enquiries and orders in one place, with the owner in control of everything a customer sees.',
@@ -42,6 +57,16 @@ const PRODUCTS = [
     videoDuration: '2 min',
     tone: 'ecommerce',
   },
+  {
+    category: 'connections',
+    name: 'WhatsApp Contact Organizer',
+    eyebrow: 'Connections · relationship intelligence',
+    description: 'Link a WhatsApp account as a read-only device and every contact, group and conversation becomes a searchable relationship map: who you actually know, how well, what they talk about, and who can introduce you. Nothing is ever sent from your account.',
+    points: ['Lead finder ranks people on relevance × relationship strength, with the evidence', 'Warm-intro paths through the groups you share', 'Starter ₹999, Growth ₹2,999, Advanced ₹6,999 a month plus GST; 30 days free'],
+    tone: 'connections',
+    href: 'https://connections.kaushalstack.com',
+    cta: 'See plans and sign up',
+  },
 ];
 
 export default function ProductsPage() {
@@ -49,7 +74,7 @@ export default function ProductsPage() {
     <div className="bg-white text-slate-950">
       <Helmet>
         <title>Our Products — KaushalStack</title>
-        <meta name="description" content="Explore KaushalStack products: payroll for multi-outlet businesses, marketing creation, interior visualisation and e-commerce." />
+        <meta name="description" content="Explore KaushalStack products by category: operations, marketing, design, commerce and connections — payroll, campaign studio, interior visualisation, e-commerce and the WhatsApp contact organizer." />
       </Helmet>
 
       <section className="relative overflow-hidden bg-[#071b3a] px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
@@ -62,8 +87,17 @@ export default function ProductsPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:px-10 lg:py-24">
-        <div className="grid gap-8 lg:gap-14">
-          {PRODUCTS.map((product, index) => (
+        <div className="grid gap-14 lg:gap-20">
+          {CATEGORIES.map((cat) => {
+            const items = PRODUCTS.filter((p) => p.category === cat.key);
+            if (!items.length) return null;
+            return (
+              <div key={cat.key} className="grid gap-8 lg:gap-12">
+                <div className="border-b border-slate-200 pb-4">
+                  <p className="text-xs font-bold tracking-[.18em] text-blue-600 uppercase">{cat.label}</p>
+                  <p className="mt-1 text-slate-600">{cat.blurb}</p>
+                </div>
+                {items.map((product, index) => (
             <article key={product.name} className={`grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_15px_50px_rgba(15,23,42,.07)] lg:grid-cols-2 ${index % 2 ? 'lg:[&>*:first-child]:order-2' : ''}`}>
               <div className={`relative min-h-[300px] overflow-hidden ${product.tone === 'interior' ? 'bg-[#2a211d]' : 'bg-slate-100'}`}>
                 {product.video ? (
@@ -76,6 +110,14 @@ export default function ProductsPage() {
                   />
                 ) : product.image ? (
                   <img src={product.image} alt={`${product.name} workspace`} className="h-full w-full object-cover object-top transition duration-700 hover:scale-[1.025]" />
+                ) : product.tone === 'connections' ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <svg viewBox="0 0 320 240" className="h-full w-full max-h-[320px]" aria-hidden="true">
+                      {[[160,120,0],[70,60,1],[250,70,1],[60,180,1],[240,190,1],[160,40,2],[300,130,2],[30,120,2],[160,210,2]].map(([x,y,r],i)=>(
+                        <g key={i}><line x1="160" y1="120" x2={x} y2={y} stroke="#3987e5" strokeOpacity={r===0?0:r===1?.55:.25} strokeWidth="1.2" /><circle cx={x} cy={y} r={r===0?11:r===1?7:5} fill={r===0?'#3987e5':'#0d1117'} stroke="#3987e5" strokeOpacity={r===0?1:.7} strokeWidth="1.4" /></g>
+                      ))}
+                    </svg>
+                  </div>
                 ) : (
                   <>
                     <div className="absolute inset-0 opacity-80 [background-image:linear-gradient(120deg,rgba(255,184,108,.45),transparent_45%),radial-gradient(circle_at_74%_25%,rgba(250,235,200,.55),transparent_30%)]" />
@@ -99,7 +141,10 @@ export default function ProductsPage() {
                 )}
               </div>
             </article>
-          ))}
+                ))}
+              </div>
+            );
+          })}
         </div>
       </section>
 
