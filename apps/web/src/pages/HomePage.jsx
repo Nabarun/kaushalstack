@@ -989,42 +989,52 @@ const HomePage = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-              {POWERED_APPS.map((app, i) => (
-                <motion.a
-                  key={app.url}
-                  href={app.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: i * 0.1 }}
-                  className="block group"
-                >
-                  <Card className="h-full hover:shadow-lg hover:-translate-y-0.5 transition-all border-border/60">
-                    <CardContent className="p-6 flex items-start gap-4">
-                      <img
-                        src={`https://www.google.com/s2/favicons?sz=128&domain=${app.domain}`}
-                        alt={`${app.name} logo`}
-                        className="w-12 h-12 rounded-xl bg-background ring-1 ring-border object-contain p-1.5 shrink-0"
-                        loading="lazy"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                            {app.name}
-                          </h3>
-                          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed mb-2">
-                          {app.description}
-                        </p>
-                        <span className="text-xs font-mono text-muted-foreground/70">{app.domain}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.a>
-              ))}
+            {/* Marquee: the track holds the list twice and slides by exactly half
+                its width, so the loop is seamless. Pauses on hover/focus so a
+                card can be read and clicked; with reduced motion it becomes a
+                plain horizontally scrollable row. The second copy is hidden
+                from assistive tech so nothing is announced twice. */}
+            <div className="ks-marquee -mx-4 sm:-mx-6 lg:-mx-8" aria-label="Businesses we power">
+              <div className="ks-marquee-track">
+                {[0, 1].map((copy) => (
+                  <ul key={copy} className="ks-marquee-list" aria-hidden={copy === 1 ? true : undefined}>
+                    {POWERED_APPS.map((app) => (
+                      <li key={app.url} className="w-[320px] sm:w-[360px] shrink-0">
+                        <a
+                          href={app.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block group h-full"
+                          tabIndex={copy === 1 ? -1 : undefined}
+                        >
+                          <Card className="h-full hover:shadow-lg hover:-translate-y-0.5 transition-all border-border/60">
+                            <CardContent className="p-6 flex items-start gap-4">
+                              <img
+                                src={app.logo || `https://www.google.com/s2/favicons?sz=128&domain=${app.domain}`}
+                                alt={`${app.name} logo`}
+                                className="w-12 h-12 rounded-xl bg-background ring-1 ring-border object-contain p-1.5 shrink-0"
+                                loading="lazy"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                                    {app.name}
+                                  </h3>
+                                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+                                </div>
+                                <p className="text-sm text-muted-foreground leading-relaxed mb-2 line-clamp-3">
+                                  {app.description}
+                                </p>
+                                <span className="text-xs font-mono text-muted-foreground/70">{app.domain}</span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ))}
+              </div>
             </div>
           </div>
         </section>

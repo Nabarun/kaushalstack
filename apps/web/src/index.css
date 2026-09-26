@@ -141,6 +141,33 @@
 .ks-agent-chip { animation: ks-agent-arrival 3.4s ease-out infinite; }
 .ks-agent-chip-delay { animation-delay: .45s; }
 
+/* Live partnerships marquee (HomePage). Duration scales with card count
+   via --ks-marquee-cards so adding a partner keeps the speed steady. */
+.ks-marquee {
+  overflow: hidden;
+  padding: 8px 0 12px;
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+.ks-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ks-marquee 48s linear infinite;
+  will-change: transform;
+}
+.ks-marquee:hover .ks-marquee-track,
+.ks-marquee:focus-within .ks-marquee-track { animation-play-state: paused; }
+.ks-marquee-list { display: flex; gap: 24px; padding: 0 12px; margin: 0; list-style: none; }
+@keyframes ks-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-marquee { overflow-x: auto; mask-image: none; -webkit-mask-image: none; }
+  .ks-marquee-track { animation: none; width: auto; }
+  .ks-marquee-list[aria-hidden="true"] { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ks-flow-path, .ks-agent-chip { animation: none; }
 }
