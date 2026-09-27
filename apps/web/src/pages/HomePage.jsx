@@ -68,12 +68,6 @@ const POWERED_APPS = [
     domain: 'himalayaentp.com',
   },
   {
-    name: 'Mr n Mr',
-    description: 'Curated matchmaking & community events for gay men across India — social campaigns via Card Studio.',
-    url: 'https://www.mrnmr.in/',
-    domain: 'mrnmr.in',
-  },
-  {
     name: 'Open Procure',
     description: "India's B2B procurement network — connecting buyers and suppliers.",
     url: 'https://openprocure.in/',
@@ -985,7 +979,7 @@ const HomePage = () => {
               </div>
               <h2 className="text-3xl md:text-4xl font-bold mb-4">We are AI growth partners</h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Real businesses we power as their always-on AI growth team — from <strong className="text-foreground">ReFunction Rehab</strong> to <strong className="text-foreground">Mr n Mr</strong> and <strong className="text-foreground">Open Procure</strong>.
+                Real businesses we power as their always-on AI growth team — from <strong className="text-foreground">ReFunction Rehab</strong> to <strong className="text-foreground">Open Procure</strong> and <strong className="text-foreground">Royal Interiors</strong>.
               </p>
             </div>
 
